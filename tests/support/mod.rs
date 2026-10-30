@@ -55,6 +55,16 @@ pub struct World {
   pub archived: Vec<String>,
   pub owner_room: i64,
   pub shares_made: i64,
+  /// The statuses the next translation asks are answered with; 200 once these run out.
+  pub translation_answers: VecDeque<u16>,
+  /// A text longer than this many characters is refused 413 `too-large`.
+  pub too_large_over: Option<usize>,
+  /// The translations out at once now, and the most that ever were.
+  pub translating: u32,
+  pub translating_most: u32,
+  /// The documents filed with `POST /documents`, as the archive answers them.
+  pub posted: Vec<Value>,
+  pub next_document: i64,
 }
 
 pub type Shared = Arc<Mutex<World>>;
@@ -63,8 +73,14 @@ pub fn world() -> Shared {
   Arc::new(Mutex::new(World {
     next_run: 100,
     owner_room: 7,
+    next_document: 900,
     ..World::default()
   }))
+}
+
+/// What the stand-in translator answers for a text: the text marked as translated.
+pub fn translated(text: &str) -> String {
+  format!("[ko] {text}")
 }
 
 fn keep(world: &Shared, unit: &'static str, method: &Method, uri: &Uri, body: &Bytes) {
@@ -125,9 +141,38 @@ async fn agency_turn(State(w): State<Shared>, method: Method, uri: Uri, body: By
   (StatusCode::CREATED, axum::Json(json!({"id": 1, "state": "ended"}))).into_response()
 }
 
+async fn agency_translation(State(w): State<Shared>, method: Method, uri: Uri, body: Bytes) -> Response {
+  keep(&w, "agency", &method, &uri, &body);
+  let asked: Value = serde_json::from_slice(&body).unwrap_or_default();
+  let text = asked["text"].as_str().unwrap_or_default().to_string();
+  {
+    let mut world = w.lock().unwrap();
+    let status = world.translation_answers.pop_front().unwrap_or(200);
+    if status != 200 {
+      let code = if status == 413 { "too-large" } else { "no-login-open" };
+      return (StatusCode::from_u16(status).unwrap(), axum::Json(json!({"code": code, "error": code})))
+        .into_response();
+    }
+    if world.too_large_over.is_some_and(|most| text.chars().count() > most) {
+      return (
+        StatusCode::PAYLOAD_TOO_LARGE,
+        axum::Json(json!({"code": "too-large", "error": "longer than the window"})),
+      )
+        .into_response();
+    }
+    world.translating += 1;
+    world.translating_most = world.translating_most.max(world.translating);
+  }
+  tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+  w.lock().unwrap().translating -= 1;
+  axum::Json(json!({"text": translated(&text), "provider": "registered", "model": "translator"}))
+    .into_response()
+}
+
 pub fn agency(world: Shared) -> Router {
   Router::new()
     .route("/research-runs", post(agency_research_run))
+    .route("/translation-runs", post(agency_translation))
     .route("/runs/{run}", get(agency_run))
     .route("/sessions/{session}/turns", post(agency_turn))
     .with_state(world)
@@ -141,13 +186,25 @@ async fn artifact_documents(
   body: Bytes,
 ) -> Response {
   keep(&w, "artifact", &method, &uri, &body);
-  let world = w.lock().unwrap();
+  let mut world = w.lock().unwrap();
+  if method == Method::POST {
+    world.next_document += 1;
+    let mut document: Value = serde_json::from_slice(&body).unwrap_or_default();
+    document["id"] = json!(world.next_document);
+    world.posted.push(document.clone());
+    return (StatusCode::CREATED, axum::Json(document)).into_response();
+  }
   let mut items = Vec::new();
   if let Some(label) = q.get("label")
-    && let Some(run) = label.strip_prefix("research:").and_then(|r| r.parse::<i64>().ok())
-    && let Some(doc) = world.filed.get(&run)
+    && let Some(run) = label.strip_prefix("research:")
   {
-    items.push(json!({"id": doc.id, "title": doc.title, "description": doc.description}));
+    // The newest first: a rendering labelled with the same value stands ahead of the run's document.
+    items.extend(world.posted.iter().rev().filter(|d| d["labels"]["research"] == run).cloned());
+    if let Some(doc) = run.parse::<i64>().ok().and_then(|r| world.filed.get(&r)) {
+      items.push(json!({
+        "id": doc.id, "title": doc.title, "description": doc.description, "labels": {"research": run},
+      }));
+    }
   }
   if let Some(phrase) = q.get("q")
     && world.archived.iter().any(|a| a.eq_ignore_ascii_case(phrase))
@@ -193,7 +250,7 @@ async fn artifact_shares(State(w): State<Shared>, method: Method, uri: Uri, body
 
 pub fn artifact(world: Shared) -> Router {
   Router::new()
-    .route("/documents", get(artifact_documents))
+    .route("/documents", get(artifact_documents).post(artifact_documents))
     .route("/documents/{id}/content", get(artifact_content))
     .route("/shares", get(artifact_shares).post(artifact_shares))
     .with_state(world)

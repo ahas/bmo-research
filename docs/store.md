@@ -69,6 +69,8 @@ The items (`docs/api.md`, 「queue」).
 | `tries`, `retry_at` | The tries made, and when the next may be made |
 | `run_id` | Agency's ledger run of the latest try |
 | `document_id`, `title`, `description`, `share_url` | The document the run filed, and its live link |
+| `ko_document_id`, `ko_share_url` | The Korean rendering's document and its live link, or null |
+| `translation_tries`, `translation_retry_at` | The renderings asked, and when a pending one may be asked again, or null where none is pending |
 | `fit`, `fit_nodes`, `touches` | Whether the document asks the owner's word, the model nodes a manual's fit names (a JSON list) and what an advisory touches |
 | `plan` | The heading of the document's plan section |
 | `job_item_id` | The job item the chat agent filed for it |
@@ -94,7 +96,7 @@ The items (`docs/api.md`, 「queue」).
 | `id` | The report's key |
 | `item_id` | The item told |
 | `recipient` | Who was told: `room:<roomId>` or `agent:<agentName>` |
-| `kind` | `report`; `failed`, a failed item's notice; `part`, a touched repository's part to its worker |
+| `kind` | `report`; `translated`, a report's follow-up once its Korean rendering is filed; `failed`, a failed item's notice; `part`, a touched repository's part to its worker |
 | `instruction_id` | The receiver's instruction, or null for a turn |
 | `state`, `error` | `sent` or `refused`, and why |
 | `at` | When it was sent |

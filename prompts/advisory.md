@@ -1,19 +1,19 @@
-{name} 보안 권고 조사 리포트를 만들어 주세요.
+Write a security advisory investigation of {name}.
 
-대상: {name}
-권고 출처: {address}
+Subject: {name}
+Advisory source: {address}
 
-벤더 권고와 수정 공지, CVE 기록, 배포판 보안 목록을 직접 읽으세요. 공격 방법을 다룬 글은 노출 판단에 필요한 만큼만 읽습니다.
+Its shape is the rulebook security-advisory.md's. Read the vendor's advisory and fix notices, the CVE record and the distributions' security lists yourself. Read writeups of how the flaw is exploited only as far as the exposure judgement needs.
 
-본문에는 다음 절을 이 이름 그대로 둡니다.
+Keep these sections in the body, under these names exactly.
 
-- `결함 요약` — 무엇이 잘못되었고 무엇에 영향을 주는가.
-- `영향받는 버전` — 벤더가 밝힌 범위 그대로.
-- `우리 플랫폼 노출` — 아래 스택 목록과 대조한 판단. 스택 목록의 구성 요소마다 한 줄씩 표 하나로 적습니다. 표의 머리줄은 이 다섯 칸 그대로이고, 닿음 칸은 `예` 또는 `아니오`로 시작합니다.
+- `Flaw summary` — what is wrong and what it affects.
+- `Affected versions` — the range exactly as the vendor states it.
+- `Exposure of our platform` — the judgement against the stack inventory below. Write it as one table, one row for each component of the inventory. The table's header row is exactly these five columns, and the Touched cell opens with `Yes` or `No`.
 
-  | 구성 요소 | 버전 | 저장소 | 호스트 | 닿음 |
-- `수정판과 패치 절차` — 벤더의 수정판과, 닿는 곳마다 밟을 절차.
+  | Component | Version | Repository | Host | Touched |
+- `Fixed version and patch steps` — the vendor's fixed version, and the steps to take wherever it touches.
 
-우리 플랫폼의 스택 목록:
+Our platform's stack inventory:
 
 {stack}

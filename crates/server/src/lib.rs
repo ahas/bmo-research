@@ -1,5 +1,6 @@
 //! The research unit's daemon: its settings, its store, the source readers and the scan, the deep dive and
-//! its notices, the readings of a filed document, the routes and the OpenAPI document (`docs/api.md`).
+//! its notices, the readings of a filed document and its Korean rendering, the routes and the OpenAPI
+//! document (`docs/api.md`).
 
 use std::sync::Arc;
 
@@ -12,6 +13,7 @@ pub mod routes;
 pub mod scan;
 pub mod sources;
 pub mod store;
+pub mod translation;
 pub mod words;
 
 /// Everything the routes and the loop share.

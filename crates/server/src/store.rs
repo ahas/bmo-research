@@ -14,8 +14,10 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use crate::sources::{Candidate, ItemKind};
 
 /// The schema's steps, each bringing the store one version up; the version is how many have been taken. The
-/// first registers the three categories the unit starts with, so a category taken away is not brought back.
-const MIGRATIONS: &[&str] = &["
+/// first registers the three categories the unit starts with, so a category taken away is not brought back;
+/// the second keeps an item's Korean rendering and its pending tries.
+const MIGRATIONS: &[&str] = &[
+  "
   create table categories (
     name text primary key, purpose text not null, shape text not null, cap integer not null,
     cadence_minutes integer not null, gather_minutes integer, provider text, model text,
@@ -64,7 +66,14 @@ const MIGRATIONS: &[&str] = &["
   create table stack (
     id integer primary key autoincrement, component text not null, version text, place text, repository text,
     worker text, added_at integer not null);
-"];
+",
+  "
+  alter table queue add column ko_document_id integer;
+  alter table queue add column ko_share_url text;
+  alter table queue add column translation_tries integer not null default 0;
+  alter table queue add column translation_retry_at integer;
+",
+];
 
 /// The schema version this binary holds.
 pub fn schema_version() -> i64 {
@@ -83,7 +92,7 @@ const CATEGORY_COLUMNS: &str = "name, purpose, shape, cap, cadence_minutes, gath
 const ITEM_COLUMNS: &str =
   "id, category, key, name, maker, address, kind, shape, source_id, asked, priority,
   state, tries, retry_at, run_id, document_id, title, description, share_url, fit, fit_nodes, touches, plan,
-  job_item_id, error, found_at, created_at, changed_at";
+  job_item_id, error, found_at, created_at, changed_at, ko_document_id, ko_share_url";
 
 const SOURCE_COLUMNS: &str =
   "id, category, kind, address, query, require, exclude, every_minutes, item_limit,
@@ -827,6 +836,75 @@ impl Store {
     Ok(n > 0)
   }
 
+  /// A Korean rendering about to be asked for an item: its tries counted, and its next try set at
+  /// `retry_at`, so a rendering the daemon never finished is asked again. Answers the tries.
+  pub fn claim_translation(&self, item_id: i64, retry_at: i64) -> Result<i64, String> {
+    self
+      .lock()
+      .query_row(
+        "update queue set translation_tries = translation_tries + 1, translation_retry_at = ?2
+         where id = ?1 returning translation_tries",
+        params![item_id, retry_at],
+        |r| r.get(0),
+      )
+      .map_err(|e| e.to_string())
+  }
+
+  /// A Korean rendering filed: kept on every item the English document was filed for, none pending.
+  pub fn keep_rendering(
+    &self,
+    document_id: i64,
+    ko_document_id: i64,
+    ko_share_url: &str,
+  ) -> Result<(), String> {
+    self
+      .lock()
+      .execute(
+        "update queue set ko_document_id = ?2, ko_share_url = ?3, translation_retry_at = null, changed_at = ?4
+         where document_id = ?1",
+        params![document_id, ko_document_id, ko_share_url, now_ms()],
+      )
+      .map(|_| ())
+      .map_err(|e| e.to_string())
+  }
+
+  /// A pending Korean rendering no longer asked.
+  pub fn drop_translation(&self, item_id: i64) -> Result<(), String> {
+    self
+      .lock()
+      .execute("update queue set translation_retry_at = null where id = ?1", params![item_id])
+      .map(|_| ())
+      .map_err(|e| e.to_string())
+  }
+
+  /// The items whose pending Korean rendering is due, while they stand reported, fit or taken.
+  pub fn translations_due(&self, now: i64) -> Result<Vec<Item>, String> {
+    let conn = self.lock();
+    let mut stmt = conn
+      .prepare(&format!(
+        "select {ITEM_COLUMNS} from queue where translation_retry_at is not null and translation_retry_at <= ?1
+           and state in ('reported', 'fit', 'taken') order by translation_retry_at, id"
+      ))
+      .map_err(|e| e.to_string())?;
+    stmt
+      .query_map(params![now], read_item)
+      .map_err(|e| e.to_string())?
+      .collect::<Result<Vec<_>, _>>()
+      .map_err(|e| e.to_string())
+  }
+
+  /// The renderings asked for an item, and when a pending one may be asked again.
+  pub fn translation_state(&self, item_id: i64) -> Result<(i64, Option<i64>), String> {
+    self
+      .lock()
+      .query_row(
+        "select translation_tries, translation_retry_at from queue where id = ?1",
+        params![item_id],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+      )
+      .map_err(|e| e.to_string())
+  }
+
   /// The tries left running, for a daemon taking them up again.
   pub fn open_runs(&self) -> Result<Vec<Run>, String> {
     let conn = self.lock();
@@ -1214,6 +1292,8 @@ fn read_item(r: &rusqlite::Row<'_>) -> rusqlite::Result<Item> {
     found_at: r.get(25)?,
     created_at: r.get(26)?,
     changed_at: r.get(27)?,
+    ko_document_id: r.get(28)?,
+    ko_share_url: r.get(29)?,
   })
 }
 

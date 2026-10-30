@@ -1,6 +1,6 @@
-{name} 조사 리포트를 만들어 주세요.
+Write an investigation of {name}.
 
-대상: {name}
-출처: {address}
+Subject: {name}
+Source: {address}
 
-연구 규칙의 조사 리포트 형식으로, 발표한 곳의 자료를 직접 읽고 쓰세요.
+Write it in the shape of the rulebook research.md's 「The investigation」, reading the material of whoever announced it yourself.

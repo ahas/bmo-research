@@ -133,7 +133,8 @@ the one to read.
   `maker`, `address` (the maker's page for the thing), `kind` (`model`, `paper`, `release`, `entry`, or
   `asked` for an ask), `shape` (`manual`, `investigation`, `advisory` or `brief`), `sourceId`, `asked`,
   `priority`, `state`, `tries`, `retryAt`, `runId` (agency's ledger run of the latest try), `documentId`,
-  `title` and `description` (the document's), `shareUrl`, `fit`, `fitNodes` (the nodes of the settings'
+  `title` and `description` (the document's), `shareUrl`, `koDocumentId` and `koShareUrl` (the Korean
+  rendering's document and its live link, null until it is filed, 「The Korean rendering」), `fit`, `fitNodes` (the nodes of the settings'
   `model_nodes` a manual's fit names), `touches` (the hosts and repositories an advisory names), `plan`
   (the heading of the document's plan section, as the document holds it), `jobItemId` (the job item the
   chat agent filed for it), `error`, `foundAt`, `createdAt` and `changedAt`.
@@ -244,26 +245,36 @@ the one to read.
   at once.
 - **A daemon that starts** takes up every run it left `running`: one with a run id is polled again, one
   without puts its items back `waiting`.
+- **A filed document is rendered in Korean** before it is told (「The Korean rendering」): its items are
+  filed `reported` or `fit` first, then the rendering is asked, then the recipients are told.
 
 ### The questions
 
-The templates under `prompts/` are in Korean, one per item shape, each naming its shape so the search
-runner's research rulebook applies:
+The templates under `prompts/` are in English, one per item shape, each naming its shape's rulebook so the
+search runner applies it, and the run writes its document in English, the question's language:
 
 - `manual.md` and `investigation.md`, a `manual-or-investigation` category's: a `model` item is asked as a
-  manual, and a `paper`, `release` or `entry` item as an investigation; an ask names its own. The item's
-  `{name}` and `{address}` are set in.
-- `advisory.md`, an `advisory` category's: the item's `{name}` and `{address}`, and `{stack}`, the stack
-  inventory a row a line. It asks for the exposure as a table naming each component's repository.
-- `brief.md`, a `brief` category's: `{items}`, every gathered item's name and address a line.
+  manual (the rulebook `research.md`, 「The manual」), and a `paper`, `release` or `entry` item as an
+  investigation (`research.md`, 「The investigation」); an ask names its own. The item's `{name}` and
+  `{address}` are set in. The manual's question names the headings and the label the fit is read by.
+- `advisory.md`, an `advisory` category's (`security-advisory.md`): the item's `{name}` and `{address}`,
+  and `{stack}`, the stack inventory a row a line. It asks for the exposure as a table naming each
+  component's repository.
+- `brief.md`, a `brief` category's (`economy-brief.md`): `{items}`, every gathered item's name and address
+  a line.
 
 ### The fit
 
-- **A manual is read for whether it asks the owner's word,** by the words `prompts/document.toml` holds
-  under `[manual]`, those the research rulebook fixes for the section on running the thing in the lab and
-  its line of the cards it fits: under the heading `heading` names, the line opening with `label` that
-  names anything but the `none` word marks the item `fit`.
-- **An advisory is read for what it touches,** by the words under `[advisory]`: the exposure table, the
+- **The words a document is read by** are those `prompts/document.toml` holds, one set per language for
+  each shape: English, the language every run is asked in, and Korean, the language the rulebooks name
+  their sections in. A reading looks for either language's heading or table and reads by the set that
+  finds it, English first; a heading, a column, a label and a cell's opening word are matched without
+  regard to case.
+- **A manual is read for whether it asks the owner's word,** by the words under `[[manual]]`, those of the
+  research rulebook's section on running the thing in the lab and its line of the cards it fits: under
+  the heading `heading` names, the line opening with `label` that names anything but the `none` word
+  marks the item `fit`.
+- **An advisory is read for what it touches,** by the words under `[[advisory]]`: the exposure table, the
   table whose header holds its column words for the component, the version, the repository, the host and
   whether it is touched. Every row whose touched cell opens with the `yes` word is a touch; the item keeps
   the repositories and hosts touched, joined, as `touches`, and is `fit` where any row is touched.
@@ -276,15 +287,47 @@ runner's research rulebook applies:
 ### The brief's facts
 
 - **A brief's figures table** is the table whose header holds the column words `prompts/document.toml`
-  names under `[brief]`: the figure's name, its value, its unit, the date it stands for and its source.
+  names under `[[brief]]`: the figure's name, its value, its unit, the date it stands for and its source.
   Each row naming a name and a value is kept as a fact; a source cell holding a link keeps the link's
   address. A brief with no such table keeps none.
+
+### The Korean rendering
+
+- **The English document is rendered in Korean by agency's translator** (`POST /translation-runs`) with
+  `purpose` `document` and `language` the one `prompts/translation.toml` names, `Korean`, one text at a
+  time: the document's title as a part of its own, with the `title_note`; its description, where it has
+  one, with the `note`; then its body.
+- **The body is cut at its headings** into parts no longer than `translation.part_chars` characters
+  (`docs/settings.md`): whole sections are gathered into a part while they fit, and a section longer than
+  that is halved, at a heading, else a blank line, else a line's end, else a space, nearest its middle,
+  until each half fits. At most `translation.parts_out` parts are out at once, and the translations are
+  joined in the body's order, a blank line between two.
+- **Each part carries the `note`,** the item's name set in: the translator's context, that the text is
+  part of a research report about the thing for the owner, that model, product and dataset names, figures,
+  units, code, links and the fixed section names stay as written, and the register of the owner's
+  documents.
+- **A part refused 413 `too-large`** is halved the same way and each half asked again; a part that cannot
+  be halved any further, a 503 `no-login-open`, or any other failure leaves the whole rendering pending.
+- **The rendering is filed as a document of its own** with the artifact service's `POST /documents`:
+  `kind` `record`, `title` the translated title, `body` the joined parts, `description` the translated
+  description, `actorName` `bmo-research`, and `labels` `research` (the item's id), `translationOf` (the
+  English document's id) and `language` `ko`; its share link is made as the English one's is. Every item
+  the English document was filed for keeps the Korean document as `koDocumentId` and its link as
+  `koShareUrl`.
+- **A pending rendering is asked again** on the retry wait, `retry_minutes` after its last try, while its
+  item stands `reported`, `fit` or `taken`. Its tries are counted apart from the run's tries; after
+  `retries` retries it is no longer asked, and the English link stands alone.
 
 ### The notices
 
 - **Every recipient of the category is told every notice:** a report, with the words
-  `prompts/report.toml` holds as `line`, the document's title, the first sentence of its description and
-  the share link set in; or a failed try's last, `failed`, with the name and the tries set in.
+  `prompts/report.toml` holds as `line`, the Korean document's title, the first sentence of its
+  description and its share link set in, then `english`, the English document's share link set in; or a
+  failed try's last, `failed`, with the name and the tries set in.
+- **A report whose rendering is pending** is told with `line` naming the English document's title,
+  description and link, then `pending`. Once the rendering is filed on a later try, every recipient is told
+  a follow-up under the same kind, so the receiver replaces the report where it still waits: `translated`,
+  the Korean title and link set in, then `english`, and for a `fit` item the lines that act on it below.
 - **A room** is told with the receiver's `POST /instructions`: `room`, `sort` `notice`, `kind`
   `research-report:<itemId>` (a brief's first item), `said` `{"order": "<the notice>"}` and `summary`.
 - **An agent** is told with agency's `POST /sessions/<agentName>@worker/turns`, the notice as `prompt`.
@@ -300,9 +343,10 @@ runner's research rulebook applies:
   with `POST /shares` where none stands.
 - **An advisory's touched repositories are told their own part.** For each repository the exposure table
   touches, every worker the stack names for that repository is told, by a turn as an agent recipient is,
-  the words `worker` holds: the advisory's name, the repository, its touched rows, the share link and the
-  plan's place. The category's recipients are told the whole; a repository no stack row names a worker for
-  is heard by them alone.
+  the words `worker` holds: the advisory's name, the repository, its touched rows, the English document's
+  share link and the plan's place. Workers read English, so the part names no Korean rendering. The
+  category's recipients are told the whole; a repository no stack row names a worker for is heard by them
+  alone.
 - **A recipient that refuses** is said in the log and kept as a report row in the state `refused`; the
   others are told all the same.
 
@@ -346,11 +390,14 @@ of these units, and reads each one's address and token from that unit's own file
 
 - **agency:** `POST /research-runs` with `key`, `query`, `provider` and `model`, and no `roomId`; answered
   202 with `runId`, or 503 where no road carries it. `GET /runs/{runId}`, read for `state` and `outcome`.
-  `POST /sessions/{agentName}@worker/turns` with `prompt`, a notice to an agent.
+  `POST /sessions/{agentName}@worker/turns` with `prompt`, a notice to an agent. `POST /translation-runs`
+  with `purpose`, `language`, `text` and `note`, one part of a Korean rendering; answered 200 with `text`,
+  413 `too-large` or 503 `no-login-open`.
 - **the artifact service:** `GET /documents?q=<name>&limit=1`, the archive check a candidate passes
-  (`docs/sources.md`); `GET /documents?label=research:<runId>&limit=1`, the document a run filed;
-  `GET /documents/{documentId}/content`, its text; `GET /shares?documentId=<documentId>` and
-  `POST /shares` with `documentId`, its live link.
+  (`docs/sources.md`); `GET /documents?label=research:<runId>&limit=20`, the document a run filed, the
+  first carrying no `translationOf` label; `GET /documents/{documentId}/content`, its text;
+  `GET /shares?documentId=<documentId>` and `POST /shares` with `documentId`, its live link;
+  `POST /documents`, a Korean rendering.
 - **the receiver:** `GET /owner`, the owner's private room; `POST /instructions`, a report line.
 - **the arbiter:** no route of it is called. The bench lock of a verification is the job's, and the
   daemon's pause while a bench holds a node its model stands on is not built (`docs/design.md`, 「Phases」).

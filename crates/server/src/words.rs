@@ -1,5 +1,6 @@
 //! The words under `prompts/`, built into the binary: the question templates, one per shape, the notices'
-//! words, and the words a filed document is read by (`docs/api.md`, 「The questions」).
+//! words, the words a filed document is read by, and the notes the translator is handed (`docs/api.md`,
+//! 「The questions」 and 「The Korean rendering」).
 
 use std::sync::LazyLock;
 
@@ -12,12 +13,16 @@ const ADVISORY: &str = include_str!("../../../prompts/advisory.md");
 const BRIEF: &str = include_str!("../../../prompts/brief.md");
 const REPORT: &str = include_str!("../../../prompts/report.toml");
 const DOCUMENT: &str = include_str!("../../../prompts/document.toml");
+const TRANSLATION: &str = include_str!("../../../prompts/translation.toml");
 
 /// The words of the notices.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ReportWords {
   pub line: String,
+  pub english: String,
+  pub pending: String,
+  pub translated: String,
   pub fit: String,
   pub touches: String,
   pub name: String,
@@ -27,19 +32,20 @@ pub struct ReportWords {
   pub failed: String,
 }
 
-/// The words a filed document is read by, by shape.
+/// The words a filed document is read by, by shape, one set per language in the order they are tried.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DocumentWords {
-  pub manual: ManualWords,
-  pub advisory: AdvisoryWords,
-  pub brief: BriefWords,
+  pub manual: Vec<ManualWords>,
+  pub advisory: Vec<AdvisoryWords>,
+  pub brief: Vec<BriefWords>,
 }
 
 /// A manual's: the section on running the thing in the lab, its line of cards, and the plan's heading.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ManualWords {
+  pub language: String,
   pub heading: String,
   pub label: String,
   pub none: String,
@@ -50,6 +56,7 @@ pub struct ManualWords {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AdvisoryWords {
+  pub language: String,
   pub component: String,
   pub version: String,
   pub repository: String,
@@ -63,6 +70,7 @@ pub struct AdvisoryWords {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BriefWords {
+  pub language: String,
   pub name: String,
   pub value: String,
   pub unit: String,
@@ -79,6 +87,21 @@ pub fn report() -> &'static ReportWords {
 pub fn document() -> &'static DocumentWords {
   static WORDS: LazyLock<DocumentWords> =
     LazyLock::new(|| toml::from_str(DOCUMENT).expect("prompts/document.toml reads"));
+  &WORDS
+}
+
+/// The translator's words: the language the owner's copy is rendered in, and the notes its parts carry.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TranslationWords {
+  pub language: String,
+  pub note: String,
+  pub title_note: String,
+}
+
+pub fn translation() -> &'static TranslationWords {
+  static WORDS: LazyLock<TranslationWords> =
+    LazyLock::new(|| toml::from_str(TRANSLATION).expect("prompts/translation.toml reads"));
   &WORDS
 }
 

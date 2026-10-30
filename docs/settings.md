@@ -14,8 +14,8 @@ the daemon does not know is refused, naming it. A path may open with `~/`, the h
 | `store` | `research` | The folder under the data root the store `research.db` stands in |
 | `tick_seconds` | 30 | How often the loop looks for a source due, a slot free and an item to run |
 | `concurrency` | 1 | How many runs stand under way at once, across every category |
-| `retries` | 3 | How many times a failed try is tried again before the item is `failed` |
-| `retry_minutes` | 30 | How long a failed try waits before it is tried again |
+| `retries` | 3 | How many times a failed try is tried again before the item is `failed`, and a pending Korean rendering before it is no longer asked |
+| `retry_minutes` | 30 | How long a failed try, or a pending Korean rendering, waits before it is tried again |
 | `poll_seconds` | 30 | How long the daemon waits between two readings of a run under way |
 | `turn_wait_seconds` | 20 | How long a notice to an agent waits on its turn's answer before it is counted as handed |
 | `model_nodes` | `["n3", "n4", "n5", "n6"]` | The nodes the runs' model stands on; a manual's fit naming one tells the chat agent to have the bench carried by a worker standing elsewhere |
@@ -31,6 +31,15 @@ the category's registration (`docs/api.md`, 「categories」), kept in the store
 | `key` | `search:exhaustive` | The research key a run is asked at |
 | `provider` | `registered` | The provider a run goes out on, where its category names none |
 | `model` | `flash-next` | The model a run goes out on, where its category names none |
+
+## The Korean rendering: `[translation]`
+
+How a filed document's body is cut for agency's translator (`docs/api.md`, 「The Korean rendering」).
+
+| Key | Default | Meaning |
+|---|---|---|
+| `part_chars` | 6000 | The most characters one part sent to the translator holds |
+| `parts_out` | 2 | How many parts of one document are out with the translator at once |
 
 ## Peers
 

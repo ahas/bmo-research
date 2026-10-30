@@ -256,7 +256,7 @@ fn item_line(item: &Item) -> String {
     item.shape.as_str(),
     item.name
   );
-  if let Some(link) = &item.share_url {
+  for link in [&item.ko_share_url, &item.share_url].into_iter().flatten() {
     line.push(' ');
     line.push_str(link);
   }

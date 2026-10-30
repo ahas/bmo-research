@@ -1,17 +1,38 @@
 # The words a filed document is read by, by the item's shape (docs/api.md, "The fit" and "The brief's
-# facts"). A manual's are the words the research rulebook fixes: the heading of the section on running the
-# thing in the lab, the label of its line of the cards it fits, the word that line says where none fits,
-# and the heading of the reproduction plan. An advisory's and a brief's are the ones their question
-# templates under prompts/ ask for.
+# facts"), one set per language a document may be written in: English first, the language every run is
+# asked in, then Korean, the language the rulebooks name their sections in. A manual's are the research
+# rulebook's: the heading of the section on running the thing in the lab, the label of its line of the
+# cards it fits, the word that line says where none fits, and the heading of the reproduction plan; the
+# English ones are those the manual's question names. An advisory's and a brief's are the ones their
+# question templates under prompts/ ask for.
 
-[manual]
+[[manual]]
+language = "en"
+heading = "Running it in our lab"
+label = "Cards it fits on:"
+none = "None"
+plan_heading = "Draft reproduction plan"
+
+[[manual]]
+language = "ko"
 heading = "우리 랩에서 구동하려면"
 label = "들어가는 카드:"
 none = "없음"
 plan_heading = "재현 계획 초안"
 
 # An advisory's exposure table: its column words, and the word a touched row's last cell opens with.
-[advisory]
+[[advisory]]
+language = "en"
+component = "Component"
+version = "Version"
+repository = "Repository"
+host = "Host"
+touched = "Touched"
+yes = "Yes"
+plan_heading = "Fixed version and patch steps"
+
+[[advisory]]
+language = "ko"
 component = "구성 요소"
 version = "버전"
 repository = "저장소"
@@ -21,7 +42,16 @@ yes = "예"
 plan_heading = "수정판과 패치 절차"
 
 # The column words of a brief's figures table.
-[brief]
+[[brief]]
+language = "en"
+name = "Indicator"
+value = "Value"
+unit = "Unit"
+as_of = "As of"
+source = "Source"
+
+[[brief]]
+language = "ko"
 name = "지표"
 value = "값"
 unit = "단위"

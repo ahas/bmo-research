@@ -1,11 +1,11 @@
-오늘의 경제 브리핑을 만들어 주세요.
+Write today's economy brief.
 
-아래 항목을 하나씩 직접 읽고, 하루치 소식을 한 문서로 묶습니다.
+Its shape is the rulebook economy-brief.md's. Read each item below yourself, and gather the day's news into one document.
 
 {items}
 
-각 항목이 담은 수치(지수, 금리, 가격, 발표치)는 본문의 `수치` 절에 표 하나로 모읍니다. 표의 머리줄은 이 다섯 칸 그대로입니다.
+Gather the figures each item carries (indices, rates, prices, releases) into one table in the body's `Figures` section. The table's header row is exactly these five columns.
 
-| 지표 | 값 | 단위 | 기준일 | 출처 |
+| Indicator | Value | Unit | As of | Source |
 
-출처 칸에는 그 수치를 읽은 페이지의 주소를 링크로 적습니다.
+In the Source column, write the address of the page the figure was read on, as a link.

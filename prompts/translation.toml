@@ -1,0 +1,11 @@
+# The words agency's translator is handed with a research report's parts (docs/api.md, "The Korean
+# rendering"). The translator reads them, so they are English. {name} is the researched thing's name.
+
+# The language the owner's copy is rendered in, as the translator's instructions ask for it.
+language = "Korean"
+
+# The note every part of the body and the description carry.
+note = "This text is part of a research report about {name}, written for the owner. Keep model, product and dataset names, figures, units, code, links and the fixed section names exactly as they are written. Write in the register of the owner's documents."
+
+# The note the report's title carries.
+title_note = "This text is the title of a research report about {name}, written for the owner. Answer with the translated title alone, on one line. Keep model, product and dataset names exactly as they are written."

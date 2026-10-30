@@ -1,5 +1,6 @@
 //! The daemon's settings (`docs/settings.md`): where it listens, the loop's numbers, the road its runs go out
-//! on where a category names none, and the files its peers' addresses and tokens are read from.
+//! on where a category names none, how a document is cut for the translator, and the files its peers'
+//! addresses and tokens are read from.
 
 use std::path::{Path, PathBuf};
 
@@ -20,6 +21,7 @@ pub struct Settings {
   pub model_nodes: Vec<String>,
   pub user_agent: String,
   pub road: Road,
+  pub translation: Translation,
   pub agency: Agency,
   pub receiver: Receiver,
   pub artifact: Artifact,
@@ -43,6 +45,7 @@ impl Default for Settings {
       model_nodes: ["n3", "n4", "n5", "n6"].map(String::from).to_vec(),
       user_agent: "bmo-research".into(),
       road: Road::default(),
+      translation: Translation::default(),
       agency: Agency::default(),
       receiver: Receiver::default(),
       artifact: Artifact::default(),
@@ -66,6 +69,23 @@ impl Default for Road {
       key: "search:exhaustive".into(),
       provider: "registered".into(),
       model: "flash-next".into(),
+    }
+  }
+}
+
+/// How a filed document's body is cut for the translator.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Translation {
+  pub part_chars: usize,
+  pub parts_out: usize,
+}
+
+impl Default for Translation {
+  fn default() -> Self {
+    Translation {
+      part_chars: 6000,
+      parts_out: 2,
     }
   }
 }

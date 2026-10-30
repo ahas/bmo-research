@@ -1,6 +1,7 @@
-//! The deep dive and its notices (`docs/api.md`, 「The deep dive」 and 「The notices」): the next run picked
-//! among the running categories, asked of agency, read until it closes, its document read and its items
-//! filed, and every recipient told.
+//! The deep dive and its notices (`docs/api.md`, 「The deep dive」, 「The Korean rendering」 and 「The
+//! notices」): the next run picked among the running categories, asked of agency, read until it closes, its
+//! document read and its items filed, the document rendered in Korean, and every recipient told; a pending
+//! rendering asked again on the retry wait and its follow-up told.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -11,7 +12,17 @@ use tokio::task::JoinHandle;
 use crate::App;
 use crate::reading::{self, Exposure};
 use crate::store::{Filed, now_ms};
+use crate::translation::{self, English, Rendering};
 use crate::words::{self, fill};
+
+/// How an item's Korean rendering stands as its report is told: filed, pending a later try, or no longer
+/// asked.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Korean {
+  Filed(Rendering),
+  Pending,
+  Unavailable,
+}
 
 /// The daemon's loop: the tries it left running taken up, the owner's room given to every category holding
 /// no recipient, then a scan and a start of what may run every `tick_seconds`.
@@ -62,13 +73,18 @@ pub async fn give_owner_room(app: &App) {
   }
 }
 
-/// One pass of the loop: a scan, then as many tries started as `concurrency` leaves room for. Answers the
-/// tries started, each carried to its end on a task of its own.
+/// One pass of the loop: a scan, every pending Korean rendering whose retry is due asked again, then as
+/// many tries started as `concurrency` leaves room for. Answers the tasks started, each carried to its end
+/// on a task of its own.
 pub async fn tick(app: &Arc<App>) -> Vec<JoinHandle<()>> {
   if let Err(why) = crate::scan::scan(app).await {
     eprintln!("bmo-research: the scan: {why}");
   }
   let mut started = Vec::new();
+  for item in app.store.translations_due(now_ms()).unwrap_or_default() {
+    let app = app.clone();
+    started.push(tokio::spawn(async move { render_again(app, item).await }));
+  }
   loop {
     let running = app.store.running_count().unwrap_or(i64::MAX);
     if running >= app.settings.concurrency.max(1) {
@@ -255,7 +271,87 @@ pub async fn carry(app: Arc<App>, run: i64, asked: Option<i64>) {
     }
   }
   if told {
-    tell(&app, &category, &lead, &filed, &exposure).await;
+    let korean = translate(&app, &lead, &filed, Some(&content)).await;
+    tell(&app, &category, &lead, &filed, &korean, &exposure).await;
+  }
+}
+
+/// An item's Korean rendering asked, its try counted and its next set at the retry wait before it is asked,
+/// the English text read where it is not given. A rendering that cannot be had stays pending, or after its
+/// last retry is no longer asked.
+async fn translate(app: &App, lead: &Item, filed: &Filed, content: Option<&str>) -> Korean {
+  let next = now_ms() + app.settings.retry_minutes * 60_000;
+  let tries = match app.store.claim_translation(lead.id, next) {
+    Ok(tries) => tries,
+    Err(why) => {
+      eprintln!("bmo-research: item {}'s Korean rendering could not be counted: {why}", lead.id);
+      return Korean::Unavailable;
+    }
+  };
+  let body = match content {
+    Some(content) => Ok(content.to_string()),
+    None => app.peers.content(filed.document_id).await,
+  };
+  let rendered = match body {
+    Ok(body) => {
+      let english = English {
+        item_id: lead.id,
+        name: &lead.name,
+        document_id: filed.document_id,
+        title: &filed.title,
+        description: filed.description.as_deref(),
+        body: &body,
+      };
+      translation::render(app, &english).await
+    }
+    Err(why) => Err(why),
+  };
+  match rendered {
+    Ok(rendering) => {
+      let _ = app.store.keep_rendering(filed.document_id, rendering.document_id, &rendering.share_url);
+      Korean::Filed(rendering)
+    }
+    Err(why) if tries > app.settings.retries => {
+      eprintln!(
+        "bmo-research: item {}'s Korean rendering failed after {tries} tries and is no longer asked: {why}",
+        lead.id
+      );
+      let _ = app.store.drop_translation(lead.id);
+      Korean::Unavailable
+    }
+    Err(why) => {
+      eprintln!("bmo-research: item {}'s Korean rendering is pending: {why}", lead.id);
+      Korean::Pending
+    }
+  }
+}
+
+/// What a filed item holds of its document, for a rendering asked again after its report was told.
+fn filed_of(item: &Item, document_id: i64) -> Filed {
+  Filed {
+    document_id,
+    title: item.title.clone().unwrap_or_default(),
+    description: item.description.clone(),
+    share_url: item.share_url.clone().unwrap_or_default(),
+    fit: item.fit,
+    fit_nodes: item.fit_nodes.clone(),
+    touches: item.touches.clone(),
+    plan: item.plan.clone(),
+  }
+}
+
+/// A pending Korean rendering asked again; once it is filed, every recipient of the category is told the
+/// follow-up.
+async fn render_again(app: Arc<App>, item: Item) {
+  let Some(document_id) = item.document_id else {
+    let _ = app.store.drop_translation(item.id);
+    return;
+  };
+  let filed = filed_of(&item, document_id);
+  if let Korean::Filed(rendering) = translate(&app, &item, &filed, None).await
+    && let Ok(category) = app.store.category(&item.category_name)
+  {
+    notify(&app, &category, &item, &follow_up(&item, &filed, &rendering), "translated").await;
   }
 }
 
@@ -277,14 +373,46 @@ async fn fail(app: &App, run: i64, lead: &Item, state: &str, outcome: Option<&st
   }
 }
 
-/// The notice a filed item's recipients hear: the line, and for a `fit` item what its recipient needs to act.
-pub fn notice(lead: &Item, filed: &Filed) -> String {
+/// The notice a filed item's recipients hear: the line of the Korean rendering and the English document's
+/// link after it, or the English line and the pending line while the rendering is pending; then for a `fit`
+/// item what its recipient needs to act.
+pub fn notice(lead: &Item, filed: &Filed, korean: &Korean) -> String {
   let words = words::report();
-  let summary = reading::first_sentence(filed.description.as_deref().unwrap_or_default());
-  let mut lines = vec![fill(
-    &words.line,
-    &[("title", &filed.title), ("summary", &summary), ("link", &filed.share_url)],
-  )];
+  let line = |title: &str, description: Option<&str>, link: &str| {
+    let summary = reading::first_sentence(description.unwrap_or_default());
+    fill(&words.line, &[("title", title), ("summary", &summary), ("link", link)])
+  };
+  let mut lines = match korean {
+    Korean::Filed(rendering) => vec![
+      line(&rendering.title, rendering.description.as_deref(), &rendering.share_url),
+      fill(&words.english, &[("link", &filed.share_url)]),
+    ],
+    Korean::Pending => vec![
+      line(&filed.title, filed.description.as_deref(), &filed.share_url),
+      words.pending.clone(),
+    ],
+    Korean::Unavailable => vec![line(&filed.title, filed.description.as_deref(), &filed.share_url)],
+  };
+  lines.extend(acting(lead, filed));
+  lines.join("\n")
+}
+
+/// The follow-up told once a pending rendering is filed: the Korean link, the English one after it, and for
+/// a `fit` item what its recipient needs to act, since it replaces the report where that still waits.
+pub fn follow_up(lead: &Item, filed: &Filed, rendering: &Rendering) -> String {
+  let words = words::report();
+  let mut lines = vec![
+    fill(&words.translated, &[("title", &rendering.title), ("link", &rendering.share_url)]),
+    fill(&words.english, &[("link", &filed.share_url)]),
+  ];
+  lines.extend(acting(lead, filed));
+  lines.join("\n")
+}
+
+/// What a `fit` item's recipient needs to act on it; nothing for another item.
+fn acting(lead: &Item, filed: &Filed) -> Vec<String> {
+  let words = words::report();
+  let mut lines = Vec::new();
   if filed.fit {
     match lead.shape {
       Shape::Advisory => {
@@ -300,12 +428,19 @@ pub fn notice(lead: &Item, filed: &Filed) -> String {
       lines.push(fill(&words.bench, &[("nodes", &filed.fit_nodes.join(", "))]));
     }
   }
-  lines.join("\n")
+  lines
 }
 
 /// Every recipient told of a filed item, and for an advisory each touched repository's worker its part.
-async fn tell(app: &App, category: &Category, lead: &Item, filed: &Filed, exposure: &Exposure) {
-  notify(app, category, lead, &notice(lead, filed), "report").await;
+async fn tell(
+  app: &App,
+  category: &Category,
+  lead: &Item,
+  filed: &Filed,
+  korean: &Korean,
+  exposure: &Exposure,
+) {
+  notify(app, category, lead, &notice(lead, filed, korean), "report").await;
   if lead.shape != Shape::Advisory {
     return;
   }

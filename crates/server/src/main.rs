@@ -279,6 +279,7 @@ async fn command(verb: Verb) -> Result<(), String> {
         return print_json(&page);
       }
       for i in page.items {
+        let links: Vec<String> = [i.ko_share_url, i.share_url].into_iter().flatten().collect();
         println!(
           "#{} {:<10} {:<9} {:<13} {} {}",
           i.id,
@@ -286,7 +287,7 @@ async fn command(verb: Verb) -> Result<(), String> {
           i.state.as_str(),
           i.shape.as_str(),
           i.name,
-          i.share_url.unwrap_or_default()
+          links.join(" ")
         );
       }
       Ok(())

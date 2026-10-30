@@ -471,6 +471,21 @@
             "description": "`model`, `paper`, `release`, `entry`, or `asked` for an ask",
             "type": "string"
           },
+          "koDocumentId": {
+            "description": "the Korean rendering's document, null until it is filed",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "koShareUrl": {
+            "description": "the Korean rendering's live link, null until it is filed",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "maker": {
             "type": [
               "string",
@@ -563,6 +578,8 @@
           "title",
           "description",
           "shareUrl",
+          "koDocumentId",
+          "koShareUrl",
           "fit",
           "fitNodes",
           "touches",

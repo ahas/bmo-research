@@ -39,7 +39,30 @@ pub struct Document {
   pub title: String,
   #[serde(default)]
   pub description: Option<String>,
+  #[serde(default)]
+  pub labels: BTreeMap<String, Value>,
 }
+
+/// Why a part came back untranslated: the translator found it too long, so it is cut smaller; or anything
+/// else, which leaves the rendering pending.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Untranslated {
+  TooLarge,
+  Failed(String),
+}
+
+/// A Korean rendering to file beside its English document.
+#[derive(Debug, Clone)]
+pub struct NewRendering<'a> {
+  pub item_id: i64,
+  pub translation_of: i64,
+  pub title: &'a str,
+  pub description: Option<&'a str>,
+  pub body: &'a str,
+}
+
+/// Who the daemon files a document as.
+const ACTOR: &str = "bmo-research";
 
 #[derive(Deserialize)]
 struct Listed<T> {
@@ -184,7 +207,64 @@ impl Peers {
     }
   }
 
-  async fn documents(&self, query: &[(&str, &str)]) -> Result<Option<Document>, String> {
+  /// One text translated by agency's translator, with the note that gives it its context.
+  pub async fn translate(&self, language: &str, text: &str, note: &str) -> Result<String, Untranslated> {
+    let agency = self.agency().map_err(Untranslated::Failed)?;
+    let body = json!({ "purpose": "document", "language": language, "text": text, "note": note });
+    let answer = self
+      .request(&agency, reqwest::Method::POST, "/translation-runs")
+      .timeout(Duration::from_secs(600))
+      .json(&body)
+      .send()
+      .await
+      .map_err(|e| Untranslated::Failed(format!("agency POST /translation-runs: {e}")))?;
+    let status = answer.status().as_u16();
+    let said = answer.text().await.unwrap_or_default();
+    if status == 413 {
+      return Err(Untranslated::TooLarge);
+    }
+    if !(200..300).contains(&status) {
+      return Err(Untranslated::Failed(format!("agency POST /translation-runs answered {status}: {said}")));
+    }
+    let read: Value = serde_json::from_str(&said).map_err(|e| {
+      Untranslated::Failed(format!("agency POST /translation-runs: the answer did not read: {e}"))
+    })?;
+    read["text"]
+      .as_str()
+      .map(str::to_string)
+      .ok_or_else(|| Untranslated::Failed("agency's translation answered no text".into()))
+  }
+
+  /// A Korean rendering filed as a record of its own, labelled as its English document's translation: its id.
+  pub async fn file_rendering(&self, rendering: &NewRendering<'_>) -> Result<i64, String> {
+    let artifact = self.artifact()?;
+    let mut body = json!({
+      "kind": "record",
+      "title": rendering.title,
+      "body": rendering.body,
+      "actorName": ACTOR,
+      "labels": {
+        "research": rendering.item_id.to_string(),
+        "translationOf": rendering.translation_of.to_string(),
+        "language": "ko",
+      },
+    });
+    if let Some(description) = rendering.description {
+      body["description"] = json!(description);
+    }
+    let answer = self
+      .call(
+        &artifact,
+        self.request(&artifact, reqwest::Method::POST, "/documents").json(&body),
+        "POST /documents",
+      )
+      .await?;
+    answer["id"]
+      .as_i64()
+      .ok_or_else(|| "the artifact service answered no document id".to_string())
+  }
+
+  async fn documents(&self, query: &[(&str, &str)]) -> Result<Vec<Document>, String> {
     let artifact = self.artifact()?;
     let answer = self
       .call(
@@ -195,19 +275,21 @@ impl Peers {
       .await?;
     let listed: Listed<Document> = serde_json::from_value(answer)
       .map_err(|e| format!("the artifact service's documents did not read: {e}"))?;
-    Ok(listed.items.into_iter().next())
+    Ok(listed.items)
   }
 
   /// Whether the archive holds a document saying the name.
   pub async fn archive_holds(&self, name: &str) -> Result<bool, String> {
     let phrase: String = name.chars().take(200).collect();
-    Ok(self.documents(&[("q", phrase.as_str()), ("limit", "1")]).await?.is_some())
+    Ok(!self.documents(&[("q", phrase.as_str()), ("limit", "1")]).await?.is_empty())
   }
 
-  /// The document agency filed for a run, under the label `research` with the run's id.
+  /// The document agency filed for a run, under the label `research` with the run's id. A Korean rendering
+  /// carries the same label with its item's id, so a document labelled as a translation is passed over.
   pub async fn filed_document(&self, run_id: i64) -> Result<Option<Document>, String> {
     let label = format!("research:{run_id}");
-    self.documents(&[("label", label.as_str()), ("limit", "1")]).await
+    let listed = self.documents(&[("label", label.as_str()), ("limit", "20")]).await?;
+    Ok(listed.into_iter().find(|d| !d.labels.contains_key("translationOf")))
   }
 
   pub async fn content(&self, document_id: i64) -> Result<String, String> {

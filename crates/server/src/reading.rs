@@ -1,6 +1,7 @@
 //! The readings of a filed document (`docs/api.md`, 「The fit」 and 「The brief's facts」): its sections by
-//! heading, its tables, and the words `prompts/document.toml` holds. The markdown is read by
-//! `pulldown-cmark`; a reading reads words and judges nothing.
+//! heading, its tables, and the words `prompts/document.toml` holds, in whichever of its languages finds
+//! them. The markdown is read by `pulldown-cmark`; a reading reads words and judges nothing, and matches
+//! them without regard to case.
 
 use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 use unicode_segmentation::UnicodeSegmentation;
@@ -50,12 +51,28 @@ fn headings(content: &str) -> Vec<Heading> {
   found
 }
 
+/// Where each heading of the document starts in its text, in order.
+pub fn heading_starts(content: &str) -> Vec<usize> {
+  headings(content).into_iter().map(|h| h.start).collect()
+}
+
+/// Whether `text` holds `word`, regardless of case.
+fn holds(text: &str, word: &str) -> bool {
+  text.to_lowercase().contains(&word.to_lowercase())
+}
+
+/// What follows `prefix` at the front of `text`, the prefix matched regardless of case.
+fn after_prefix<'a>(text: &'a str, prefix: &str) -> Option<&'a str> {
+  let n = prefix.len();
+  (text.is_char_boundary(n) && text.get(..n)?.eq_ignore_ascii_case(prefix)).then(|| &text[n..])
+}
+
 /// The first section whose heading holds `word`: the heading as the document holds it, and the section's
 /// text, the heading's line among it.
 pub fn section<'a>(content: &'a str, word: &str) -> Option<(String, &'a str)> {
   headings(content)
     .into_iter()
-    .find(|h| h.text.contains(word))
+    .find(|h| holds(&h.text, word))
     .map(|h| (h.text, &content[h.start..h.end]))
 }
 
@@ -85,19 +102,24 @@ pub struct ManualFit {
   pub plan: Option<String>,
 }
 
-/// A manual read for its fit: the line opening with the label under the fit heading, naming anything but
-/// the none word.
-pub fn manual_fit(content: &str, words: &ManualWords, model_nodes: &[String]) -> ManualFit {
-  let plan = section(content, &words.plan_heading).map(|(heading, _)| heading);
-  let Some((_, text)) = section(content, &words.heading) else {
+/// A manual read for its fit, by the first language whose fit heading the document holds: the line opening
+/// with the label under the fit heading, naming anything but the none word.
+pub fn manual_fit(content: &str, languages: &[ManualWords], model_nodes: &[String]) -> ManualFit {
+  let plan = languages
+    .iter()
+    .find_map(|words| section(content, &words.plan_heading))
+    .map(|(heading, _)| heading);
+  let Some((words, (_, text))) = languages
+    .iter()
+    .find_map(|words| section(content, &words.heading).map(|found| (words, found)))
+  else {
     return ManualFit {
       plan,
       ..ManualFit::default()
     };
   };
   let named = text.lines().skip(1).find_map(|line| {
-    bare_line(line)
-      .strip_prefix(words.label.as_str())
+    after_prefix(bare_line(line), &words.label)
       .map(|value| value.trim_matches(|c: char| c.is_whitespace() || c == '*' || c == '`' || c == '_'))
   });
   let Some(value) = named else {
@@ -106,7 +128,7 @@ pub fn manual_fit(content: &str, words: &ManualWords, model_nodes: &[String]) ->
       ..ManualFit::default()
     };
   };
-  let fit = !value.is_empty() && !value.starts_with(words.none.as_str());
+  let fit = !value.is_empty() && after_prefix(value, &words.none).is_none();
   let tokens: Vec<String> = value
     .split(|c: char| !c.is_alphanumeric())
     .map(|t| t.to_lowercase())
@@ -141,7 +163,7 @@ pub struct Table {
 impl Table {
   /// The column whose head holds the word.
   pub fn column(&self, word: &str) -> Option<usize> {
-    self.head.iter().position(|cell| cell.text.contains(word))
+    self.head.iter().position(|cell| holds(&cell.text, word))
   }
 
   fn cell(row: &[Cell], column: Option<usize>) -> Option<&Cell> {
@@ -238,13 +260,21 @@ impl Exposure {
   }
 }
 
-/// An advisory read for its exposure table: every row whose touched cell opens with the yes word.
-pub fn exposure(content: &str, words: &AdvisoryWords) -> Exposure {
-  let plan = section(content, &words.plan_heading).map(|(heading, _)| heading);
-  let table = tables(content)
-    .into_iter()
-    .find(|t| t.column(&words.touched).is_some() && t.column(&words.component).is_some());
-  let Some(table) = table else {
+/// An advisory read for its exposure table, by the first language whose table the document holds: every
+/// row whose touched cell opens with the yes word.
+pub fn exposure(content: &str, languages: &[AdvisoryWords]) -> Exposure {
+  let plan = languages
+    .iter()
+    .find_map(|words| section(content, &words.plan_heading))
+    .map(|(heading, _)| heading);
+  let all = tables(content);
+  let found = languages.iter().find_map(|words| {
+    all
+      .iter()
+      .find(|t| t.column(&words.touched).is_some() && t.column(&words.component).is_some())
+      .map(|table| (words, table))
+  });
+  let Some((words, table)) = found else {
     return Exposure {
       plan,
       ..Exposure::default()
@@ -262,7 +292,7 @@ pub fn exposure(content: &str, words: &AdvisoryWords) -> Exposure {
   let touches = table
     .rows
     .iter()
-    .filter(|row| text(row, touched).starts_with(words.yes.as_str()))
+    .filter(|row| after_prefix(&text(row, touched), &words.yes).is_some())
     .map(|row| Touch {
       component: text(row, component),
       version: text(row, version),
@@ -283,12 +313,16 @@ pub struct Figure {
   pub source: Option<String>,
 }
 
-/// A brief read for its figures: every row of the figures table naming a name and a value.
-pub fn figures(content: &str, words: &BriefWords) -> Vec<Figure> {
-  let Some(table) = tables(content)
-    .into_iter()
-    .find(|t| t.column(&words.name).is_some() && t.column(&words.value).is_some())
-  else {
+/// A brief read for its figures, by the first language whose figures table the document holds: every row
+/// of the table naming a name and a value.
+pub fn figures(content: &str, languages: &[BriefWords]) -> Vec<Figure> {
+  let all = tables(content);
+  let Some((words, table)) = languages.iter().find_map(|words| {
+    all
+      .iter()
+      .find(|t| t.column(&words.name).is_some() && t.column(&words.value).is_some())
+      .map(|table| (words, table))
+  }) else {
     return Vec::new();
   };
   let (name, value, unit, as_of, source) = (

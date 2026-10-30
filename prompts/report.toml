@@ -1,10 +1,15 @@
 # The words of the notices the daemon hands a category's recipients (docs/api.md, "The notices").
 # {title}, {summary} and {link} are the document's title, the first sentence of its description and its
-# share link; {name} and {tries} are the item's name and the tries it took; {touches} is what an advisory
-# names as touched; {plan} is the heading of the document's plan section; {nodes} the model nodes a
-# manual's fit names; {repository} and {rows} a touched repository and its rows of the exposure table.
+# share link: the Korean rendering's, or the English document's while the rendering is pending; in
+# `english`, {link} is the English document's share link; {name} and {tries} are the item's name and the
+# tries it took; {touches} is what an advisory names as touched; {plan} is the heading of the document's
+# plan section; {nodes} the model nodes a manual's fit names; {repository} and {rows} a touched repository
+# and its rows of the exposure table.
 
 line = "{title} — {summary} {link}"
+english = "영문 원본: {link}"
+pending = "한국어본은 아직 번역 중입니다. 준비되면 링크를 다시 알려 드리겠습니다."
+translated = "「{title}」 한국어본이 준비되었습니다. {link}"
 fit = "우리 카드에 들어간다고 적혀 있습니다. 사장님께 검수 여부를 여쭤 주세요."
 touches = "우리 플랫폼의 {touches}에 닿는다고 적혀 있습니다. 저장소를 맡은 워커가 있으면 그 워커에게 따로 알렸습니다."
 name = "대상: {name}"

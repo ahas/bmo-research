@@ -407,6 +407,10 @@ pub struct Item {
   pub title: Option<String>,
   pub description: Option<String>,
   pub share_url: Option<String>,
+  /// the Korean rendering's document, null until it is filed
+  pub ko_document_id: Option<i64>,
+  /// the Korean rendering's live link, null until it is filed
+  pub ko_share_url: Option<String>,
   pub fit: bool,
   /// the settings' model nodes a manual's fit names
   pub fit_nodes: Vec<String>,
