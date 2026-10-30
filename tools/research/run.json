@@ -1,0 +1,45 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "asker": {
+      "description": "Who asked, as the room knows them; the owner where none is named.",
+      "type": "string"
+    },
+    "key": {
+      "description": "The depth: search:basic for one value or one fact, search:thorough for a question with a few angles, search:exhaustive for a deep dive, browse for a task that must open and click through pages.",
+      "enum": [
+        "search:basic",
+        "search:thorough",
+        "search:exhaustive",
+        "browse"
+      ],
+      "type": "string"
+    },
+    "model": {
+      "description": "The model, only where the owner named one for this research; left out otherwise.",
+      "type": "string"
+    },
+    "options": {
+      "description": "Options for the search, such as brief, a table or the full document.",
+      "type": "string"
+    },
+    "provider": {
+      "description": "The provider the named model stands on, where one is meant.",
+      "type": "string"
+    },
+    "query": {
+      "description": "The question, written whole as the owner means it.",
+      "minLength": 1,
+      "type": "string"
+    },
+    "roomId": {
+      "description": "The room the result comes back to: the room this turn answers.",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "key",
+    "query"
+  ],
+  "type": "object"
+}

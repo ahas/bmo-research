@@ -1,9 +1,10 @@
-//! What the tests share: a scratch data root, the daemon's app over it, and stand-ins for agency, the artifact
-//! service, the receiver, the arbiter's master and the sources, each keeping every request it was asked.
+//! What the tests share: a scratch data root, the daemon's app over it, and stand-ins for agency (its seats,
+//! its thrown-away sessions and their turns), the artifact service, the receiver, the arbiter's master, the
+//! tool host on its Unix socket and the sources, each keeping every request it was asked.
 
 #![allow(dead_code)]
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -13,7 +14,7 @@ use axum::body::Bytes;
 use axum::extract::{Path, Query, State};
 use axum::http::{Method, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{delete, get, post};
 use research_server::App;
 use research_server::config::Settings;
 use research_server::store::Store;
@@ -28,7 +29,8 @@ pub struct Asked {
   pub body: Value,
 }
 
-/// A document the stand-in archive holds for a run.
+/// A run's result as the stand-in agency's turns write it, and the document the archive files it as: its id,
+/// its head and the text the archive answers for it.
 #[derive(Debug, Clone)]
 pub struct Filed {
   pub id: i64,
@@ -41,16 +43,26 @@ pub struct Filed {
 #[derive(Default)]
 pub struct World {
   pub asked: Vec<Asked>,
-  /// The statuses the next research-run asks are answered with; 202 once these run out.
-  pub run_answers: VecDeque<u16>,
-  pub next_run: i64,
-  /// Each run's outcome as its ledger closes it; `answered` where none is named.
-  pub outcomes: BTreeMap<i64, String>,
-  /// How many readings a run stays open for before it closes.
-  pub open_polls: u32,
-  pub polls: BTreeMap<i64, u32>,
-  /// The document filed under each run.
+  /// The statuses the next session starts are answered with; 201 once these run out.
+  pub session_answers: VecDeque<u16>,
+  pub next_session: i64,
+  pub next_seat: i64,
+  /// How many admission asks a seat waits through before it is let in.
+  pub seat_waits: u32,
+  /// The research runs whose turns fail.
+  pub failing: BTreeSet<i64>,
+  /// While set, every research turn waits.
+  pub holding: bool,
+  /// How long a branch's turn takes, in milliseconds.
+  pub branch_wait_ms: u64,
+  /// How many ends of a session are answered busy before one is answered.
+  pub busy_ends: u32,
+  /// Whether the tool host lists no web tool.
+  pub no_listing: bool,
+  /// What each research run's turns write, and the document the archive files it as.
   pub filed: BTreeMap<i64, Filed>,
+  /// The share links made, by document.
+  pub shares: Vec<(i64, String)>,
   /// The names the archive already holds.
   pub archived: Vec<String>,
   pub owner_room: i64,
@@ -76,7 +88,6 @@ pub type Shared = Arc<Mutex<World>>;
 
 pub fn world() -> Shared {
   Arc::new(Mutex::new(World {
-    next_run: 100,
     owner_room: 7,
     next_document: 900,
     healthy: true,
@@ -107,44 +118,138 @@ pub async fn serve(router: Router) -> String {
   format!("http://{addr}")
 }
 
-async fn agency_research_run(State(w): State<Shared>, method: Method, uri: Uri, body: Bytes) -> Response {
-  keep(&w, "agency", &method, &uri, &body);
-  let mut world = w.lock().unwrap();
-  let status = world.run_answers.pop_front().unwrap_or(202);
-  if status != 202 {
-    return (
-      StatusCode::from_u16(status).unwrap(),
-      axum::Json(json!({"code": "no-login-open", "error": "no road carries it"})),
-    )
-      .into_response();
-  }
-  world.next_run += 1;
-  let run = world.next_run;
-  (StatusCode::ACCEPTED, axum::Json(json!({"runId": run, "key": "search:exhaustive"}))).into_response()
+/// A seat request's answer: its token, its state and the road its work key resolved to.
+fn seat_of(token: &str, state: &str, asked: &Value) -> Value {
+  json!({
+    "token": token,
+    "state": state,
+    "provider": asked["provider"].as_str().unwrap_or("registered"),
+    "model": "seat-model",
+    "effort": "high",
+    "tier": "Light",
+  })
 }
 
-async fn agency_run(
+async fn agency_seat(State(w): State<Shared>, method: Method, uri: Uri, body: Bytes) -> Response {
+  keep(&w, "agency", &method, &uri, &body);
+  let asked: Value = serde_json::from_slice(&body).unwrap_or_default();
+  let mut world = w.lock().unwrap();
+  world.next_seat += 1;
+  let state = if world.seat_waits == 0 { "active" } else { "waiting" };
+  (
+    StatusCode::CREATED,
+    axum::Json(seat_of(&format!("seat-{}", world.next_seat), state, &asked)),
+  )
+    .into_response()
+}
+
+async fn agency_seat_move(
   State(w): State<Shared>,
-  Path(run): Path<i64>,
+  Path(token): Path<String>,
   method: Method,
   uri: Uri,
   body: Bytes,
 ) -> Response {
   keep(&w, "agency", &method, &uri, &body);
+  let change: Value = serde_json::from_slice(&body).unwrap_or_default();
   let mut world = w.lock().unwrap();
-  let open = world.open_polls;
-  let polls = world.polls.entry(run).or_insert(0);
-  *polls += 1;
-  if *polls <= open {
-    return axum::Json(json!({"id": run, "state": "open", "outcome": null})).into_response();
+  match change["state"].as_str() {
+    Some("finished") => axum::Json(json!({"held": true})).into_response(),
+    Some("bound") => axum::Json(seat_of(&token, "bound", &json!({}))).into_response(),
+    _ if world.seat_waits > 0 => {
+      world.seat_waits -= 1;
+      axum::Json(json!({"request": null})).into_response()
+    }
+    _ => axum::Json(json!({"request": seat_of(&token, "active", &json!({}))})).into_response(),
   }
-  let outcome = world.outcomes.get(&run).cloned().unwrap_or_else(|| "answered".into());
-  axum::Json(json!({"id": run, "state": "closed", "outcome": outcome})).into_response()
+}
+
+async fn agency_session(State(w): State<Shared>, method: Method, uri: Uri, body: Bytes) -> Response {
+  keep(&w, "agency", &method, &uri, &body);
+  let asked: Value = serde_json::from_slice(&body).unwrap_or_default();
+  let mut world = w.lock().unwrap();
+  let status = world.session_answers.pop_front().unwrap_or(201);
+  if status != 201 {
+    return (
+      StatusCode::from_u16(status).unwrap(),
+      axum::Json(json!({"code": "line-not-carried", "error": "no road of it carries the search line"})),
+    )
+      .into_response();
+  }
+  world.next_session += 1;
+  let id = format!("{}@apart:{}", asked["agent"].as_str().unwrap_or("search"), world.next_session);
+  (
+    StatusCode::CREATED,
+    axum::Json(json!({"id": id, "agentName": asked["agent"], "scope": "apart", "provider": asked["provider"], "model": asked["model"], "boundMs": asked["boundMs"]})),
+  )
+    .into_response()
+}
+
+async fn agency_session_end(State(w): State<Shared>, method: Method, uri: Uri, body: Bytes) -> Response {
+  keep(&w, "agency", &method, &uri, &body);
+  let mut world = w.lock().unwrap();
+  if world.busy_ends > 0 {
+    world.busy_ends -= 1;
+    return (
+      StatusCode::CONFLICT,
+      axum::Json(json!({"code": "session-busy", "error": "a turn runs"})),
+    )
+      .into_response();
+  }
+  StatusCode::NO_CONTENT.into_response()
+}
+
+async fn agency_roles(State(w): State<Shared>, method: Method, uri: Uri, body: Bytes) -> Response {
+  keep(&w, "agency", &method, &uri, &body);
+  axum::Json(json!({"items": [{"name": "scout", "tier": "Light"}, {"name": "verifier", "tier": "Reliable"}], "more": false}))
+    .into_response()
+}
+
+/// The research run a turn's name is under: `research-<run>`, a round's or a branch's after it.
+pub fn run_of(name: &str) -> Option<i64> {
+  name.strip_prefix("research-")?.split('-').next()?.parse().ok()
+}
+
+/// What a research turn writes: the run's filed result, or a result of its own naming the run.
+fn result_of(world: &World, run: i64) -> String {
+  match world.filed.get(&run) {
+    Some(doc) => format!("TITLE: {}\nTOPIC: {}\n\n{}", doc.title, doc.description, doc.content),
+    None => format!(
+      "ANSWERED: yes :: the run\nTITLE: Research {run}\nTOPIC: What run {run} found\n\nVERDICT:\nRun {run} \
+       answered.\n\nSUMMARY:\n1. It answered.\n\nUNCONFIRMED:\n1. Nothing.\nSOURCE [1]: https://example.org/{run} :: the answer\n"
+    ),
+  }
+}
+
+async fn research_turn(w: &Shared, name: &str) -> Response {
+  let Some(run) = run_of(name) else {
+    return (StatusCode::CREATED, axum::Json(json!({"id": 1, "state": "ended"}))).into_response();
+  };
+  let branch = name.contains("-branch-");
+  if branch {
+    let wait = w.lock().unwrap().branch_wait_ms;
+    tokio::time::sleep(std::time::Duration::from_millis(wait)).await;
+    return axum::Json(json!({"outcome": "answered", "answer": format!("notes of {name}")}))
+      .into_response();
+  }
+  while w.lock().unwrap().holding {
+    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+  }
+  let world = w.lock().unwrap();
+  if world.failing.contains(&run) {
+    return (
+      StatusCode::INTERNAL_SERVER_ERROR,
+      axum::Json(json!({"code": "failed", "error": "the turn failed"})),
+    )
+      .into_response();
+  }
+  axum::Json(json!({"outcome": "answered", "answer": result_of(&world, run)})).into_response()
 }
 
 async fn agency_turn(State(w): State<Shared>, method: Method, uri: Uri, body: Bytes) -> Response {
   keep(&w, "agency", &method, &uri, &body);
-  (StatusCode::CREATED, axum::Json(json!({"id": 1, "state": "ended"}))).into_response()
+  let asked: Value = serde_json::from_slice(&body).unwrap_or_default();
+  research_turn(&w, asked["name"].as_str().unwrap_or_default()).await
 }
 
 async fn agency_translation(State(w): State<Shared>, method: Method, uri: Uri, body: Bytes) -> Response {
@@ -190,10 +295,13 @@ async fn agency_model(
 
 pub fn agency(world: Shared) -> Router {
   Router::new()
-    .route("/research-runs", post(agency_research_run))
+    .route("/seat-requests", post(agency_seat))
+    .route("/seat-requests/{token}", axum::routing::patch(agency_seat_move))
+    .route("/sessions", post(agency_session))
+    .route("/sessions/{session}", delete(agency_session_end))
+    .route("/roles", get(agency_roles))
     .route("/models/{name}", get(agency_model))
     .route("/translation-runs", post(agency_translation))
-    .route("/runs/{run}", get(agency_run))
     .route("/sessions/{session}/turns", post(agency_turn))
     .with_state(world)
 }
@@ -208,24 +316,26 @@ async fn artifact_documents(
   keep(&w, "artifact", &method, &uri, &body);
   let mut world = w.lock().unwrap();
   if method == Method::POST {
-    world.next_document += 1;
     let mut document: Value = serde_json::from_slice(&body).unwrap_or_default();
-    document["id"] = json!(world.next_document);
+    // A run's document takes the id its run's filing names; any other the next.
+    let filed = document["labels"]["translationOf"]
+      .is_null()
+      .then(|| document["labels"]["research"].as_str().and_then(|r| r.parse::<i64>().ok()))
+      .flatten()
+      .and_then(|run| world.filed.get(&run))
+      .map(|doc| doc.id);
+    let id = match filed {
+      Some(id) => id,
+      None => {
+        world.next_document += 1;
+        world.next_document
+      }
+    };
+    document["id"] = json!(id);
     world.posted.push(document.clone());
     return (StatusCode::CREATED, axum::Json(document)).into_response();
   }
   let mut items = Vec::new();
-  if let Some(label) = q.get("label")
-    && let Some(run) = label.strip_prefix("research:")
-  {
-    // The newest first: a rendering labelled with the same value stands ahead of the run's document.
-    items.extend(world.posted.iter().rev().filter(|d| d["labels"]["research"] == run).cloned());
-    if let Some(doc) = run.parse::<i64>().ok().and_then(|r| world.filed.get(&r)) {
-      items.push(json!({
-        "id": doc.id, "title": doc.title, "description": doc.description, "labels": {"research": run},
-      }));
-    }
-  }
   if let Some(phrase) = q.get("q")
     && world.archived.iter().any(|a| a.eq_ignore_ascii_case(phrase))
   {
@@ -243,34 +353,54 @@ async fn artifact_content(
 ) -> Response {
   keep(&w, "artifact", &method, &uri, &body);
   let world = w.lock().unwrap();
-  match world.filed.values().find(|d| d.id == id) {
-    Some(doc) => doc.content.clone().into_response(),
+  if let Some(doc) = world.filed.values().find(|d| d.id == id) {
+    return doc.content.clone().into_response();
+  }
+  match world.posted.iter().rev().find(|d| d["id"] == id) {
+    Some(doc) => doc["body"].as_str().unwrap_or_default().to_string().into_response(),
     None => {
       (StatusCode::NOT_FOUND, axum::Json(json!({"code": "not-found", "error": "none"}))).into_response()
     }
   }
 }
 
+async fn artifact_document(State(w): State<Shared>, method: Method, uri: Uri, body: Bytes) -> Response {
+  keep(&w, "artifact", &method, &uri, &body);
+  axum::Json(json!({"ok": true})).into_response()
+}
+
 async fn artifact_shares(State(w): State<Shared>, method: Method, uri: Uri, body: Bytes) -> Response {
   keep(&w, "artifact", &method, &uri, &body);
-  if method == Method::GET {
-    return axum::Json(json!({"items": [], "more": false})).into_response();
-  }
   let mut world = w.lock().unwrap();
+  if method == Method::GET {
+    let asked = uri
+      .query()
+      .unwrap_or_default()
+      .trim_start_matches("documentId=")
+      .parse::<i64>()
+      .unwrap_or(0);
+    let items: Vec<Value> = world
+      .shares
+      .iter()
+      .filter(|(document, _)| *document == asked)
+      .map(|(_, url)| json!({"token": "abcdefgh", "url": url}))
+      .collect();
+    return axum::Json(json!({"items": items, "more": false})).into_response();
+  }
   world.shares_made += 1;
   let document = serde_json::from_slice::<Value>(&body).unwrap_or_default()["documentId"]
     .as_i64()
     .unwrap_or(0);
-  (
-    StatusCode::CREATED,
-    axum::Json(json!({"token": "abcdefgh", "url": format!("https://share.example/d{document}")})),
-  )
-    .into_response()
+  let url = format!("https://share.example/d{document}");
+  world.shares.push((document, url.clone()));
+  (StatusCode::CREATED, axum::Json(json!({"token": "abcdefgh", "url": url}))).into_response()
 }
 
 pub fn artifact(world: Shared) -> Router {
   Router::new()
     .route("/documents", get(artifact_documents).post(artifact_documents))
+    .route("/documents/{id}", axum::routing::patch(artifact_document))
+    .route("/documents/{id}/attachments", post(artifact_document))
     .route("/documents/{id}/content", get(artifact_content))
     .route("/shares", get(artifact_shares).post(artifact_shares))
     .with_state(world)
@@ -319,6 +449,63 @@ async fn arbiter_cluster(State(w): State<Shared>, method: Method, uri: Uri, body
 /// A stand-in for the arbiter's master: its cluster picture, each node's tickets as the world holds them.
 pub fn arbiter(world: Shared) -> Router {
   Router::new().route("/cluster", get(arbiter_cluster)).with_state(world)
+}
+
+/// The issuer token the stand-in tool host takes.
+pub const ISSUER: &str = "issuer-test";
+
+fn issuer_asked(headers: &axum::http::HeaderMap) -> bool {
+  headers.get(axum::http::header::AUTHORIZATION).and_then(|v| v.to_str().ok()) == Some("Bearer issuer-test")
+}
+
+async fn host_tools(
+  State(w): State<Shared>,
+  method: Method,
+  uri: Uri,
+  headers: axum::http::HeaderMap,
+  body: Bytes,
+) -> Response {
+  keep(&w, "tool-host", &method, &uri, &body);
+  if !issuer_asked(&headers) || w.lock().unwrap().no_listing {
+    return (StatusCode::NOT_FOUND, axum::Json(json!({"code": "not-found", "error": "no web tool"})))
+      .into_response();
+  }
+  axum::Json(json!({
+    "items": [
+      {"name": "site_prices", "listing": {"line": "- site_prices — prices of the example shop", "order": 2}},
+      {"name": "web_fetch", "listing": null},
+      {"name": "web_search", "listing": {"line": "- web_search — search the engines", "order": 1}},
+    ],
+    "more": false,
+  }))
+  .into_response()
+}
+
+async fn host_session(State(w): State<Shared>, method: Method, uri: Uri, body: Bytes) -> Response {
+  keep(&w, "tool-host", &method, &uri, &body);
+  (StatusCode::CREATED, axum::Json(json!({"token": "tool-session-1"}))).into_response()
+}
+
+async fn host_call(State(w): State<Shared>, method: Method, uri: Uri, body: Bytes) -> Response {
+  keep(&w, "tool-host", &method, &uri, &body);
+  let engines = json!({"engines": [{"name": "example-engine", "category": "general", "state": "ok"}]});
+  axum::Json(json!({"namespace": "explorer", "name": "search_engines", "result": {"content": [], "structuredContent": engines}, "spentMs": 1}))
+    .into_response()
+}
+
+async fn host_revoke(State(w): State<Shared>, method: Method, uri: Uri, body: Bytes) -> Response {
+  keep(&w, "tool-host", &method, &uri, &body);
+  StatusCode::NO_CONTENT.into_response()
+}
+
+/// A stand-in for the tool host's control socket.
+pub fn tool_host(world: Shared) -> Router {
+  Router::new()
+    .route("/namespaces/{namespace}/tools", get(host_tools))
+    .route("/tool-sessions", post(host_session))
+    .route("/tool-sessions/{token}", delete(host_revoke))
+    .route("/tool-calls", post(host_call))
+    .with_state(world)
 }
 
 /// A fixture's text, from `tests/fixtures/`.
@@ -383,6 +570,45 @@ impl Ground {
       .filter(|a| a.method == method && a.path.starts_with(path))
       .collect()
   }
+
+  /// The research runs' own seats asked of agency, a branch's left out, in the order they were asked.
+  pub fn run_seats(&self) -> Vec<Value> {
+    self
+      .asked_path("agency", "POST", "/seat-requests")
+      .into_iter()
+      .map(|a| a.body)
+      .filter(|b| !b["requestKey"].as_str().unwrap_or_default().contains(":branch:"))
+      .collect()
+  }
+
+  /// The turns agency was sent whose name is the one given.
+  pub fn turns_named(&self, name: &str) -> Vec<Value> {
+    self
+      .asked("agency")
+      .into_iter()
+      .filter(|a| a.method == "POST" && a.path.ends_with("/turns") && a.body["name"] == name)
+      .map(|a| a.body)
+      .collect()
+  }
+
+  /// The documents the research runs filed, a Korean rendering left out.
+  pub fn run_documents(&self) -> Vec<Value> {
+    self
+      .asked_path("artifact", "POST", "/documents")
+      .into_iter()
+      .map(|a| a.body)
+      .filter(|b| b["labels"]["translationOf"].is_null() && b["actorName"] == "research")
+      .collect()
+  }
+
+  /// The Korean renderings filed.
+  pub fn renderings(&self) -> Vec<Asked> {
+    self
+      .asked_path("artifact", "POST", "/documents")
+      .into_iter()
+      .filter(|a| !a.body["labels"]["translationOf"].is_null())
+      .collect()
+  }
 }
 
 /// The stand-ins served, their addresses and tokens written into the data root's `env/` files the way each
@@ -407,10 +633,17 @@ pub async fn ground(change: impl FnOnce(&mut Settings)) -> Ground {
   )
   .unwrap();
   std::fs::write(root.join("env/artifact.token"), "artifact-test\n").unwrap();
+  std::fs::create_dir_all(root.join("tool-host")).unwrap();
+  std::fs::write(root.join("tool-host/issuer-token"), format!("{ISSUER}\n")).unwrap();
+  let socket = root.join("mcp-host.sock");
+  let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+  let host = tool_host(world.clone());
+  tokio::spawn(async move { axum::serve(listener, host).await.unwrap() });
   let mut settings = Settings::read("").unwrap();
   settings.data_root = root.clone();
   settings.artifact.address = artifact;
   settings.bench_watch.address = arbiter;
+  settings.tool_host.socket = socket.to_string_lossy().into_owned();
   settings.poll_seconds = 0;
   settings.turn_wait_seconds = 5;
   change(&mut settings);

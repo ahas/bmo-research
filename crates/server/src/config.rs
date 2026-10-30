@@ -1,6 +1,9 @@
 //! The daemon's settings (`docs/settings.md`): where it listens, the loop's numbers, the road its runs go out
 //! on where a category names none, how a document is cut for the translator, the models the bench watch
-//! looks after, and the files its peers' addresses and tokens are read from.
+//! looks after, how the runner seats a run and what it is held to where the owner changed nothing, where the
+//! tool host answers, and the files its peers' addresses and tokens are read from.
+
+use std::collections::BTreeMap;
 
 use std::path::{Path, PathBuf};
 
@@ -24,6 +27,9 @@ pub struct Settings {
   pub road: Road,
   pub translation: Translation,
   pub bench_watch: BenchWatch,
+  pub runner: Runner,
+  pub research_settings: ResearchDefaults,
+  pub tool_host: ToolHost,
   pub agency: Agency,
   pub receiver: Receiver,
   pub artifact: Artifact,
@@ -50,6 +56,9 @@ impl Default for Settings {
       road: Road::default(),
       translation: Translation::default(),
       bench_watch: BenchWatch::default(),
+      runner: Runner::default(),
+      research_settings: ResearchDefaults::default(),
+      tool_host: ToolHost::default(),
       agency: Agency::default(),
       receiver: Receiver::default(),
       artifact: Artifact::default(),
@@ -136,6 +145,90 @@ impl BenchWatch {
       return None;
     }
     self.models.iter().find(|w| w.registration == model)
+  }
+}
+
+/// How the runner seats a run and what its session record keeps.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Runner {
+  pub role: String,
+  pub writing_margin_minutes: i64,
+  pub capabilities: Vec<String>,
+}
+
+impl Default for Runner {
+  fn default() -> Self {
+    Runner {
+      role: "scout".into(),
+      writing_margin_minutes: 10,
+      capabilities: ["room.chat", "room.tools", "web.read", "web.sites", "web.branches", "web.rulebooks"]
+        .map(String::from)
+        .to_vec(),
+    }
+  }
+}
+
+/// One research key's branches, clock and budget.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct KeyDefaults {
+  pub branches: i64,
+  pub minutes: i64,
+  #[serde(default)]
+  pub pages: Option<i64>,
+  #[serde(default)]
+  pub branch_pages: Option<i64>,
+}
+
+/// What every research run is held to where the owner changed nothing.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ResearchDefaults {
+  pub branch_role: String,
+  pub strategy: String,
+  pub host_interval_ms: Option<i64>,
+  pub engine_interval_ms: Option<i64>,
+  pub keys: BTreeMap<String, KeyDefaults>,
+}
+
+impl Default for ResearchDefaults {
+  fn default() -> Self {
+    let key = |branches, minutes, pages, branch_pages| KeyDefaults {
+      branches,
+      minutes,
+      pages,
+      branch_pages,
+    };
+    ResearchDefaults {
+      branch_role: "scout".into(),
+      strategy: "direct-then-browser".into(),
+      host_interval_ms: None,
+      engine_interval_ms: None,
+      keys: BTreeMap::from([
+        ("search:basic".to_string(), key(0, 5, Some(3), None)),
+        ("search:thorough".to_string(), key(2, 15, Some(8), Some(4))),
+        ("search:exhaustive".to_string(), key(5, 30, Some(20), Some(6))),
+        ("browse".to_string(), key(0, 15, None, None)),
+      ]),
+    }
+  }
+}
+
+/// Where the tool host's control socket answers, and the file its issuer token stands in.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ToolHost {
+  pub socket: String,
+  pub issuer_token: String,
+}
+
+impl Default for ToolHost {
+  fn default() -> Self {
+    ToolHost {
+      socket: String::new(),
+      issuer_token: "tool-host/issuer-token".into(),
+    }
   }
 }
 
@@ -237,6 +330,26 @@ impl Settings {
   /// The folder the store stands in.
   pub fn store_dir(&self) -> PathBuf {
     let named = expand(&self.store);
+    if named.is_absolute() { named } else { self.data_root.join(named) }
+  }
+
+  /// The tool host's control socket: the path the settings name, else `bmo/mcp-host.sock` under the runtime
+  /// folder.
+  pub fn tool_host_socket(&self) -> PathBuf {
+    if !self.tool_host.socket.trim().is_empty() {
+      return expand(self.tool_host.socket.trim());
+    }
+    let runtime = match std::env::var_os("XDG_RUNTIME_DIR") {
+      Some(dir) if !dir.is_empty() => PathBuf::from(dir),
+      // SAFETY: getuid only reads the process's own user id.
+      _ => PathBuf::from(format!("/run/user/{}", unsafe { libc::getuid() })),
+    };
+    runtime.join("bmo/mcp-host.sock")
+  }
+
+  /// The file the tool host's issuer token stands in, under the data root where it names no path of its own.
+  pub fn tool_host_token_path(&self) -> PathBuf {
+    let named = expand(&self.tool_host.issuer_token);
     if named.is_absolute() { named } else { self.data_root.join(named) }
   }
 

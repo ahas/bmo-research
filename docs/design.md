@@ -9,7 +9,7 @@ word. It is the home of the research feature; agency supplies it sessions and se
 ## What it is for
 
 - **Bongbos's routine, running on its own.** The owner's collaborator reads a maker's material, measures
-  what it claims on the lab's own hardware and reports in a fixed shape (agency's rulebook
+  what it claims on the lab's own hardware and reports in a fixed shape (the rulebook
   `prompts/rules/research.md`: the investigation, the manual and the verification). The daemon does the
   first two shapes by itself, continuously, and the third on the owner's word.
 - **Continuous, capped and cheap.** The queue has a cap; whenever a slot frees, the daemon fills it from
@@ -24,12 +24,13 @@ word. It is the home of the research feature; agency supplies it sessions and se
 ## Principles
 
 - **It calls other units through their documented APIs alone** and depends on no other unit's code:
-  - agency, for a session on the search line and a seat of the co-worker pool (`POST /research-runs`
-    while the runner still lives there, with the run asked on kakia's road; later the generic seat and
-    session routes only, 「Where the runner lives」);
+  - agency, for a seat of the co-worker pool and a thrown-away session on its search or browse line, and
+    the turns into it (「Where the runner lives」);
+  - the tool host, for the web namespace's listing a search's instructions carry and for the web tools'
+    search engines' state;
   - explorer, for the web, through the tool host's `web` namespace in the runs it asks for; the daemon's
     own scan reads sources with its own HTTP client, since a feed is not a page an agent reads;
-  - artifact, to file a report (`POST /documents`, `POST /shares`) where the run does not file it itself;
+  - artifact, to file a run's document and a Korean rendering (`POST /documents`, `POST /shares`);
   - the receiver, to tell a room (`POST /instructions`) and to learn the owner's private room (`GET /owner`);
   - the arbiter, to read whether a bench holds a node its model stands on (「The n3–n6 restore path」).
   The job service it never calls: a job is the chat agent's to file.
@@ -69,7 +70,7 @@ sources ──scan──▶ candidates ──new?──▶ queue (cap) ──slo
 4. **The deep dive.** One run at a time (`concurrency`, 1 to start with): the item becomes a research run
    on kakia's road at the exhaustive depth, asked as a manual where the thing is a model, an engine, a
    dataset or a tool, and as an investigation where it is a claim or an event. The run's question is the
-   item's name and its maker's address, with the shape named, so the search runner's research rulebook
+   item's name and its maker's address, with the shape named, so the runner's research rulebook
    applies. A run that is refused (no road carries it) or cut is retried after `retry_minutes`, three
    times, then marked failed and reported once.
 5. **The report.** The document the run filed is the report. The daemon tells every report room: the
@@ -97,7 +98,7 @@ shape, its cap, its cadence, its road, and its report rooms. Three stand at the 
 
 | Category | Purpose | What a deep dive produces | What follows |
 |---|---|---|---|
-| `it` | new AI technology, as Bongbos's lab researches it | the manual or the investigation (agency's `research.md`): the maker's own material, the lab's fit, the reproduction plan | a `fit` item is reported for the owner's word; approved, a verification job under the bench lock, and a service registered with the arbiter |
+| `it` | new AI technology, as Bongbos's lab researches it | the manual or the investigation (the rulebook `research.md`): the maker's own material, the lab's fit, the reproduction plan | a `fit` item is reported for the owner's word; approved, a verification job under the bench lock, and a service registered with the arbiter |
 | `security` | vulnerability news that bears on the platform's own stack | an advisory investigation: what the flaw is, the affected versions, whether and where the platform runs them (the stack inventory below), the vendor's fix and the patch steps | each repository's worker is notified of its own part; the patch is the worker's work |
 | `economy` | the economic news and indicators the owner's later portfolio and trading system will read | a brief, not a deep dive: the items of the day in one document with the figures they carry, the sources, and the facts kept for the economy store | the brief is notified to the owner's room now and to the trading agent later; the facts stand in the store for it to read |
 
@@ -114,7 +115,7 @@ shape, its cap, its cadence, its road, and its report rooms. Three stand at the 
 - **Each category has its own cap, cadence, road and rooms,** so one category's flood never starves
   another, and a category can be stopped alone. The owner's private room is every category's first room.
 - **A category the owner adds later** needs a shape: one of the three above, or a new template under
-  `prompts/` with its rulebook in agency's `prompts/rules/` until the runner moves here.
+  `prompts/` with its rulebook under `prompts/rules/`, named in `prompts/runner.toml`.
 
 ## Sources
 
@@ -137,15 +138,17 @@ A source is a registration: a category, a kind, an address and, where the kind t
 
 ## Where the runner lives
 
-- **To start with, the research run is agency's** (`POST /research-runs` with `key`, `query`, `provider`,
-  `model`, and no room), and agency files the document and queues the room's instruction; the daemon reads
-  the run's end from the ledger (`GET /runs/{runId}`) and the document it filed from the run's record, and
-  sends its own line to its rooms. The daemon asks the run on the road its settings name, kakia's:
-  provider `registered`, model `flash-next`.
-- **Then the runner moves here:** the search line's instructions, the rulebooks, the rounds, the branch
-  allowance and the filing become this unit's, and agency is asked only for a seat and a thrown-away
-  session whose system prompt this unit hands in whole. The chat agent's `run_research` becomes this
-  unit's tool. That move is a plan of its own (`docs/plan.md`) and changes nothing of the loop above.
+- **The research runner is this unit's** (`docs/runner.md`): the search and browse instructions, the
+  rulebooks, the request, the research settings, the rounds, the branch allowance, the filing of the
+  document and the room's instruction, and the run's ledger and log. Agency supplies a seat of its co-worker
+  pool and thrown-away sessions on its search and browse lines, whose system prompt this unit hands in whole
+  and whose record carries the run's settings under the labels this unit names; it runs nothing of research
+  on its own.
+- **Every research goes through the one runner:** the chat agent's `research/run`, any caller of
+  `POST /research-runs`, and the daemon's own deep dive, which asks it on the road its settings name,
+  kakia's: provider `registered`, model `flash-next`. The deep dive reads the run's end from the runner's
+  ledger and the document from the run's row, and sends its own line to its rooms; a run it asks tells no
+  room itself.
 
 ## The bench lock
 
@@ -224,7 +227,7 @@ take; so its own area stays the research and the measurement, however many categ
 ## Language
 
 - **Every research is asked and answered in English.** The question templates under `prompts/` are English, so
-  the search runner writes its document in English, as its rules say a result follows the question's
+  the runner's search writes its document in English, as its rules say a result follows the question's
   language; the rulebooks, the brain rows a run writes and every record of the unit are English as the
   platform's are.
 - **What reaches the owner is Korean, rendered by the platform's translator.** Once a run's document is
@@ -255,30 +258,32 @@ take; so its own area stays the research and the measurement, however many categ
 ## Settings and store
 
 - **Settings** (`docs/settings.md`): the listen address, the data folder, the cadence, the cap, the
-  concurrency, the model road, the retry and restore waits, the assignees for benches by node, the bench
-  watch, and the addresses and token files of agency, explorer's tool host, the artifact service, the
-  receiver, the job service and the arbiter's master, whose picture shows every node's card. Every address
-  and token file is read from the data root's `env/` files the other units already keep, named in the
-  settings, never copied.
+  concurrency, the model road, the retry and restore waits, the bench watch, the runner's seat role and
+  capabilities, the research settings' defaults, and the addresses and token files of agency, the tool
+  host's control socket, the artifact service, the receiver and the arbiter's master, whose picture shows
+  every node's card. Every address and token file is read from the files the other units already keep,
+  named in the settings, never copied.
 - **The store** (`docs/store.md`): SQLite under the data root's `research/` folder: `categories`,
   `sources`, `seen`, `queue`, `runs`, `reports`, `rooms`, `facts` (the economy category's figures),
-  `stack` (the security category's inventory). Schema versioned and migrated at start.
+  `stack` (the security category's inventory), and the runner's `research_runs`, `research_log`,
+  `research_holds` and `research_settings`. Schema versioned and migrated at start.
 
 ## The routes and the tools
 
 `docs/api.md` is the contract: `/health`, `/categories`, `/sources`, `/queue` and `/queue/{item}` (ask,
 dismiss, taken, reorder), `/runs`, `/rooms`, `/facts`, `/stack`, `/state` (running or stopped, whole or by
-category, with `PATCH` to stop and resume, and what holds the queue while a bench stands). The tools the
-tool host places under the namespace `research` are the chat agent's doors to the same: `research/ask`,
-`research/queue`, `research/taken`, `research/dismiss`, `research/categories`, `research/sources`,
-`research/rooms`, `research/stop`, `research/resume`; the owner-only ones hold a capability the chat line
-alone is given.
+category, with `PATCH` to stop and resume, and what holds the queue while a bench stands), and the runner's
+`/research-runs`, `/research-settings` and `/branches`. The tools the tool host places under the namespace
+`research` are the chat agent's doors to the same: `research/ask`, `research/queue`, `research/taken`,
+`research/dismiss`, `research/categories`, `research/sources`, `research/rooms`, `research/stop`,
+`research/resume` and `research/run`; the owner-only ones hold a capability the chat line alone is given. A
+search run is shown `research/rulebook`, the reader of the rulebooks its record names.
 
 ## Phases
 
-1. **The daemon with the loop on agency's runner:** sources, scan, queue, the deep dive asked of agency on
-   kakia's road, the notices to the owner's room, the tools, the deploy. The verification is the chat
+1. **The daemon with the loop:** sources, scan, queue, the deep dive on kakia's road, the notices to the
+   owner's room, the tools, the deploy. The verification is the chat
    agent's to file on the owner's word; the bench lock is the worker skill's by hand, as today.
 2. **The bench lock and the tiers:** the `bench` occupant in the arbiter's rules at tier 1, every service
    at 2, the skill's bench steps on tickets, the n3–n6 rule in the daemon, the restore wait.
-3. **The runner moves here** from agency (`docs/plan.md`).
+3. **The runner is this unit's** (`docs/runner.md`): agency supplies seats and thrown-away sessions alone.

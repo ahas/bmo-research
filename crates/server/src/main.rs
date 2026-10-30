@@ -182,6 +182,10 @@ async fn serve() -> Result<(), String> {
   let store = Store::open(&settings.store_dir())?;
   let listen = settings.listen.clone();
   let app = App::new(settings, store, token);
+  let cut = research_server::runner::sweep(&app).await;
+  if cut > 0 {
+    eprintln!("bmo-research: {cut} research runs left open were closed as cut");
+  }
   let listener = tokio::net::TcpListener::bind(&listen).await.map_err(|e| format!("{listen}: {e}"))?;
   eprintln!("bmo-research: serving on http://{listen}");
   tokio::spawn(research_server::dive::daemon(app.clone()));

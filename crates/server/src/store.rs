@@ -1,13 +1,14 @@
 //! The daemon's store: the categories and their recipients, the sources, the candidates seen, the queue, the
-//! tries, the reports, the facts and the stack, in SQLite under the data root (`docs/store.md`).
+//! tries, the reports, the facts and the stack, and the runner's research runs, their log, what they hold of
+//! agency and the research settings, in SQLite under the data root (`docs/store.md`).
 
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use bmo_research_client::{
   Category, CategoryChange, CategoryShape, CategoryState, DaemonState, Fact, Filter, Item, ItemState,
-  NewCategory, NewSource, NewStackRow, Page, Recipient, RecipientKind, Run, Running, Shape, Source,
-  SourceChange, StackRow,
+  NewCategory, NewSource, NewStackRow, Page, Recipient, RecipientKind, ResearchLogLine, ResearchRunState,
+  ResearchRunView, Run, Running, Shape, Source, SourceChange, StackRow,
 };
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
@@ -15,7 +16,8 @@ use crate::sources::{Candidate, ItemKind};
 
 /// The schema's steps, each bringing the store one version up; the version is how many have been taken. The
 /// first registers the three categories the unit starts with, so a category taken away is not brought back;
-/// the second keeps an item's Korean rendering and its pending tries.
+/// the second keeps an item's Korean rendering and its pending tries; the third holds the runner's research
+/// runs, their log, what they hold of agency and the owner's research settings.
 const MIGRATIONS: &[&str] = &[
   "
   create table categories (
@@ -72,6 +74,24 @@ const MIGRATIONS: &[&str] = &[
   alter table queue add column ko_share_url text;
   alter table queue add column translation_tries integer not null default 0;
   alter table queue add column translation_retry_at integer;
+",
+  "
+  create table research_runs (
+    id integer primary key autoincrement, key text not null, line text not null, query text not null,
+    asker text, options text, room_id integer, provider text not null, model text not null,
+    state text not null, outcome text, error text, started_at integer not null, closes_at integer,
+    finished_at integer, branches_allowed integer not null, branches integer not null default 0,
+    record text not null, tells integer not null, turns text not null default '[]', written text,
+    document_id integer, title text, description text, link text);
+  create index research_runs_state on research_runs (state);
+  create table research_log (
+    id integer primary key autoincrement, run_id integer not null, at integer not null, kind text not null,
+    text text not null);
+  create index research_log_run on research_log (run_id, id);
+  create table research_holds (
+    id integer primary key autoincrement, run_id integer not null, kind text not null, value text not null);
+  create index research_holds_run on research_holds (run_id);
+  create table research_settings (id integer primary key, value text not null);
 ",
 ];
 
@@ -138,6 +158,90 @@ pub struct Filed {
   pub touches: Option<String>,
   pub plan: Option<String>,
 }
+
+/// A research run as the runner opens it.
+#[derive(Debug, Clone)]
+pub struct NewResearchRun<'a> {
+  pub key: &'a str,
+  pub line: &'a str,
+  pub query: &'a str,
+  pub asker: Option<&'a str>,
+  pub options: Option<&'a str>,
+  pub room_id: Option<i64>,
+  pub provider: &'a str,
+  pub model: &'a str,
+  pub closes_at: i64,
+  pub branches_allowed: i64,
+  pub tells: bool,
+}
+
+/// A research run's row, whole (`docs/store.md`, `research_runs`).
+#[derive(Debug, Clone)]
+pub struct ResearchRunRow {
+  pub id: i64,
+  pub key: String,
+  pub line: String,
+  pub query: String,
+  pub asker: Option<String>,
+  pub options: Option<String>,
+  pub room_id: Option<i64>,
+  pub provider: String,
+  pub model: String,
+  pub state: ResearchRunState,
+  pub outcome: Option<String>,
+  pub error: Option<String>,
+  pub started_at: i64,
+  pub closes_at: Option<i64>,
+  pub finished_at: Option<i64>,
+  pub branches_allowed: i64,
+  pub branches: i64,
+  pub record: serde_json::Value,
+  pub tells: bool,
+  pub turns: Vec<String>,
+  pub written: Option<String>,
+  pub document_id: Option<i64>,
+  pub title: Option<String>,
+  pub description: Option<String>,
+  pub link: Option<String>,
+}
+
+impl ResearchRunRow {
+  /// The run as its route answers it.
+  pub fn view(&self) -> ResearchRunView {
+    ResearchRunView {
+      run_id: self.id,
+      key: self.key.clone(),
+      query: self.query.clone(),
+      asker: self.asker.clone(),
+      room_id: self.room_id,
+      provider: self.provider.clone(),
+      model: self.model.clone(),
+      state: self.state,
+      outcome: self.outcome.clone(),
+      started_at: self.started_at,
+      closes_at: self.closes_at,
+      finished_at: self.finished_at,
+      document_id: self.document_id,
+      link: self.link.clone(),
+      error: self.error.clone(),
+      branches: self.branches,
+      turns: self.turns.clone(),
+    }
+  }
+}
+
+/// The document a closing run filed: its id, its head and its share link.
+#[derive(Debug, Clone, Default)]
+pub struct RunDocument {
+  pub id: i64,
+  pub title: String,
+  pub description: Option<String>,
+  pub link: String,
+}
+
+const RESEARCH_RUN_COLUMNS: &str = "id, key, line, query, asker, options, room_id, provider, model, state,
+  outcome, error, started_at, closes_at, finished_at, branches_allowed, branches, record, tells, turns, written,
+  document_id, title, description, link";
 
 /// The shape an item of a category is asked in: the category's, and in a `manual-or-investigation`
 /// category the one its item kind takes.
@@ -1138,6 +1242,280 @@ impl Store {
       .map_err(|e| e.to_string())?;
     Ok(page(rows, limit))
   }
+
+  // The runner's research runs.
+
+  /// A research run opened, waiting for its seat, with the record its sessions carry: its id.
+  pub fn open_research_run(&self, new: &NewResearchRun<'_>) -> Result<i64, String> {
+    let conn = self.lock();
+    conn
+      .execute(
+        "insert into research_runs (key, line, query, asker, options, room_id, provider, model, state,
+           started_at, closes_at, branches_allowed, record, tells)
+         values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'waiting', ?9, ?10, ?11, '{}', ?12)",
+        params![
+          new.key,
+          new.line,
+          new.query,
+          new.asker,
+          new.options,
+          new.room_id,
+          new.provider,
+          new.model,
+          now_ms(),
+          new.closes_at,
+          new.branches_allowed,
+          new.tells
+        ],
+      )
+      .map_err(|e| e.to_string())?;
+    Ok(conn.last_insert_rowid())
+  }
+
+  /// The run's road and the record its sessions carry, once its seat answered them.
+  pub fn keep_research_road(
+    &self,
+    id: i64,
+    provider: &str,
+    model: &str,
+    record: &serde_json::Value,
+  ) -> Result<(), String> {
+    self
+      .lock()
+      .execute(
+        "update research_runs set provider = ?2, model = ?3, record = ?4 where id = ?1",
+        params![id, provider, model, record.to_string()],
+      )
+      .map_err(|e| e.to_string())?;
+    Ok(())
+  }
+
+  pub fn research_run(&self, id: i64) -> Result<ResearchRunRow, Refusal> {
+    self
+      .lock()
+      .query_row(
+        &format!("select {RESEARCH_RUN_COLUMNS} from research_runs where id = ?1"),
+        params![id],
+        read_research_run,
+      )
+      .optional()?
+      .ok_or_else(|| Refusal::NotFound(format!("no research run {id}")))
+  }
+
+  /// Every research run not yet closed.
+  pub fn open_research_runs(&self) -> Result<Vec<ResearchRunRow>, String> {
+    let conn = self.lock();
+    let mut stmt = conn
+      .prepare(&format!(
+        "select {RESEARCH_RUN_COLUMNS} from research_runs where state != 'closed' order by id"
+      ))
+      .map_err(|e| e.to_string())?;
+    stmt
+      .query_map([], read_research_run)
+      .map_err(|e| e.to_string())?
+      .collect::<Result<Vec<_>, _>>()
+      .map_err(|e| e.to_string())
+  }
+
+  /// A waiting run let in: running from now.
+  pub fn research_running(&self, id: i64) -> Result<(), String> {
+    self
+      .lock()
+      .execute(
+        "update research_runs set state = 'running' where id = ?1 and state = 'waiting'",
+        params![id],
+      )
+      .map_err(|e| e.to_string())?;
+    Ok(())
+  }
+
+  /// A turn the run went out under, by its name, and the answer it wrote last where it wrote one.
+  pub fn keep_research_turn(&self, id: i64, name: &str, written: Option<&str>) -> Result<(), String> {
+    let mut conn = self.lock();
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    let turns: String = tx
+      .query_row("select turns from research_runs where id = ?1", params![id], |r| r.get(0))
+      .map_err(|e| e.to_string())?;
+    let mut turns: Vec<String> = serde_json::from_str(&turns).unwrap_or_default();
+    turns.push(name.to_string());
+    tx.execute(
+      "update research_runs set turns = ?2, written = coalesce(?3, written) where id = ?1",
+      params![id, serde_json::to_string(&turns).unwrap_or_default(), written],
+    )
+    .map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())
+  }
+
+  /// One branch counted against a running run's allowance: its index, or none where the allowance is spent.
+  pub fn count_branch(&self, id: i64) -> Result<Option<i64>, String> {
+    let conn = self.lock();
+    let changed = conn
+      .execute(
+        "update research_runs set branches = branches + 1 where id = ?1 and branches < branches_allowed",
+        params![id],
+      )
+      .map_err(|e| e.to_string())?;
+    if changed == 0 {
+      return Ok(None);
+    }
+    conn
+      .query_row("select branches from research_runs where id = ?1", params![id], |r| r.get(0))
+      .map(Some)
+      .map_err(|e| e.to_string())
+  }
+
+  /// A run closed with its outcome, why it failed, and the document it filed; false where it was closed
+  /// already.
+  pub fn close_research_run(
+    &self,
+    id: i64,
+    outcome: &str,
+    error: Option<&str>,
+    document: Option<&RunDocument>,
+  ) -> Result<bool, String> {
+    let changed = self
+      .lock()
+      .execute(
+        "update research_runs set state = 'closed', outcome = ?2, error = ?3, finished_at = ?4,
+           document_id = ?5, title = ?6, description = ?7, link = ?8
+         where id = ?1 and state != 'closed'",
+        params![
+          id,
+          outcome,
+          error,
+          now_ms(),
+          document.map(|d| d.id),
+          document.map(|d| d.title.as_str()),
+          document.and_then(|d| d.description.as_deref()),
+          document.map(|d| d.link.as_str())
+        ],
+      )
+      .map_err(|e| e.to_string())?;
+    Ok(changed > 0)
+  }
+
+  /// A line of a run's log.
+  pub fn log_research(&self, run_id: i64, kind: &str, text: &str) -> Result<(), String> {
+    self
+      .lock()
+      .execute(
+        "insert into research_log (run_id, at, kind, text) values (?1, ?2, ?3, ?4)",
+        params![run_id, now_ms(), kind, text],
+      )
+      .map_err(|e| e.to_string())?;
+    Ok(())
+  }
+
+  pub fn research_log(&self, run_id: i64) -> Result<Vec<ResearchLogLine>, String> {
+    let conn = self.lock();
+    let mut stmt = conn
+      .prepare("select id, run_id, at, kind, text from research_log where run_id = ?1 order by id")
+      .map_err(|e| e.to_string())?;
+    stmt
+      .query_map(params![run_id], |r| {
+        Ok(ResearchLogLine {
+          id: r.get(0)?,
+          run_id: r.get(1)?,
+          at: r.get(2)?,
+          kind: r.get(3)?,
+          text: r.get(4)?,
+        })
+      })
+      .map_err(|e| e.to_string())?
+      .collect::<Result<Vec<_>, _>>()
+      .map_err(|e| e.to_string())
+  }
+
+  /// A seat or a session the run holds of agency, kept until it is given back.
+  pub fn hold(&self, run_id: i64, kind: &str, value: &str) -> Result<(), String> {
+    self
+      .lock()
+      .execute(
+        "insert into research_holds (run_id, kind, value) values (?1, ?2, ?3)",
+        params![run_id, kind, value],
+      )
+      .map_err(|e| e.to_string())?;
+    Ok(())
+  }
+
+  /// A hold given back.
+  pub fn let_go(&self, run_id: i64, kind: &str, value: &str) -> Result<(), String> {
+    self
+      .lock()
+      .execute(
+        "delete from research_holds where run_id = ?1 and kind = ?2 and value = ?3",
+        params![run_id, kind, value],
+      )
+      .map_err(|e| e.to_string())?;
+    Ok(())
+  }
+
+  /// What a run still holds, each kind and value, in the order it was taken.
+  pub fn holds(&self, run_id: i64) -> Result<Vec<(String, String)>, String> {
+    let conn = self.lock();
+    let mut stmt = conn
+      .prepare("select kind, value from research_holds where run_id = ?1 order by id")
+      .map_err(|e| e.to_string())?;
+    stmt
+      .query_map(params![run_id], |r| Ok((r.get(0)?, r.get(1)?)))
+      .map_err(|e| e.to_string())?
+      .collect::<Result<Vec<_>, _>>()
+      .map_err(|e| e.to_string())
+  }
+
+  /// The research settings the owner last set, as kept; none where he set none.
+  pub fn kept_research_settings(&self) -> Result<Option<String>, String> {
+    self
+      .lock()
+      .query_row("select value from research_settings where id = 1", [], |r| r.get(0))
+      .optional()
+      .map_err(|e| e.to_string())
+  }
+
+  pub fn keep_research_settings(&self, value: &str) -> Result<(), String> {
+    self
+      .lock()
+      .execute(
+        "insert into research_settings (id, value) values (1, ?1)
+         on conflict (id) do update set value = excluded.value",
+        params![value],
+      )
+      .map_err(|e| e.to_string())?;
+    Ok(())
+  }
+}
+
+fn read_research_run(r: &rusqlite::Row<'_>) -> rusqlite::Result<ResearchRunRow> {
+  let state: String = r.get(9)?;
+  let record: String = r.get(17)?;
+  let turns: String = r.get(19)?;
+  Ok(ResearchRunRow {
+    id: r.get(0)?,
+    key: r.get(1)?,
+    line: r.get(2)?,
+    query: r.get(3)?,
+    asker: r.get(4)?,
+    options: r.get(5)?,
+    room_id: r.get(6)?,
+    provider: r.get(7)?,
+    model: r.get(8)?,
+    state: ResearchRunState::parse(&state).unwrap_or(ResearchRunState::Closed),
+    outcome: r.get(10)?,
+    error: r.get(11)?,
+    started_at: r.get(12)?,
+    closes_at: r.get(13)?,
+    finished_at: r.get(14)?,
+    branches_allowed: r.get(15)?,
+    branches: r.get(16)?,
+    record: serde_json::from_str(&record).unwrap_or_default(),
+    tells: r.get(18)?,
+    turns: serde_json::from_str(&turns).unwrap_or_default(),
+    written: r.get(20)?,
+    document_id: r.get(21)?,
+    title: r.get(22)?,
+    description: r.get(23)?,
+    link: r.get(24)?,
+  })
 }
 
 /// Up to `free` of a category's unqueued seen rows made waiting items, oldest found first.

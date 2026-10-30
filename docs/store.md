@@ -67,7 +67,7 @@ The items (`docs/api.md`, 「queue」).
 | `priority` | Its place in its category's queue, highest first |
 | `state` | Its state |
 | `tries`, `retry_at` | The tries made, and when the next may be made |
-| `run_id` | Agency's ledger run of the latest try |
+| `run_id` | The research run of the latest try |
 | `document_id`, `title`, `description`, `share_url` | The document the run filed, and its live link |
 | `ko_document_id`, `ko_share_url` | The Korean rendering's document and its live link, or null |
 | `translation_tries`, `translation_retry_at` | The renderings asked, and when a pending one may be asked again, or null where none is pending |
@@ -85,8 +85,8 @@ The items (`docs/api.md`, 「queue」).
 | `category` | The category it ran for |
 | `item_id`, `item_ids` | The item it was asked for, and every item it carries, a JSON list |
 | `try` | The try's number |
-| `run_id` | Agency's ledger run, or null where the ask was refused |
-| `state`, `outcome`, `error` | How it stands, agency's outcome, and why it failed |
+| `run_id` | The research run, or null where the ask was refused |
+| `state`, `outcome`, `error` | How it stands, the research run's outcome, and why it failed |
 | `started_at`, `ended_at` | When it was asked and when it ended |
 
 ## `reports`
@@ -122,7 +122,7 @@ The figures the economy briefs carried, a series a later reader takes in.
 | `name`, `value`, `unit` | The figure, as the brief wrote it |
 | `as_of` | The date it stands for, as the brief wrote it |
 | `source_address` | Where it was read |
-| `run_id` | Agency's ledger run whose brief held it |
+| `run_id` | The research run whose brief held it |
 | `document_id` | That brief's document |
 | `created_at` | When it was kept |
 
@@ -138,3 +138,47 @@ The platform's stack inventory, the ground an advisory is judged on.
 | `repository` | The repository that runs it, or null |
 | `worker` | The agent that keeps that repository, or null |
 | `added_at` | When it was added |
+
+## `research_runs`
+
+The runner's ledger (`docs/runner.md`): one row per research run.
+
+| Column | Holds |
+|---|---|
+| `id` | The run's key |
+| `key`, `line` | The research key it was asked at, and the line it goes out on |
+| `query`, `asker`, `options`, `room_id` | What was asked, by whom, with which options, and the room it is told to, or null |
+| `provider`, `model` | The road it goes out on |
+| `state`, `outcome`, `error` | `waiting`, `running` or `closed`; `answered`, `failed` or `cut` once closed; and why it failed |
+| `started_at`, `closes_at`, `finished_at` | When it was asked, when its web tools close, and when it closed |
+| `branches_allowed`, `branches` | How many branches it may open, and how many it opened |
+| `record` | The run's research record, the JSON object its sessions carry under `labels.research` |
+| `tells` | 1 where its end is told to its room, 0 for a run the deep dive asked |
+| `turns` | The names of the agency turns it went out under, a JSON list |
+| `written` | The answer it wrote last, kept for a cut run's room |
+| `document_id`, `title`, `description`, `link` | The document it filed, its head, and its share link |
+
+## `research_log`
+
+| Column | Holds |
+|---|---|
+| `id` | The line's key |
+| `run_id` | The research run it is about |
+| `at`, `kind`, `text` | When, which step (`docs/api.md`, 「research runs」), and what it says |
+
+## `research_holds`
+
+What a research run holds of agency while it stands, so a restart gives it back.
+
+| Column | Holds |
+|---|---|
+| `id` | The hold's key |
+| `run_id` | The research run |
+| `kind`, `value` | `seat` and the seat's token, or `session` and the session's id |
+
+## `research_settings`
+
+| Column | Holds |
+|---|---|
+| `id` | 1, the one row |
+| `value` | The research settings as the owner last set them, a JSON object |

@@ -1,0 +1,39 @@
+# The words a research run's document is written in for its reader (docs/runner.md, 「The document」): one
+# table per language a question is asked in, each the headings and labels the document's
+# blocks and entry lines stand under. A question in a language with no table of its own is written in `en`.
+
+[ko]
+answer = "핵심 답"
+brief_answer = "답"
+summary = "세 줄 요약"
+grounds = "근거"
+unconfirmed = "확인하지 못한 것"
+sources = "출처"
+address = "주소"
+map = "지도"
+roadview = "로드뷰"
+menu = "메뉴"
+released = "출시"
+newer = "후속 모델"
+stock = "판매 상태"
+deal = "할인"
+review = "후기"
+news = "신제품·가격 소식"
+
+[en]
+answer = "The answer"
+brief_answer = "The answer"
+summary = "In three lines"
+grounds = "Grounds"
+unconfirmed = "Not confirmed"
+sources = "Sources"
+address = "Address"
+map = "Map"
+roadview = "Street view"
+menu = "Menu"
+released = "Released"
+newer = "Newer model"
+stock = "Stock"
+deal = "Deal"
+review = "Review"
+news = "New products and prices"

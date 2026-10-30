@@ -1,5 +1,5 @@
 [Unit]
-Description=bmo-research: the platform's research unit — the queue, the scan, the deep dive on agency's runner and the notices
+Description=bmo-research: the platform's research unit — the queue, the scan, the research runner, the deep dive and the notices
 After=network-online.target
 # Without its settings the daemon would run on defaults alone, so the unit does not start where the
 # deployment linked none.

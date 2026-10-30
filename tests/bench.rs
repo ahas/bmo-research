@@ -1,4 +1,4 @@
-//! The bench watch against stand-in agency, artifact, receiver and arbiter servers (`docs/api.md`,
+//! The bench watch against stand-in agency, artifact, receiver, tool host and arbiter servers (`docs/api.md`,
 //! 「The bench」): the queue held while a bench's ticket stands on a watched node and said so in the state,
 //! the wait on the model's health before it goes on, a try the bench cut put back without counting it, and
 //! the owner's room told once where the model stays down.
@@ -40,7 +40,7 @@ fn file(ground: &Ground, run: i64, id: i64) {
 }
 
 fn asks(ground: &Ground) -> usize {
-  ground.asked_path("agency", "POST", "/research-runs").len()
+  ground.run_seats().len()
 }
 
 fn restore_notices(ground: &Ground) -> Vec<Value> {
@@ -60,7 +60,7 @@ async fn a_bench_on_the_model_s_node_holds_the_queue_and_the_state_says_why() {
     .store
     .ask("it", "example.org/a", "A", "https://example.org/a", Shape::Investigation)
     .unwrap();
-  file(&ground, 101, 11);
+  file(&ground, 1, 11);
   stand(&ground, "n4", &["lab-arena", "bench"]);
 
   settle(&ground).await;
@@ -106,7 +106,7 @@ async fn the_queue_waits_on_the_model_s_health_after_the_bench_and_goes_on_once_
     .store
     .ask("it", "example.org/a", "A", "https://example.org/a", Shape::Investigation)
     .unwrap();
-  file(&ground, 101, 11);
+  file(&ground, 1, 11);
   stand(&ground, "n3", &["bench"]);
   settle(&ground).await;
   assert_eq!(asks(&ground), 0);
@@ -144,20 +144,20 @@ async fn a_try_the_bench_cut_waits_again_uncounted_and_runs_once_the_model_is_ba
     .unwrap();
   {
     let mut world = ground.world.lock().unwrap();
-    world.outcomes.insert(101, "cut".into());
-    world.open_polls = u32::MAX;
+    world.failing.insert(1);
+    world.holding = true;
   }
-  file(&ground, 102, 12);
+  file(&ground, 2, 12);
 
   let carried = tick(&ground.app).await;
   for _ in 0..100 {
-    if !ground.asked_path("agency", "GET", "/runs/101").is_empty() {
+    if !ground.turns_named("research-1").is_empty() {
       break;
     }
     tokio::time::sleep(std::time::Duration::from_millis(10)).await;
   }
   stand(&ground, "n3", &["bench"]);
-  ground.world.lock().unwrap().open_polls = 0;
+  ground.world.lock().unwrap().holding = false;
   for handle in carried {
     handle.await.unwrap();
   }
@@ -166,7 +166,7 @@ async fn a_try_the_bench_cut_waits_again_uncounted_and_runs_once_the_model_is_ba
   assert_eq!((waiting.state, waiting.tries, waiting.retry_at), (ItemState::Waiting, 0, None));
   assert!(waiting.error.unwrap().contains("not counted"));
   let runs = ground.app.store.runs(Some(item.id), None, None, 10).unwrap().items;
-  assert_eq!((runs[0].state.as_str(), runs[0].outcome.as_deref()), ("cut", Some("cut")));
+  assert_eq!((runs[0].state.as_str(), runs[0].outcome.as_deref()), ("failed", Some("failed")));
 
   settle(&ground).await;
   assert_eq!(asks(&ground), 1, "nothing runs while the bench stands");
@@ -188,7 +188,7 @@ async fn a_try_failing_while_the_model_does_not_answer_is_not_counted_and_waits_
     .unwrap();
   {
     let mut world = ground.world.lock().unwrap();
-    world.run_answers.push_back(503);
+    world.session_answers.push_back(503);
     world.healthy = false;
   }
   settle(&ground).await;
@@ -200,7 +200,7 @@ async fn a_try_failing_while_the_model_does_not_answer_is_not_counted_and_waits_
 
   // With the model answering, a refusal is counted as any other failure.
   ground.world.lock().unwrap().healthy = true;
-  ground.world.lock().unwrap().run_answers.push_back(503);
+  ground.world.lock().unwrap().session_answers.push_back(503);
   settle(&ground).await;
   assert_eq!(asks(&ground), 2);
   let counted = ground.app.store.item(item.id).unwrap();

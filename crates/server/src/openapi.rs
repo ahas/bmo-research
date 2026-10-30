@@ -48,6 +48,7 @@ const fn query(name: &'static str, kind: &'static str, description: &'static str
 }
 
 const CATEGORY: Param = path("categoryName", "the category's name");
+const RUN: Param = path("runId", "the research run's id");
 const LIMIT: Param = query("limit", "integer", "50 where none is named, at most 200");
 
 /// Every operation, in the order the document lists them.
@@ -356,6 +357,72 @@ pub const OPERATIONS: &[Operation] = &[
     answer: (200, Some("FactPage")),
     codes: &["bad-request", "failed"],
   },
+  Operation {
+    method: "POST",
+    path: "/research-runs",
+    id: "createResearchRun",
+    tag: "research runs",
+    summary: "Ask a research: a search at a depth or a browse, answered at once.",
+    params: &[],
+    body: Some("ResearchRunAsk"),
+    answer: (202, Some("ResearchRun")),
+    codes: &["bad-request", "unavailable", "failed"],
+  },
+  Operation {
+    method: "GET",
+    path: "/research-runs/{runId}",
+    id: "getResearchRun",
+    tag: "research runs",
+    summary: "One research run.",
+    params: &[RUN],
+    body: None,
+    answer: (200, Some("ResearchRunView")),
+    codes: &["bad-request", "not-found", "failed"],
+  },
+  Operation {
+    method: "GET",
+    path: "/research-runs/{runId}/log-lines",
+    id: "getResearchLog",
+    tag: "research runs",
+    summary: "A research run's log, oldest first.",
+    params: &[RUN],
+    body: None,
+    answer: (200, Some("ResearchLog")),
+    codes: &["bad-request", "not-found", "failed"],
+  },
+  Operation {
+    method: "POST",
+    path: "/branches",
+    id: "createBranch",
+    tag: "research runs",
+    summary: "Open a branch of a research run, answered once it ends.",
+    params: &[],
+    body: Some("BranchAsk"),
+    answer: (200, Some("BranchEnd")),
+    codes: &["bad-request", "not-found", "branch-refused", "failed"],
+  },
+  Operation {
+    method: "GET",
+    path: "/research-settings",
+    id: "getResearchSettings",
+    tag: "research settings",
+    summary: "The settings every research run is held to, with the search engines' state.",
+    params: &[],
+    body: None,
+    answer: (200, Some("ResearchSettings")),
+    codes: &["failed"],
+  },
+  Operation {
+    method: "PUT",
+    path: "/research-settings",
+    id: "putResearchSettings",
+    tag: "research settings",
+    summary: "Change the research settings; a field left out keeps what it holds.",
+    params: &[],
+    body: Some("ResearchSettingsChange"),
+    answer: (200, Some("ResearchSettings")),
+    codes: &["bad-request", "upstream-failed", "failed"],
+  },
 ];
 
 fn schema(g: &mut SchemaGenerator, name: &str) -> Schema {
@@ -384,6 +451,14 @@ fn schema(g: &mut SchemaGenerator, name: &str) -> Schema {
     "StackPage" => g.subschema_for::<Page<StackRow>>(),
     "NewStackRow" => g.subschema_for::<NewStackRow>(),
     "FactPage" => g.subschema_for::<Page<Fact>>(),
+    "ResearchRunAsk" => g.subschema_for::<ResearchRunAsk>(),
+    "ResearchRun" => g.subschema_for::<ResearchRun>(),
+    "ResearchRunView" => g.subschema_for::<ResearchRunView>(),
+    "ResearchLog" => g.subschema_for::<ResearchLog>(),
+    "BranchAsk" => g.subschema_for::<BranchAsk>(),
+    "BranchEnd" => g.subschema_for::<BranchEnd>(),
+    "ResearchSettings" => g.subschema_for::<ResearchSettings>(),
+    "ResearchSettingsChange" => g.subschema_for::<ResearchSettingsChange>(),
     other => panic!("the document names no type {other}"),
   }
 }
@@ -394,9 +469,10 @@ fn status_of(code: &str) -> u16 {
     "bad-request" => 400,
     "unauthorized" => 401,
     "no-route" | "not-found" => 404,
-    "conflict" => 409,
+    "conflict" | "branch-refused" => 409,
     "failed" => 500,
     "upstream-failed" => 502,
+    "unavailable" => 503,
     _ => 422,
   }
 }
@@ -416,20 +492,32 @@ fn response_name(code: &str) -> String {
 }
 
 const DESCRIPTION: &str = "The research unit: a daemon that keeps a queue of things to research by category, reads \
-  the sources the owner registers, has each item researched on agency's runner in its category's shape, and tells \
+  the sources the owner registers, has each item researched by its own runner in its category's shape, and tells \
   the category's recipients. It files no job and launches nothing.";
 
 /// The calls the unit makes, by unit and route (docs/api.md, 「Calls this unit makes」).
 const CALLS: &[(&str, &str)] = &[
-  ("agency", "POST /research-runs"),
-  ("agency", "GET /runs/{runId}"),
+  ("agency", "POST /seat-requests"),
+  ("agency", "PATCH /seat-requests/{token}"),
+  ("agency", "POST /sessions"),
   ("agency", "POST /sessions/{sessionId}/turns"),
+  ("agency", "DELETE /sessions/{sessionId}"),
+  ("agency", "GET /roles"),
+  ("agency", "GET /models/{registration}"),
+  ("agency", "POST /translation-runs"),
   ("artifact", "GET /documents"),
+  ("artifact", "POST /documents"),
+  ("artifact", "PATCH /documents/{documentId}"),
+  ("artifact", "POST /documents/{documentId}/attachments"),
   ("artifact", "GET /documents/{documentId}/content"),
   ("artifact", "GET /shares"),
   ("artifact", "POST /shares"),
   ("receiver", "GET /owner"),
   ("receiver", "POST /instructions"),
+  ("tool-host", "GET /namespaces/{namespace}/tools"),
+  ("tool-host", "POST /tool-sessions"),
+  ("tool-host", "POST /tool-calls"),
+  ("tool-host", "DELETE /tool-sessions/{token}"),
 ];
 
 /// The unit's OpenAPI document.

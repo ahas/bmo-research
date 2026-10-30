@@ -1,7 +1,8 @@
 //! The research namespace's tool (`docs/api.md`, 「The tools」): one executable answering every entry of the
 //! namespace by calling the daemon's routes, at the address and with the token the daemon's settings name
-//! under the data root the session record's `BMO_DATA_DIR` names. It speaks the tool host's call protocol 1:
-//! one request on standard input, one tool result on standard output.
+//! under the data root the session record's `BMO_DATA_DIR` names; the rulebook reader alone reads no route but
+//! the rulebooks placed beside the executable. It speaks the tool host's call protocol 1: one request on
+//! standard input, one tool result on standard output.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -31,7 +32,13 @@ pub const ENTRIES: &[&str] = &[
   "rooms",
   "stop",
   "resume",
+  "run",
+  "rulebook",
 ];
+
+/// The folder under which a rulebook is read: `prompts/rules` under the tool's working folder or the nearest
+/// folder above it holding one.
+pub const RULES: &str = "prompts/rules";
 
 /// A tool result: text for the model, marked as an error where it is a refusal.
 pub fn result(text: impl Into<String>, error: bool) -> Value {
@@ -110,6 +117,14 @@ pub async fn answer(handed: Value) -> Value {
     return result(format!("ERROR: this tool holds no entry {entry}"), true);
   };
   let session = &handed["session"];
+  let arguments = handed.get("arguments").cloned().unwrap_or_else(|| json!({}));
+  if name == "rulebook" {
+    let here = std::env::current_dir().unwrap_or_default();
+    return match rulebook(&here, &session["labels"], &arguments) {
+      Ok(text) => result(text, false),
+      Err(why) => result(why, true),
+    };
+  }
   let capabilities: BTreeSet<String> = session["capabilities"]
     .as_array()
     .map(|c| c.iter().filter_map(|c| c.as_str().map(String::from)).collect())
@@ -121,7 +136,6 @@ pub async fn answer(handed: Value) -> Value {
     Ok(d) => d,
     Err(why) => return result(format!("ERROR: the daemon's settings could not be read: {why}"), true),
   };
-  let arguments = handed.get("arguments").cloned().unwrap_or_else(|| json!({}));
   match call(&daemon.client(), name, &arguments, capabilities.contains(OWNER)).await {
     Ok(text) => result(text, false),
     Err(why) => result(why, true),
@@ -250,8 +264,59 @@ pub async fn call(
         .collect();
       Ok(lines.join("\n"))
     }
+    "run" => {
+      let ask = ResearchRunAsk {
+        key: need_text(arguments, "key")?,
+        query: need_text(arguments, "query")?,
+        asker: text(arguments, "asker"),
+        options: text(arguments, "options"),
+        room_id: arguments["roomId"].as_i64(),
+        provider: text(arguments, "provider"),
+        model: text(arguments, "model"),
+      };
+      let run = client.ask_research(&ask).await?;
+      let closes = run
+        .closes_at
+        .map(|at| format!(", its web tools closing at {at} (epoch ms)"))
+        .unwrap_or_default();
+      Ok(format!(
+        "Research run {} on {} is {} on {} · {}{closes}. Its result comes back to the room once it ends.",
+        run.run_id,
+        run.key,
+        run.state.as_str(),
+        run.provider,
+        run.model
+      ))
+    }
     other => Err(format!("this tool holds no entry research/{other}")),
   }
+}
+
+/// The folder holding `prompts/rules`: `here` or the nearest folder above it.
+pub fn rules_folder(here: &Path) -> Option<PathBuf> {
+  here.ancestors().map(|folder| folder.join(RULES)).find(|rules| rules.is_dir())
+}
+
+/// One rulebook the session record's `labels.research.rulebooks` names, whole, read from the rules folder
+/// found from `here`; a name the record does not name is refused with the names it does.
+pub fn rulebook(here: &Path, labels: &Value, arguments: &Value) -> Result<String, String> {
+  let name = need_text(arguments, "name")?;
+  let name = name.trim_end_matches(".md").rsplit('/').next().unwrap_or_default().to_string();
+  let handed: Vec<String> = labels["research"]["rulebooks"]
+    .as_array()
+    .map(|names| names.iter().filter_map(|n| n.as_str().map(String::from)).collect())
+    .unwrap_or_default();
+  if !handed.contains(&name) {
+    return Err(if handed.is_empty() {
+      format!("this run was handed no rulebook, so {name} is not read")
+    } else {
+      format!("{name} is no rulebook this run was handed: {}", handed.join(", "))
+    });
+  }
+  let folder = rules_folder(here).ok_or_else(|| format!("no {RULES} stands above {}", here.display()))?;
+  let path = folder.join(format!("{name}.md"));
+  let text = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+  Ok(format!("RULEBOOK prompts/rules/{name}.md:\n{text}"))
 }
 
 fn item_line(item: &Item) -> String {

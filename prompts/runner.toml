@@ -1,0 +1,45 @@
+# What the research runner composes a run of (docs/runner.md): the search rulebooks and the rounds.
+
+# The rulebooks a search is bound by, in this order, each named as it stands under prompts/rules/; the ones
+# binding only some searches, of which only the section deciding whether each applies stands in the
+# instructions, the run reading the rest with research/rulebook; and that section's heading. The
+# plain-writing and self-preservation rulebooks follow them whole.
+[search]
+rulebooks = ["search-kinds", "product-search", "restaurant-search", "investment-search", "study-material", "deep-dives", "research", "security-advisory", "economy-brief"]
+on_request = ["product-search", "restaurant-search", "investment-search", "study-material", "deep-dives", "research", "security-advisory", "economy-brief"]
+applies_section = "Whether this rulebook applies at all"
+plain_writing = "plain-writing"
+self_preservation = "self-preservation"
+
+# The rounds a run asks a session of their own after its first answer (docs/runner.md, 「The rounds」): the
+# questions by name, each a rule the session is asked, and each research key's list, the depth deciding how
+# hard an answer is checked. A list ends in `final` and holds it nowhere else. `ceiling_seconds` bounds the
+# rounds from the first answer; past it `past_ceiling` says what follows: `final` asks the final question at
+# once, `last` keeps the answer already written.
+[questions]
+what = "Decide what this task must establish: the question it asks, each part of that question, and what would count as an answer. Say plainly what the sources this run may read cannot reach."
+sources = "Name the sources the answer needs: the kind of page or document each fact can come from, and the search wordings that reach them. Read them with the web tools; a page the run did not read is not a source."
+facts = "Check every fact the answer rests on against a second source where one exists, and mark what only one source states. Nothing undecided may stand as known: a value the run could not read is unknown, never guessed."
+coverage = "Check the answer against the task: every part of the question answered, each fact carrying the source it came from, and what could not be confirmed said plainly. Name what still has to be found."
+establish = "Write the facts and knowledge this run established into the shared brain with brain_learn, each with its source, after brain_similar shows the rows like it: a duplicate is confirmed or strengthened, a contradiction is closed. Then say which rows were written."
+final = "Write the result now: the whole answer to the task, in the form the task asks for, resting only on the facts established above and citing the sources read. This answer is the run's result."
+
+[rounds."search:basic"]
+rounds = ["final"]
+ceiling_seconds = 900
+past_ceiling = "final"
+
+[rounds."search:thorough"]
+rounds = ["what", "sources", "facts", "coverage", "establish", "final"]
+ceiling_seconds = 900
+past_ceiling = "final"
+
+[rounds."search:exhaustive"]
+rounds = ["what", "sources", "facts", "coverage", "establish", "final"]
+ceiling_seconds = 900
+past_ceiling = "final"
+
+[rounds.browse]
+rounds = ["what", "sources", "facts", "coverage", "establish", "final"]
+ceiling_seconds = 900
+past_ceiling = "final"

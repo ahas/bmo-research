@@ -1,19 +1,24 @@
 //! The research unit's daemon: its settings, its store, the source readers and the scan, the deep dive and
-//! its notices, the bench watch, the readings of a filed document and its Korean rendering, the routes and
-//! the OpenAPI document (`docs/api.md`).
+//! its notices, the bench watch, the readings of a filed document and its Korean rendering, the research
+//! runner with its branches, its documents and the tool host it reads, the routes and the OpenAPI document
+//! (`docs/api.md`).
 
 use std::sync::Arc;
 
 pub mod bench;
+pub mod branches;
 pub mod config;
 pub mod dive;
+pub mod document;
 pub mod openapi;
 pub mod peers;
 pub mod reading;
 pub mod routes;
+pub mod runner;
 pub mod scan;
 pub mod sources;
 pub mod store;
+pub mod tool_host;
 pub mod translation;
 pub mod words;
 

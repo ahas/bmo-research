@@ -1,8 +1,8 @@
 //! The research unit's types and client, as `docs/api.md` states them.
 //!
 //! The daemon keeps a queue of things to research by category: the categories and their recipients, the
-//! sources it reads, the items it queued, the tries it asked of agency's runner, the stack an advisory is
-//! judged on and the facts the briefs kept.
+//! sources it reads, the items it queued, the tries it asked of the runner, the stack an advisory is judged
+//! on and the facts the briefs kept; and the runner's research runs, their branches and their settings.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -297,7 +297,7 @@ pub struct Fact {
   pub unit: Option<String>,
   pub as_of: Option<String>,
   pub source_address: Option<String>,
-  /// agency's ledger run whose brief held it
+  /// the research run whose brief held it
   pub run_id: Option<i64>,
   pub document_id: Option<i64>,
   pub created_at: i64,
@@ -453,7 +453,7 @@ pub struct Item {
   pub state: ItemState,
   pub tries: i64,
   pub retry_at: Option<i64>,
-  /// agency's ledger run of the latest try
+  /// the research run of the latest try
   pub run_id: Option<i64>,
   pub document_id: Option<i64>,
   pub title: Option<String>,
@@ -520,6 +520,219 @@ pub struct Run {
   pub error: Option<String>,
   pub started_at: i64,
   pub ended_at: Option<i64>,
+}
+
+/// A research asked of the runner (`docs/api.md`, 「research runs」).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ResearchRunAsk {
+  /// `search:basic`, `search:thorough`, `search:exhaustive` or `browse`
+  pub key: String,
+  pub query: String,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub asker: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub options: Option<String>,
+  /// the room the result is told to; the owner's private room where none is named
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub room_id: Option<i64>,
+  /// the provider the run goes out on; the seat's where none is named
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub provider: Option<String>,
+  /// the model the run goes out on; the seat's where none is named
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub model: Option<String>,
+}
+
+/// Where a research run stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum ResearchRunState {
+  Waiting,
+  Running,
+  Closed,
+}
+
+impl ResearchRunState {
+  pub fn as_str(self) -> &'static str {
+    match self {
+      ResearchRunState::Waiting => "waiting",
+      ResearchRunState::Running => "running",
+      ResearchRunState::Closed => "closed",
+    }
+  }
+
+  pub fn parse(word: &str) -> Option<ResearchRunState> {
+    [ResearchRunState::Waiting, ResearchRunState::Running, ResearchRunState::Closed]
+      .into_iter()
+      .find(|state| state.as_str() == word)
+  }
+}
+
+/// A research run as it was asked: its id, its key, its seat's state, its road and when its web tools close.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ResearchRun {
+  pub run_id: i64,
+  pub key: String,
+  pub state: ResearchRunState,
+  pub provider: String,
+  pub model: String,
+  /// epoch milliseconds; when its web tools close
+  pub closes_at: Option<i64>,
+}
+
+/// One research run as the runner's ledger holds it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ResearchRunView {
+  pub run_id: i64,
+  pub key: String,
+  pub query: String,
+  pub asker: Option<String>,
+  pub room_id: Option<i64>,
+  pub provider: String,
+  pub model: String,
+  pub state: ResearchRunState,
+  /// `answered`, `failed` or `cut`; null while the run is open
+  pub outcome: Option<String>,
+  /// epoch milliseconds
+  pub started_at: i64,
+  /// epoch milliseconds; when its web tools close
+  pub closes_at: Option<i64>,
+  /// epoch milliseconds
+  pub finished_at: Option<i64>,
+  pub document_id: Option<i64>,
+  /// the filed document's share link
+  pub link: Option<String>,
+  pub error: Option<String>,
+  /// how many branches it opened
+  pub branches: i64,
+  /// the names of the agency turns it went out under
+  pub turns: Vec<String>,
+}
+
+/// One line of a research run's log.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ResearchLogLine {
+  pub id: i64,
+  pub run_id: i64,
+  /// epoch milliseconds
+  pub at: i64,
+  /// `asked`, `seated`, `answer`, `round`, `branch`, `filed`, `told` or `ended`
+  pub kind: String,
+  pub text: String,
+}
+
+/// A research run's log, oldest first.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ResearchLog {
+  pub items: Vec<ResearchLogLine>,
+}
+
+/// A branch asked of a research run.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct BranchAsk {
+  /// the research run's id
+  pub run: i64,
+  pub angle: String,
+}
+
+/// How a branch ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum BranchState {
+  Completed,
+  Stopped,
+  Failed,
+}
+
+/// A branch at its end: its index in its run, how it ended, what it wrote and why it failed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct BranchEnd {
+  /// counted from 1 per run
+  pub index: i64,
+  pub state: BranchState,
+  pub notes: String,
+  pub reason: Option<String>,
+}
+
+/// One research key's settings: its branches, its clock and its budget.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ResearchKeySettings {
+  pub key: String,
+  pub branches: i64,
+  pub minutes: i64,
+  /// the most pages the first answer fetches; none for no ceiling. Left out of a change, it keeps what the
+  /// key holds.
+  #[serde(default)]
+  pub pages: Option<i64>,
+  /// the most pages each branch fetches; none for no ceiling. Left out of a change, it keeps what the key
+  /// holds.
+  #[serde(default)]
+  pub branch_pages: Option<i64>,
+}
+
+/// One search engine's state, as the web tools answer it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchEngineState {
+  pub name: String,
+  #[serde(default)]
+  pub category: Option<String>,
+  pub state: String,
+  #[serde(default)]
+  pub reason: Option<String>,
+  #[serde(default)]
+  pub observed_at: Option<i64>,
+  #[serde(default)]
+  pub suspended_until: Option<i64>,
+}
+
+/// What every research run is held to, and the search engines' state.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ResearchSettings {
+  /// the co-worker role a branch is seated under
+  pub branch_role: String,
+  /// `direct-then-browser`, `browser-first` or `direct-only`
+  pub strategy: String,
+  /// null where the web tools' default stands
+  pub host_interval_ms: Option<i64>,
+  /// null where the web tools' default stands
+  pub engine_interval_ms: Option<i64>,
+  pub keys: Vec<ResearchKeySettings>,
+  /// `default` where the settings file's stand, `set` once changed
+  pub source: String,
+  /// null where they could not be read
+  pub engines: Option<Vec<SearchEngineState>>,
+  /// why the engines' state could not be read, where it could not
+  pub engines_unread: Option<String>,
+}
+
+fn present<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
+  given: D,
+) -> Result<Option<Option<T>>, D::Error> {
+  Option::<T>::deserialize(given).map(Some)
+}
+
+/// A change to the research settings: a field left out keeps what it holds, and a gap given as null returns
+/// to the web tools' default.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ResearchSettingsChange {
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub branch_role: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub strategy: Option<String>,
+  #[serde(default, deserialize_with = "present", skip_serializing_if = "Option::is_none")]
+  pub host_interval_ms: Option<Option<i64>>,
+  #[serde(default, deserialize_with = "present", skip_serializing_if = "Option::is_none")]
+  pub engine_interval_ms: Option<Option<i64>>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub keys: Option<Vec<ResearchKeySettings>>,
 }
 
 /// The unit's client, calling the routes `docs/api.md` states.
@@ -726,6 +939,35 @@ impl ResearchClient {
       query.push(("before", before.to_string()));
     }
     self.call(self.req(reqwest::Method::GET, "/facts").query(&query)).await
+  }
+
+  pub async fn ask_research(&self, ask: &ResearchRunAsk) -> Result<ResearchRun, String> {
+    self.call(self.req(reqwest::Method::POST, "/research-runs").json(ask)).await
+  }
+
+  pub async fn research_run(&self, id: i64) -> Result<ResearchRunView, String> {
+    self.call(self.req(reqwest::Method::GET, &format!("/research-runs/{id}"))).await
+  }
+
+  pub async fn research_log(&self, id: i64) -> Result<ResearchLog, String> {
+    self
+      .call(self.req(reqwest::Method::GET, &format!("/research-runs/{id}/log-lines")))
+      .await
+  }
+
+  pub async fn branch(&self, ask: &BranchAsk) -> Result<BranchEnd, String> {
+    self.call(self.req(reqwest::Method::POST, "/branches").json(ask)).await
+  }
+
+  pub async fn research_settings(&self) -> Result<ResearchSettings, String> {
+    self.call(self.req(reqwest::Method::GET, "/research-settings")).await
+  }
+
+  pub async fn set_research_settings(
+    &self,
+    change: &ResearchSettingsChange,
+  ) -> Result<ResearchSettings, String> {
+    self.call(self.req(reqwest::Method::PUT, "/research-settings").json(change)).await
   }
 
   async fn empty(&self, r: reqwest::RequestBuilder) -> Result<(), String> {

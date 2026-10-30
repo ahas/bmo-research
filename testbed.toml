@@ -63,7 +63,8 @@ ln -sfn "$HOME/.local/share/bmo-research/deploy/bin/bmo-research" "$bmo_dir/bmo-
 '''
 
 # The tool is placed in its folder's .placed/: the executable the release's bin/ holds, its manifest and the
-# schemas beside it.
+# schemas beside it, and the rulebooks under prompts/rules/, which the rulebook reader reads from the folder it
+# is placed in.
 [[deploy.step]]
 id = "place-tools"
 phase = "before-flip"
@@ -72,6 +73,8 @@ set -eu
 rm -rf tools/research/.placed
 mkdir -p tools/research/.placed
 cp bin/research-tool tools/research/tool.toml tools/research/*.json tools/research/.placed/
+mkdir -p tools/research/.placed/prompts/rules
+cp prompts/rules/*.md tools/research/.placed/prompts/rules/
 '''
 
 # The tool registered with the tool host once the daemon answers, as this service's own (docs/api.md, "The
@@ -81,5 +84,5 @@ id = "register-tools"
 phase = "after-health"
 command = '''
 set -eu
-bmo pocket put tools/research/.placed --placed --service bmo-research --allow research.ask --allow research.owner
+bmo pocket put tools/research/.placed --placed --service bmo-research --allow research.ask --allow research.owner --allow web.rulebooks
 '''

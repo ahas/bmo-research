@@ -57,6 +57,47 @@ until the registration answers its health.
 | `provider` | `registered` | The provider whose models the watch names |
 | `models` | `flash-next` on `n3` | Each watched model, a table of `registration`, its name in agency's registry, and `nodes`, the nodes it stands on; an empty list watches nothing |
 
+## The runner: `[runner]`
+
+How a research run goes out (`docs/runner.md`).
+
+| Key | Default | Meaning |
+|---|---|---|
+| `role` | `scout` | The co-worker role a run's own seat is asked under |
+| `writing_margin_minutes` | 10 | How long past its clock a run's sessions are bounded, for writing the result |
+| `capabilities` | `room.chat`, `room.tools`, `web.read`, `web.sites`, `web.branches`, `web.rulebooks` | The capabilities a run's session record keeps, handed as `toolsAllowed`: `web.branches` is left out where the run may open no branch, `web.rulebooks` where it is handed no rulebook |
+
+## The research settings' defaults: `[research_settings]`
+
+What every research run is held to where the owner changed nothing through `PUT /research-settings`
+(`docs/api.md`, 「research settings」); a change is kept in the store and stands over these.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `branch_role` | `scout` | The co-worker role a branch is seated under |
+| `strategy` | `direct-then-browser` | How the web tools read a page: `direct-then-browser`, `browser-first` or `direct-only` |
+| `host_interval_ms` | none | The gap between two direct requests to one host; the web tools' own where none is named |
+| `engine_interval_ms` | none | The gap between two requests to one search engine; the web tools' own where none is named |
+| `keys` | below | Each research key's table: `branches`, `minutes`, and `pages` and `branch_pages` where a ceiling holds |
+
+| Key | `branches` | `minutes` | `pages` | `branch_pages` |
+|---|---|---|---|---|
+| `search:basic` | 0 | 5 | 3 | none |
+| `search:thorough` | 2 | 15 | 8 | 4 |
+| `search:exhaustive` | 5 | 30 | 20 | 6 |
+| `browse` | 0 | 15 | none | none |
+
+A file naming `keys` names every key it keeps; the four above are the research keys.
+
+## The tool host: `[tool_host]`
+
+Where the tool host's control socket answers (`docs/api.md`, 「Calls this unit makes」).
+
+| Key | Default | Meaning |
+|---|---|---|
+| `socket` | empty | The control socket's path; empty for `bmo/mcp-host.sock` under the runtime folder `XDG_RUNTIME_DIR` names, else `/run/user/<uid>` |
+| `issuer_token` | `tool-host/issuer-token` | The file under the data root whose text is the host's issuer token |
+
 ## Peers
 
 Every peer's address and token are read from the files that peer already keeps under the data root's

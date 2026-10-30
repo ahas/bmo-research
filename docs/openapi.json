@@ -11,6 +11,16 @@
         },
         "description": "bad-request"
       },
+      "BranchRefused": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Failure"
+            }
+          }
+        },
+        "description": "branch-refused"
+      },
       "Conflict": {
         "content": {
           "application/json": {
@@ -50,6 +60,26 @@
           }
         },
         "description": "unauthorized"
+      },
+      "Unavailable": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Failure"
+            }
+          }
+        },
+        "description": "unavailable"
+      },
+      "UpstreamFailed": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Failure"
+            }
+          }
+        },
+        "description": "upstream-failed"
       }
     },
     "schemas": {
@@ -84,6 +114,62 @@
           "address"
         ],
         "type": "object"
+      },
+      "BranchAsk": {
+        "description": "A branch asked of a research run.",
+        "properties": {
+          "angle": {
+            "type": "string"
+          },
+          "run": {
+            "description": "the research run's id",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "run",
+          "angle"
+        ],
+        "type": "object"
+      },
+      "BranchEnd": {
+        "description": "A branch at its end: its index in its run, how it ended, what it wrote and why it failed.",
+        "properties": {
+          "index": {
+            "description": "counted from 1 per run",
+            "format": "int64",
+            "type": "integer"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "$ref": "#/components/schemas/BranchState"
+          }
+        },
+        "required": [
+          "index",
+          "state",
+          "notes",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "BranchState": {
+        "description": "How a branch ended.",
+        "enum": [
+          "completed",
+          "stopped",
+          "failed"
+        ],
+        "type": "string"
       },
       "Category": {
         "description": "A category (`docs/design.md`, 「Categories」).",
@@ -304,7 +390,7 @@
             "type": "string"
           },
           "runId": {
-            "description": "agency's ledger run whose brief held it",
+            "description": "the research run whose brief held it",
             "format": "int64",
             "type": [
               "integer",
@@ -572,7 +658,7 @@
             ]
           },
           "runId": {
-            "description": "agency's ledger run of the latest try",
+            "description": "the research run of the latest try",
             "format": "int64",
             "type": [
               "integer",
@@ -1046,6 +1132,419 @@
         ],
         "type": "string"
       },
+      "ResearchKeySettings": {
+        "description": "One research key's settings: its branches, its clock and its budget.",
+        "properties": {
+          "branchPages": {
+            "default": null,
+            "description": "the most pages each branch fetches; none for no ceiling. Left out of a change, it keeps what the key\nholds.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "branches": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "key": {
+            "type": "string"
+          },
+          "minutes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "pages": {
+            "default": null,
+            "description": "the most pages the first answer fetches; none for no ceiling. Left out of a change, it keeps what the\nkey holds.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "key",
+          "branches",
+          "minutes",
+          "pages",
+          "branchPages"
+        ],
+        "type": "object"
+      },
+      "ResearchLog": {
+        "description": "A research run's log, oldest first.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ResearchLogLine"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
+      "ResearchLogLine": {
+        "description": "One line of a research run's log.",
+        "properties": {
+          "at": {
+            "description": "epoch milliseconds",
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "kind": {
+            "description": "`asked`, `seated`, `answer`, `round`, `branch`, `filed`, `told` or `ended`",
+            "type": "string"
+          },
+          "runId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "runId",
+          "at",
+          "kind",
+          "text"
+        ],
+        "type": "object"
+      },
+      "ResearchRun": {
+        "description": "A research run as it was asked: its id, its key, its seat's state, its road and when its web tools close.",
+        "properties": {
+          "closesAt": {
+            "description": "epoch milliseconds; when its web tools close",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "key": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "runId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ResearchRunState"
+          }
+        },
+        "required": [
+          "runId",
+          "key",
+          "state",
+          "provider",
+          "model",
+          "closesAt"
+        ],
+        "type": "object"
+      },
+      "ResearchRunAsk": {
+        "description": "A research asked of the runner (`docs/api.md`, 「research runs」).",
+        "properties": {
+          "asker": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "key": {
+            "description": "`search:basic`, `search:thorough`, `search:exhaustive` or `browse`",
+            "type": "string"
+          },
+          "model": {
+            "description": "the model the run goes out on; the seat's where none is named",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "options": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "provider": {
+            "description": "the provider the run goes out on; the seat's where none is named",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "query": {
+            "type": "string"
+          },
+          "roomId": {
+            "description": "the room the result is told to; the owner's private room where none is named",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "key",
+          "query"
+        ],
+        "type": "object"
+      },
+      "ResearchRunState": {
+        "description": "Where a research run stands.",
+        "enum": [
+          "waiting",
+          "running",
+          "closed"
+        ],
+        "type": "string"
+      },
+      "ResearchRunView": {
+        "description": "One research run as the runner's ledger holds it.",
+        "properties": {
+          "asker": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "branches": {
+            "description": "how many branches it opened",
+            "format": "int64",
+            "type": "integer"
+          },
+          "closesAt": {
+            "description": "epoch milliseconds; when its web tools close",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "documentId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "finishedAt": {
+            "description": "epoch milliseconds",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "key": {
+            "type": "string"
+          },
+          "link": {
+            "description": "the filed document's share link",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "model": {
+            "type": "string"
+          },
+          "outcome": {
+            "description": "`answered`, `failed` or `cut`; null while the run is open",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "provider": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "roomId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "runId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "startedAt": {
+            "description": "epoch milliseconds",
+            "format": "int64",
+            "type": "integer"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ResearchRunState"
+          },
+          "turns": {
+            "description": "the names of the agency turns it went out under",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "runId",
+          "key",
+          "query",
+          "asker",
+          "roomId",
+          "provider",
+          "model",
+          "state",
+          "outcome",
+          "startedAt",
+          "closesAt",
+          "finishedAt",
+          "documentId",
+          "link",
+          "error",
+          "branches",
+          "turns"
+        ],
+        "type": "object"
+      },
+      "ResearchSettings": {
+        "description": "What every research run is held to, and the search engines' state.",
+        "properties": {
+          "branchRole": {
+            "description": "the co-worker role a branch is seated under",
+            "type": "string"
+          },
+          "engineIntervalMs": {
+            "description": "null where the web tools' default stands",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "engines": {
+            "description": "null where they could not be read",
+            "items": {
+              "$ref": "#/components/schemas/SearchEngineState"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "enginesUnread": {
+            "description": "why the engines' state could not be read, where it could not",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hostIntervalMs": {
+            "description": "null where the web tools' default stands",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "keys": {
+            "items": {
+              "$ref": "#/components/schemas/ResearchKeySettings"
+            },
+            "type": "array"
+          },
+          "source": {
+            "description": "`default` where the settings file's stand, `set` once changed",
+            "type": "string"
+          },
+          "strategy": {
+            "description": "`direct-then-browser`, `browser-first` or `direct-only`",
+            "type": "string"
+          }
+        },
+        "required": [
+          "branchRole",
+          "strategy",
+          "hostIntervalMs",
+          "engineIntervalMs",
+          "keys",
+          "source",
+          "engines",
+          "enginesUnread"
+        ],
+        "type": "object"
+      },
+      "ResearchSettingsChange": {
+        "description": "A change to the research settings: a field left out keeps what it holds, and a gap given as null returns\nto the web tools' default.",
+        "properties": {
+          "branchRole": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "engineIntervalMs": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "hostIntervalMs": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "keys": {
+            "items": {
+              "$ref": "#/components/schemas/ResearchKeySettings"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "strategy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
       "Run": {
         "description": "The daemon's record of one try of an item.",
         "properties": {
@@ -1128,6 +1627,56 @@
           "stopped"
         ],
         "type": "string"
+      },
+      "SearchEngineState": {
+        "description": "One search engine's state, as the web tools answer it.",
+        "properties": {
+          "category": {
+            "default": null,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "observedAt": {
+            "default": null,
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "reason": {
+            "default": null,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "type": "string"
+          },
+          "suspendedUntil": {
+            "default": null,
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "category",
+          "state",
+          "reason",
+          "observedAt",
+          "suspendedUntil"
+        ],
+        "type": "object"
       },
       "Shape": {
         "description": "The shape an item's research run is asked in.",
@@ -1339,12 +1888,65 @@
     }
   },
   "info": {
-    "description": "The research unit: a daemon that keeps a queue of things to research by category, reads the sources the owner registers, has each item researched on agency's runner in its category's shape, and tells the category's recipients. It files no job and launches nothing.",
+    "description": "The research unit: a daemon that keeps a queue of things to research by category, reads the sources the owner registers, has each item researched by its own runner in its category's shape, and tells the category's recipients. It files no job and launches nothing.",
     "title": "bmo-research",
-    "version": "0.1.0-rev.2"
+    "version": "0.1.0-rev.3"
   },
   "openapi": "3.1.0",
   "paths": {
+    "/branches": {
+      "post": {
+        "operationId": "createBranch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BranchAsk"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BranchEnd"
+                }
+              }
+            },
+            "description": "Answered."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/BranchRefused"
+          },
+          "500": {
+            "$ref": "#/components/responses/Failed"
+          }
+        },
+        "summary": "Open a branch of a research run, answered once it ends.",
+        "tags": [
+          "research runs"
+        ],
+        "x-codes": [
+          "unauthorized",
+          "bad-request",
+          "not-found",
+          "branch-refused",
+          "failed"
+        ]
+      }
+    },
     "/categories": {
       "get": {
         "operationId": "listCategories",
@@ -2055,6 +2657,233 @@
         ]
       }
     },
+    "/research-runs": {
+      "post": {
+        "operationId": "createResearchRun",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResearchRunAsk"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchRun"
+                }
+              }
+            },
+            "description": "Answered."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/Failed"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "summary": "Ask a research: a search at a depth or a browse, answered at once.",
+        "tags": [
+          "research runs"
+        ],
+        "x-codes": [
+          "unauthorized",
+          "bad-request",
+          "unavailable",
+          "failed"
+        ]
+      }
+    },
+    "/research-runs/{runId}": {
+      "get": {
+        "operationId": "getResearchRun",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "runId",
+            "required": true,
+            "schema": {
+              "description": "the research run's id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchRunView"
+                }
+              }
+            },
+            "description": "Answered."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/Failed"
+          }
+        },
+        "summary": "One research run.",
+        "tags": [
+          "research runs"
+        ],
+        "x-codes": [
+          "unauthorized",
+          "bad-request",
+          "not-found",
+          "failed"
+        ]
+      }
+    },
+    "/research-runs/{runId}/log-lines": {
+      "get": {
+        "operationId": "getResearchLog",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "runId",
+            "required": true,
+            "schema": {
+              "description": "the research run's id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchLog"
+                }
+              }
+            },
+            "description": "Answered."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/Failed"
+          }
+        },
+        "summary": "A research run's log, oldest first.",
+        "tags": [
+          "research runs"
+        ],
+        "x-codes": [
+          "unauthorized",
+          "bad-request",
+          "not-found",
+          "failed"
+        ]
+      }
+    },
+    "/research-settings": {
+      "get": {
+        "operationId": "getResearchSettings",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchSettings"
+                }
+              }
+            },
+            "description": "Answered."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/Failed"
+          }
+        },
+        "summary": "The settings every research run is held to, with the search engines' state.",
+        "tags": [
+          "research settings"
+        ],
+        "x-codes": [
+          "unauthorized",
+          "failed"
+        ]
+      },
+      "put": {
+        "operationId": "putResearchSettings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResearchSettingsChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchSettings"
+                }
+              }
+            },
+            "description": "Answered."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/Failed"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamFailed"
+          }
+        },
+        "summary": "Change the research settings; a field left out keeps what it holds.",
+        "tags": [
+          "research settings"
+        ],
+        "x-codes": [
+          "unauthorized",
+          "bad-request",
+          "upstream-failed",
+          "failed"
+        ]
+      }
+    },
     "/runs": {
       "get": {
         "operationId": "listRuns",
@@ -2672,15 +3501,25 @@
     },
     {
       "name": "facts"
+    },
+    {
+      "name": "research runs"
+    },
+    {
+      "name": "research settings"
     }
   ],
   "x-calls": [
     {
-      "route": "POST /research-runs",
+      "route": "POST /seat-requests",
       "unit": "agency"
     },
     {
-      "route": "GET /runs/{runId}",
+      "route": "PATCH /seat-requests/{token}",
+      "unit": "agency"
+    },
+    {
+      "route": "POST /sessions",
       "unit": "agency"
     },
     {
@@ -2688,7 +3527,35 @@
       "unit": "agency"
     },
     {
+      "route": "DELETE /sessions/{sessionId}",
+      "unit": "agency"
+    },
+    {
+      "route": "GET /roles",
+      "unit": "agency"
+    },
+    {
+      "route": "GET /models/{registration}",
+      "unit": "agency"
+    },
+    {
+      "route": "POST /translation-runs",
+      "unit": "agency"
+    },
+    {
       "route": "GET /documents",
+      "unit": "artifact"
+    },
+    {
+      "route": "POST /documents",
+      "unit": "artifact"
+    },
+    {
+      "route": "PATCH /documents/{documentId}",
+      "unit": "artifact"
+    },
+    {
+      "route": "POST /documents/{documentId}/attachments",
       "unit": "artifact"
     },
     {
@@ -2710,6 +3577,22 @@
     {
       "route": "POST /instructions",
       "unit": "receiver"
+    },
+    {
+      "route": "GET /namespaces/{namespace}/tools",
+      "unit": "tool-host"
+    },
+    {
+      "route": "POST /tool-sessions",
+      "unit": "tool-host"
+    },
+    {
+      "route": "POST /tool-calls",
+      "unit": "tool-host"
+    },
+    {
+      "route": "DELETE /tool-sessions/{token}",
+      "unit": "tool-host"
     }
   ],
   "x-events": [],

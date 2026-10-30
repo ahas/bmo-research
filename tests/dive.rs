@@ -1,4 +1,4 @@
-//! The deep dive against stand-in agency, artifact and receiver servers (`docs/api.md`, 「The deep dive」,
+//! The deep dive against stand-in agency, artifact, receiver and tool host servers (`docs/api.md`, 「The deep dive」,
 //! 「The Korean rendering」 and 「The notices」): the bodies each unit is asked with, the retries, the failure
 //! told once, the Korean rendering and its follow-up, an advisory's parts to the workers of its
 //! repositories, and a brief's gathering with its facts. The filed documents are composed from the English
@@ -6,8 +6,9 @@
 
 mod support;
 
-use bmo_research_client::{ItemState, NewStackRow, RecipientKind, Running, Shape};
+use bmo_research_client::{ItemState, NewStackRow, RecipientKind, ResearchRunState, Running, Shape};
 use research_server::dive::{give_owner_room, take_up, tick};
+use research_server::store::{NewResearchRun, now_ms};
 use research_server::translation::{cut, note, title_note};
 use research_server::words;
 use serde_json::{Value, json};
@@ -87,27 +88,33 @@ async fn a_manual_is_asked_read_filed_and_told_with_what_the_owner_s_word_needs(
     .store
     .ask("it", "example.org/thing", "Thing-7B", "https://example.org/thing", Shape::Manual)
     .unwrap();
-  file(&ground, 101, 501, manual_document());
-  ground.world.lock().unwrap().open_polls = 2;
+  file(&ground, 1, 501, manual_document());
 
   settle(&ground).await;
 
-  let asks = ground.asked_path("agency", "POST", "/research-runs");
-  assert_eq!(asks.len(), 1);
-  let body = &asks[0].body;
-  assert_eq!(body["key"], "search:exhaustive");
-  assert_eq!(body["provider"], "registered");
-  assert_eq!(body["model"], "flash-next");
-  assert!(body.get("roomId").is_none());
-  let query = body["query"].as_str().unwrap();
+  let seats = ground.run_seats();
+  assert_eq!(seats.len(), 1);
+  assert_eq!(
+    (seats[0]["workKey"].as_str(), seats[0]["provider"].as_str()),
+    (Some("search:exhaustive"), Some("registered"))
+  );
+  let started = ground.asked_path("agency", "POST", "/sessions");
+  assert_eq!(started[0].body["model"], "flash-next");
+  assert_eq!(started[0].body["labels"]["research"]["chat"], 0, "the run names no room");
+  let query = ground.turns_named("research-1")[0]["prompt"].as_str().unwrap().to_string();
   assert!(query.contains("Thing-7B") && query.contains("https://example.org/thing"), "{query}");
-  assert_eq!(ground.asked_path("agency", "GET", "/runs/101").len(), 3, "read until it closes");
+  let run = ground.app.store.research_run(1).unwrap();
+  assert_eq!(
+    (run.outcome.as_deref(), run.document_id, run.tells),
+    (Some("answered"), Some(501), false)
+  );
 
-  assert_eq!(ground.asked_path("artifact", "GET", "/documents?label=research%3A101").len(), 1);
   assert_eq!(ground.asked_path("artifact", "GET", "/documents/501/content").len(), 1);
   assert_eq!(ground.asked_path("artifact", "GET", "/shares?documentId=501").len(), 1);
   let made = ground.asked_path("artifact", "POST", "/shares");
-  assert_eq!(made[0].body["documentId"], 501);
+  let english: Vec<_> = made.iter().filter(|a| a.body["documentId"] == 501).collect();
+  assert_eq!(english.len(), 1, "the run's own link stands");
+  assert!(english[0].body["expiresAt"].is_i64());
 
   let told = orders(&ground);
   assert_eq!(told.len(), 1);
@@ -133,7 +140,7 @@ async fn a_manual_is_asked_read_filed_and_told_with_what_the_owner_s_word_needs(
   let filed = ground.app.store.item(item.id).unwrap();
   assert_eq!(filed.state, ItemState::Fit);
   assert_eq!(filed.fit_nodes, ["n3"]);
-  assert_eq!(filed.run_id, Some(101));
+  assert_eq!(filed.run_id, Some(1));
   assert_eq!(filed.share_url.as_deref(), Some("https://share.example/d501"));
   let run = ground.app.store.runs(Some(item.id), None, None, 10).unwrap().items;
   assert_eq!((run[0].state.as_str(), run[0].outcome.as_deref()), ("closed", Some("answered")));
@@ -153,11 +160,7 @@ async fn a_report_is_rendered_in_korean_part_by_part_filed_and_told_with_both_li
     .ask("it", "example.org/thing", "Thing-7B", "https://example.org/thing", Shape::Manual)
     .unwrap();
   let content = long_manual(300);
-  file(&ground, 101, 501, content.clone());
-  // A rendering of another item, labelled with the run's number, is no run's document.
-  ground.world.lock().unwrap().posted.push(json!({
-    "id": 42, "title": "x", "labels": {"research": "101", "translationOf": "7", "language": "ko"},
-  }));
+  file(&ground, 1, 501, content.clone());
 
   settle(&ground).await;
 
@@ -182,7 +185,7 @@ async fn a_report_is_rendered_in_korean_part_by_part_filed_and_told_with_both_li
   }
   assert!(ground.world.lock().unwrap().translating_most <= 2);
 
-  let filed = ground.asked_path("artifact", "POST", "/documents");
+  let filed = ground.renderings();
   assert_eq!(filed.len(), 1);
   let record = &filed[0].body;
   assert_eq!(record["kind"], "record");
@@ -228,7 +231,7 @@ async fn a_part_the_translator_finds_too_large_is_halved_and_asked_again() {
     .ask("it", "example.org/h", "H", "https://example.org/h", Shape::Investigation)
     .unwrap();
   let content = format!("## Findings\n\n{}\n", prose(300));
-  file(&ground, 101, 60, content.clone());
+  file(&ground, 1, 60, content.clone());
   ground.world.lock().unwrap().too_large_over = Some(200);
 
   settle(&ground).await;
@@ -239,7 +242,7 @@ async fn a_part_the_translator_finds_too_large_is_halved_and_asked_again() {
   let halves = &texts[whole + 1..];
   assert_eq!(halves.len(), 2, "{halves:#?}");
   assert_eq!(halves.concat(), content, "the halves are the part, in order");
-  let record = &ground.asked_path("artifact", "POST", "/documents")[0].body;
+  let record = &ground.renderings()[0].body;
   let body = record["body"].as_str().unwrap();
   assert!(body.starts_with(&translated(halves[0].trim())) && body.ends_with(&translated(halves[1].trim())));
   assert!(ground.app.store.item(item.id).unwrap().ko_share_url.is_some());
@@ -254,7 +257,7 @@ async fn a_rendering_no_road_carries_is_pending_and_its_retry_sends_the_follow_u
     .store
     .ask("it", "example.org/thing", "Thing-7B", "https://example.org/thing", Shape::Manual)
     .unwrap();
-  file(&ground, 101, 501, manual_document());
+  file(&ground, 1, 501, manual_document());
   ground.world.lock().unwrap().translation_answers.push_back(503);
   let report = words::report();
 
@@ -271,15 +274,11 @@ async fn a_rendering_no_road_carries_is_pending_and_its_retry_sends_the_follow_u
   let (tries, retry_at) = ground.app.store.translation_state(item.id).unwrap();
   assert_eq!(tries, 1);
   assert!(retry_at.is_some());
-  assert!(ground.asked_path("artifact", "POST", "/documents").is_empty());
+  assert!(ground.renderings().is_empty());
 
   settle(&ground).await;
 
-  assert_eq!(
-    ground.asked_path("agency", "POST", "/research-runs").len(),
-    1,
-    "the run is not asked again"
-  );
+  assert_eq!(ground.run_seats().len(), 1, "the run is not asked again");
   let told = orders(&ground);
   assert_eq!(told.len(), 2);
   assert_eq!(told[1]["kind"], format!("research-report:{}", item.id), "the same kind replaces it");
@@ -314,7 +313,7 @@ async fn a_rendering_still_failing_after_its_retries_is_no_longer_asked() {
     .store
     .ask("it", "example.org/n", "N", "https://example.org/n", Shape::Investigation)
     .unwrap();
-  file(&ground, 101, 70, "# N\n\nIt is a thing.\n".into());
+  file(&ground, 1, 70, "# N\n\nIt is a thing.\n".into());
   ground.world.lock().unwrap().translation_answers.extend([503, 503]);
 
   for _ in 0..4 {
@@ -336,8 +335,9 @@ async fn a_refused_ask_is_retried_and_counted() {
     .store
     .ask("it", "example.org/a", "A", "https://example.org/a", Shape::Investigation)
     .unwrap();
-  ground.world.lock().unwrap().run_answers.push_back(503);
-  file(&ground, 101, 9, "# An investigation\n".into());
+  ground.world.lock().unwrap().session_answers.push_back(503);
+  // The refused ask opened run 1 and closed it; the second try is run 2.
+  file(&ground, 2, 9, "# An investigation\n".into());
 
   settle(&ground).await;
   let waiting = ground.app.store.item(item.id).unwrap();
@@ -366,19 +366,13 @@ async fn a_run_cut_past_its_retries_fails_and_is_told_once() {
     .store
     .ask("it", "example.org/b", "B", "https://example.org/b", Shape::Manual)
     .unwrap();
-  for run in 101..=104 {
-    ground.world.lock().unwrap().outcomes.insert(run, "cut".into());
-  }
+  ground.world.lock().unwrap().failing.extend(1..=4);
   for _ in 0..6 {
     settle(&ground).await;
   }
   let failed = ground.app.store.item(item.id).unwrap();
   assert_eq!((failed.state, failed.tries), (ItemState::Failed, 4));
-  assert_eq!(
-    ground.asked_path("agency", "POST", "/research-runs").len(),
-    4,
-    "a failed item is asked no more"
-  );
+  assert_eq!(ground.run_seats().len(), 4, "a failed item is asked no more");
   let told = orders(&ground);
   assert_eq!(told.len(), 1);
   let expected = words::fill(&words::report().failed, &[("name", "B"), ("tries", "4")]);
@@ -415,14 +409,11 @@ async fn an_advisory_tells_each_touched_repository_s_worker_its_part_and_the_rec
     "# SA-1\n\n| {} | {} | {} | {} | {} |\n|---|---|---|---|---|\n| libexample | 1.4.1 | services/alpha | node-a | {} |\n| libexample | 1.4.1 | services/beta | | {} |\n\n## {}\n\n1. upgrade\n",
     w.component, w.version, w.repository, w.host, w.touched, w.yes, w.yes, w.plan_heading
   );
-  file(&ground, 101, 77, document);
+  file(&ground, 1, 77, document);
 
   settle(&ground).await;
 
-  let query = ground.asked_path("agency", "POST", "/research-runs")[0].body["query"]
-    .as_str()
-    .unwrap()
-    .to_string();
+  let query = ground.turns_named("research-1")[0]["prompt"].as_str().unwrap().to_string();
   assert!(
     query.contains("libexample 1.4.1 (services/alpha)"),
     "the stack is in the question: {query}"
@@ -462,13 +453,13 @@ async fn a_brief_gathers_its_category_s_items_into_one_run_and_keeps_the_figures
     "# Brief\n\n| {} | {} | {} | {} | {} |\n|---|---|---|---|---|\n| index-a | 2,650.1 | pt | 2026-10-29 | [page](https://example.org/e1) |\n",
     w.name, w.value, w.unit, w.as_of, w.source
   );
-  file(&ground, 101, 300, document);
+  file(&ground, 1, 300, document);
 
   settle(&ground).await;
 
-  let asks = ground.asked_path("agency", "POST", "/research-runs");
-  assert_eq!(asks.len(), 1, "one run for the gathering");
-  let query = asks[0].body["query"].as_str().unwrap();
+  assert_eq!(ground.run_seats().len(), 1, "one run for the gathering");
+  let first = ground.turns_named("research-1");
+  let query = first[0]["prompt"].as_str().unwrap();
   assert!(query.contains("https://example.org/e1") && query.contains("https://example.org/e2"));
   for id in [one.id, two.id] {
     assert_eq!(store.item(id).unwrap().state, ItemState::Reported);
@@ -478,7 +469,7 @@ async fn a_brief_gathers_its_category_s_items_into_one_run_and_keeps_the_figures
   assert_eq!(facts.len(), 1);
   assert_eq!(
     (facts[0].name.as_str(), facts[0].value.as_str(), facts[0].run_id, facts[0].document_id),
-    ("index-a", "2,650.1", Some(101), Some(300))
+    ("index-a", "2,650.1", Some(1), Some(300))
   );
   assert_eq!(facts[0].source_address.as_deref(), Some("https://example.org/e1"));
 
@@ -487,7 +478,7 @@ async fn a_brief_gathers_its_category_s_items_into_one_run_and_keeps_the_figures
     .ask("economy", "example.org/e3", "E3", "https://example.org/e3", Shape::Brief)
     .unwrap();
   settle(&ground).await;
-  assert_eq!(ground.asked_path("agency", "POST", "/research-runs").len(), 1);
+  assert_eq!(ground.run_seats().len(), 1);
 }
 
 #[tokio::test]
@@ -497,7 +488,7 @@ async fn a_stopped_category_starts_no_run_and_the_least_recent_category_goes_fir
   store.set_running(Some("it"), Running::Stopped).unwrap();
   let it = store.ask("it", "example.org/i", "I", "https://example.org/i", Shape::Manual).unwrap();
   settle(&ground).await;
-  assert!(ground.asked_path("agency", "POST", "/research-runs").is_empty());
+  assert!(ground.run_seats().is_empty());
   store.set_running(None, Running::Running).unwrap();
 
   // `it` ran a try a moment ago; security has not run at all, so it goes first.
@@ -512,15 +503,15 @@ async fn a_stopped_category_starts_no_run_and_the_least_recent_category_goes_fir
   for handle in handles {
     handle.await.unwrap();
   }
-  let first = &ground.asked_path("agency", "POST", "/research-runs")[0];
-  assert!(first.body["query"].as_str().unwrap().contains("https://example.org/s"));
+  let first = &ground.turns_named("research-1")[0];
+  assert!(first["prompt"].as_str().unwrap().contains("https://example.org/s"));
   assert_eq!(store.item(sec.id).unwrap().tries, 1);
   assert_eq!(store.item(it.id).unwrap().tries, 1, "it waits its turn");
 }
 
 #[tokio::test]
-async fn a_restarted_daemon_takes_up_what_it_left_running() {
-  let ground = support::ground(|_| {}).await;
+async fn a_restarted_daemon_cuts_the_runs_it_left_open_and_takes_up_its_tries() {
+  let ground = support::ground(|s| s.retry_minutes = 0).await;
   let store = &ground.app.store;
   let asked = store
     .ask("it", "example.org/r1", "R1", "https://example.org/r1", Shape::Investigation)
@@ -528,23 +519,61 @@ async fn a_restarted_daemon_takes_up_what_it_left_running() {
   let never = store
     .ask("it", "example.org/r2", "R2", "https://example.org/r2", Shape::Investigation)
     .unwrap();
+  let open = |tells: bool, room: Option<i64>| {
+    store
+      .open_research_run(&NewResearchRun {
+        key: "search:exhaustive",
+        line: "search",
+        query: "R1",
+        asker: None,
+        options: None,
+        room_id: room,
+        provider: "registered",
+        model: "flash-next",
+        closes_at: now_ms(),
+        branches_allowed: 0,
+        tells,
+      })
+      .unwrap()
+  };
+  let research = open(false, None);
+  store.hold(research, "seat", "seat-left").unwrap();
+  store.hold(research, "session", "search@apart:9").unwrap();
+  let asked_by_room = open(true, Some(5));
+  store.keep_research_turn(asked_by_room, "research-2", Some("Half of it.")).unwrap();
   let (run, _) = store.start_try("it", &[asked.id]).unwrap().unwrap();
-  store.keep_run_id(run, 150).unwrap();
+  store.keep_run_id(run, research).unwrap();
   store.start_try("it", &[never.id]).unwrap().unwrap();
-  file(&ground, 150, 15, "# Taken up\n".into());
 
+  assert_eq!(research_server::runner::sweep(&ground.app).await, 2);
   take_up(&ground.app);
   for _ in 0..100 {
-    if store.item(asked.id).unwrap().state == ItemState::Reported {
+    if store.item(asked.id).unwrap().state == ItemState::Waiting {
       break;
     }
     tokio::time::sleep(std::time::Duration::from_millis(20)).await;
   }
-  assert_eq!(store.item(asked.id).unwrap().state, ItemState::Reported);
-  assert!(
-    ground.asked_path("agency", "POST", "/research-runs").is_empty(),
-    "an asked run is not asked again"
+  tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+  let cut = store.research_run(research).unwrap();
+  assert_eq!((cut.state, cut.outcome.as_deref()), (ResearchRunState::Closed, Some("cut")));
+  let gave_back = ground.asked_path("agency", "PATCH", "/seat-requests/seat-left");
+  assert_eq!(gave_back[0].body["state"], "finished");
+  assert_eq!(ground.asked_path("agency", "DELETE", "/sessions/search%40apart%3A9").len(), 1);
+  let told = orders(&ground);
+  assert_eq!(told.len(), 1, "a run the deep dive asked tells no room");
+  assert_eq!(
+    (told[0]["room"].as_i64(), told[0]["kind"].as_str()),
+    (Some(5), Some("research-ended:2"))
   );
+  assert!(told[0]["said"]["order"].as_str().unwrap().contains("Half of it."));
+  assert!(told[0].get("run").is_none());
+
+  let retried = store.item(asked.id).unwrap();
+  assert_eq!((retried.state, retried.tries), (ItemState::Waiting, 1));
+  let tries = store.runs(Some(asked.id), None, None, 10).unwrap().items;
+  assert_eq!(tries[0].state.as_str(), "cut");
+  assert!(ground.run_seats().is_empty(), "an asked run is not asked again");
   let waiting = store.item(never.id).unwrap();
   assert_eq!((waiting.state, waiting.tries), (ItemState::Waiting, 0));
 }

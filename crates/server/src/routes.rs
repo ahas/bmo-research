@@ -7,12 +7,14 @@ use axum::body::Bytes;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::routing::{delete, get};
+use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use bmo_research_client::*;
 use serde::de::DeserializeOwned;
 
 use crate::App;
+use crate::branches::Refusal as Branching;
+use crate::runner::Refused as Launch;
 use crate::sources::{SourceKind, address_key};
 use crate::store::{Refusal, item_shape};
 
@@ -39,6 +41,11 @@ pub fn router(app: Arc<App>) -> Router {
     .route("/stack", get(list_stack).post(create_stack_row))
     .route("/stack/{id}", delete(delete_stack_row))
     .route("/facts", get(list_facts))
+    .route("/research-runs", post(create_research_run))
+    .route("/research-runs/{runId}", get(get_research_run))
+    .route("/research-runs/{runId}/log-lines", get(get_research_log))
+    .route("/branches", post(create_branch))
+    .route("/research-settings", get(get_research_settings).put(put_research_settings))
     .fallback(no_route)
     .layer(axum::middleware::from_fn_with_state(app.clone(), auth))
     .with_state(app)
@@ -459,4 +466,88 @@ async fn list_facts(State(app): Shared, Query(q): Queries) -> Response {
     (Err(r), _) | (_, Err(r)) => return bad(r),
   };
   listed(app.store.facts(q.get("name").map(String::as_str), before, limit))
+}
+
+// research runs
+
+async fn create_research_run(State(app): Shared, bytes: Bytes) -> Response {
+  let ask: ResearchRunAsk = match body(&bytes) {
+    Ok(a) => a,
+    Err(r) => return bad(r),
+  };
+  match crate::runner::launch(app, ask, true).await {
+    Ok(run) => (StatusCode::ACCEPTED, Json(run)).into_response(),
+    Err(Launch::Ask(why)) => bad(why),
+    Err(Launch::Unavailable(why)) => failure(StatusCode::SERVICE_UNAVAILABLE, "unavailable", why),
+    Err(Launch::Failed(why)) => failed(why),
+  }
+}
+
+async fn get_research_run(State(app): Shared, Path(id): Path<String>) -> Response {
+  match number(&id, "research run") {
+    Ok(id) => answered(app.store.research_run(id).map(|row| row.view()), StatusCode::OK),
+    Err(r) => bad(r),
+  }
+}
+
+async fn get_research_log(State(app): Shared, Path(id): Path<String>) -> Response {
+  let id = match number(&id, "research run") {
+    Ok(i) => i,
+    Err(r) => return bad(r),
+  };
+  if let Err(refusal) = app.store.research_run(id) {
+    return refused(refusal);
+  }
+  match app.store.research_log(id) {
+    Ok(items) => Json(ResearchLog { items }).into_response(),
+    Err(why) => failed(why),
+  }
+}
+
+async fn create_branch(State(app): Shared, bytes: Bytes) -> Response {
+  let ask: BranchAsk = match body(&bytes) {
+    Ok(a) => a,
+    Err(r) => return bad(r),
+  };
+  match crate::branches::open(app, ask).await {
+    Ok(end) => Json(end).into_response(),
+    Err(Branching::NotFound(why)) => failure(StatusCode::NOT_FOUND, "not-found", why),
+    Err(Branching::Bad(why)) => bad(why),
+    Err(Branching::Refused(why)) => failure(StatusCode::CONFLICT, "branch-refused", why),
+  }
+}
+
+// research settings
+
+async fn get_research_settings(State(app): Shared) -> Response {
+  match crate::runner::held(&app) {
+    Ok((held, set)) => Json(crate::runner::view(&app, &held, set).await).into_response(),
+    Err(why) => failed(why),
+  }
+}
+
+async fn put_research_settings(State(app): Shared, bytes: Bytes) -> Response {
+  let change: ResearchSettingsChange = match body(&bytes) {
+    Ok(c) => c,
+    Err(r) => return bad(r),
+  };
+  let held = match crate::runner::held(&app) {
+    Ok((held, _)) => held,
+    Err(why) => return failed(why),
+  };
+  let roles = match &change.branch_role {
+    Some(_) => match app.peers.roles().await {
+      Ok(roles) => roles,
+      Err(why) => return failure(StatusCode::BAD_GATEWAY, "upstream-failed", why),
+    },
+    None => Vec::new(),
+  };
+  let held = match crate::runner::changed(held, &change, &roles) {
+    Ok(held) => held,
+    Err(why) => return bad(why),
+  };
+  if let Err(why) = app.store.keep_research_settings(&serde_json::to_string(&held).unwrap_or_default()) {
+    return failed(why);
+  }
+  Json(crate::runner::view(&app, &held, true).await).into_response()
 }

@@ -1,7 +1,10 @@
 //! The words under `prompts/`, built into the binary: the question templates, one per shape, the notices'
 //! words, the words a filed document is read by, and the notes the translator is handed (`docs/api.md`,
-//! 「The questions」 and 「The Korean rendering」).
+//! 「The questions」 and 「The Korean rendering」); and the runner's: the search and browse lines' tasks,
+//! requests and branch instructions, the rulebooks, the words a run's document is written in, and the
+//! rulebooks' order and the rounds (`docs/runner.md`).
 
+use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
 use bmo_research_client::Shape;
@@ -14,6 +17,28 @@ const BRIEF: &str = include_str!("../../../prompts/brief.md");
 const REPORT: &str = include_str!("../../../prompts/report.toml");
 const DOCUMENT: &str = include_str!("../../../prompts/document.toml");
 const TRANSLATION: &str = include_str!("../../../prompts/translation.toml");
+pub const SEARCH_TASK: &str = include_str!("../../../prompts/search/task.md");
+pub const SEARCH_BRANCH: &str = include_str!("../../../prompts/search/branch.md");
+pub const SEARCH_REQUEST: &str = include_str!("../../../prompts/search/request.md");
+pub const BROWSE_TASK: &str = include_str!("../../../prompts/browse/task.md");
+pub const BROWSE_REQUEST: &str = include_str!("../../../prompts/browse/request.md");
+const SEARCH_DOCUMENT: &str = include_str!("../../../prompts/search/document.toml");
+const RUNNER: &str = include_str!("../../../prompts/runner.toml");
+
+/// The rulebooks under `prompts/rules/`, by name.
+const RULEBOOKS: &[(&str, &str)] = &[
+  ("search-kinds", include_str!("../../../prompts/rules/search-kinds.md")),
+  ("product-search", include_str!("../../../prompts/rules/product-search.md")),
+  ("restaurant-search", include_str!("../../../prompts/rules/restaurant-search.md")),
+  ("investment-search", include_str!("../../../prompts/rules/investment-search.md")),
+  ("study-material", include_str!("../../../prompts/rules/study-material.md")),
+  ("deep-dives", include_str!("../../../prompts/rules/deep-dives.md")),
+  ("research", include_str!("../../../prompts/rules/research.md")),
+  ("security-advisory", include_str!("../../../prompts/rules/security-advisory.md")),
+  ("economy-brief", include_str!("../../../prompts/rules/economy-brief.md")),
+  ("plain-writing", include_str!("../../../prompts/rules/plain-writing.md")),
+  ("self-preservation", include_str!("../../../prompts/rules/self-preservation.md")),
+];
 
 /// The words of the notices.
 #[derive(Debug, Clone, Deserialize)]
@@ -142,4 +167,92 @@ pub fn fill(template: &str, values: &[(&str, &str)]) -> String {
   }
   out.push_str(rest);
   out
+}
+
+/// A rulebook's text, by its name under `prompts/rules/`.
+pub fn rulebook(name: &str) -> Result<&'static str, String> {
+  RULEBOOKS
+    .iter()
+    .find(|(named, _)| *named == name)
+    .map(|(_, text)| *text)
+    .ok_or_else(|| format!("prompts/rules/{name}.md is not built in"))
+}
+
+/// The headings and labels a run's document stands under, in one language.
+#[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct SearchDocumentWords {
+  pub answer: String,
+  pub brief_answer: String,
+  pub summary: String,
+  pub grounds: String,
+  pub unconfirmed: String,
+  pub sources: String,
+  pub address: String,
+  pub map: String,
+  pub roadview: String,
+  pub menu: String,
+  pub released: String,
+  pub newer: String,
+  pub stock: String,
+  pub deal: String,
+  pub review: String,
+  pub news: String,
+}
+
+/// The words a run's document is written in, by language: `ko`, and `en` for every other.
+pub fn search_document(language: &str) -> &'static SearchDocumentWords {
+  static WORDS: LazyLock<BTreeMap<String, SearchDocumentWords>> =
+    LazyLock::new(|| toml::from_str(SEARCH_DOCUMENT).expect("prompts/search/document.toml reads"));
+  WORDS
+    .get(language)
+    .or_else(|| WORDS.get("en"))
+    .expect("prompts/search/document.toml holds en")
+}
+
+/// What a past ceiling does to a run's rounds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PastCeiling {
+  Final,
+  Last,
+}
+
+/// One research key's rounds.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Rounds {
+  pub rounds: Vec<String>,
+  pub ceiling_seconds: i64,
+  pub past_ceiling: PastCeiling,
+}
+
+/// The search's rulebooks: their order, those given by their deciding section alone, that section's heading,
+/// and the two rulebooks every search ends with.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SearchRulebooks {
+  pub rulebooks: Vec<String>,
+  pub on_request: Vec<String>,
+  pub applies_section: String,
+  pub plain_writing: String,
+  pub self_preservation: String,
+}
+
+/// What the runner composes a run of.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RunnerWords {
+  pub search: SearchRulebooks,
+  pub questions: BTreeMap<String, String>,
+  pub rounds: BTreeMap<String, Rounds>,
+}
+
+/// The name of the round whose answer is a run's result.
+pub const FINAL: &str = "final";
+
+pub fn runner() -> &'static RunnerWords {
+  static WORDS: LazyLock<RunnerWords> =
+    LazyLock::new(|| toml::from_str(RUNNER).expect("prompts/runner.toml reads"));
+  &WORDS
 }

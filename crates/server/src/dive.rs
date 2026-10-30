@@ -1,21 +1,31 @@
 //! The deep dive and its notices (`docs/api.md`, 「The deep dive」, 「The Korean rendering」 and 「The
-//! notices」): the next run picked among the running categories whose road no bench holds, asked of agency,
-//! read until it closes, its document read and its items filed, the document rendered in Korean, and every
+//! notices」): the next run picked among the running categories whose road no bench holds, asked of the
+//! runner, read until it closes, its document read and its items filed, the document rendered in Korean, and every
 //! recipient told; a pending rendering asked again on the retry wait and its follow-up told; a try the
 //! bench cut put back uncounted.
 
 use std::sync::Arc;
 use std::time::Duration;
 
-use bmo_research_client::{Category, CategoryShape, Item, RecipientKind, Running, Shape};
+use bmo_research_client::{
+  Category, CategoryShape, Item, RecipientKind, ResearchRunAsk, ResearchRunState, Running, Shape,
+};
 use tokio::task::JoinHandle;
 
 use crate::App;
 use crate::bench;
 use crate::reading::{self, Exposure};
+use crate::runner::{self, Refused};
 use crate::store::{Filed, now_ms};
 use crate::translation::{self, English, Rendering};
 use crate::words::{self, fill};
+
+/// What a try reads of the document its run filed.
+struct Document {
+  id: i64,
+  title: String,
+  description: Option<String>,
+}
 
 /// How an item's Korean rendering stands as its report is told: filed, pending a later try, or no longer
 /// asked.
@@ -208,33 +218,44 @@ pub async fn carry(app: Arc<App>, run: i64, asked: Option<i64>) {
     Some(id) => id,
     None => {
       let (provider, model) = road(&app, &category);
-      match app.peers.ask_run(&question(&app, &items), &provider, &model).await {
-        Ok(id) => {
-          let _ = app.store.keep_run_id(run, id);
-          id
+      let ask = ResearchRunAsk {
+        key: app.settings.road.key.clone(),
+        query: question(&app, &items),
+        provider: Some(provider),
+        model: Some(model),
+        ..ResearchRunAsk::default()
+      };
+      match runner::launch(app.clone(), ask, false).await {
+        Ok(launched) => {
+          let _ = app.store.keep_run_id(run, launched.run_id);
+          launched.run_id
         }
-        Err(why) => return fail(&app, run, &lead, "refused", None, &why).await,
+        Err(Refused::Ask(why) | Refused::Unavailable(why) | Refused::Failed(why)) => {
+          return fail(&app, run, &lead, "refused", None, &why).await;
+        }
       }
     }
   };
-  let outcome = loop {
-    match app.peers.run_state(run_id).await {
-      Ok(state) if state.state == "closed" => break state.outcome,
+  let closed = loop {
+    match app.store.research_run(run_id) {
+      Ok(row) if row.state == ResearchRunState::Closed => break row,
       Ok(_) => {}
-      Err(why) => eprintln!("bmo-research: run {run_id} could not be read: {why}"),
+      Err(why) => eprintln!("bmo-research: research run {run_id} could not be read: {why}"),
     }
     tokio::time::sleep(Duration::from_millis((app.settings.poll_seconds * 1000).max(50))).await;
   };
+  let outcome = closed.outcome.clone();
   if outcome.as_deref() == Some("cut") {
     return fail(&app, run, &lead, "cut", outcome.as_deref(), "the run was cut").await;
   }
-  let document = match app.peers.filed_document(run_id).await {
-    Ok(Some(d)) => d,
-    Ok(None) => {
-      return fail(&app, run, &lead, "failed", outcome.as_deref(), "the run closed with no document filed")
-        .await;
-    }
-    Err(why) => return fail(&app, run, &lead, "failed", outcome.as_deref(), &why).await,
+  let Some(document_id) = closed.document_id else {
+    let why = closed.error.clone().unwrap_or_else(|| "the run closed with no document filed".into());
+    return fail(&app, run, &lead, "failed", outcome.as_deref(), &why).await;
+  };
+  let document = Document {
+    id: document_id,
+    title: closed.title.clone().unwrap_or_default(),
+    description: closed.description.clone(),
   };
   let (content, link) = match (app.peers.content(document.id).await, app.peers.share(document.id).await) {
     (Ok(c), Ok(l)) => (c, l),

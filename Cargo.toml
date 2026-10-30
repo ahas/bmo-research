@@ -6,17 +6,21 @@ members = ["crates/client", "crates/server", "tools/research"]
 resolver = "3"
 
 [workspace.package]
-version = "0.1.0-rev.2"
+version = "0.1.0-rev.3"
 edition = "2024"
 license = "MIT"
 
 [workspace.dependencies]
 axum = { version = "0.8.4", default-features = false, features = ["http1", "json", "query", "tokio"] }
+base64 = "0.23.1"
 chrono = { version = "0.4.41", default-features = false, features = ["std"] }
 clap = { version = "4.5.40", features = ["derive", "env"] }
 dotenvy = "0.15.7"
 feed-rs = "3.0.0"
 getrandom = "0.3.3"
+http-body-util = "0.1.5"
+hyper = { version = "1.12.0", features = ["client", "http1"] }
+hyper-util = { version = "0.1.21", features = ["tokio"] }
 regex = "1.11.1"
 libc = "0.2.174"
 pulldown-cmark = { version = "0.13.0", default-features = false }

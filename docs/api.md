@@ -45,8 +45,10 @@ the one to read.
 | 404 | `no-route` | no route answers this method and path |
 | 404 | `not-found` | nothing stands at the key the path names |
 | 409 | `conflict` | the member's state does not allow the change, or the key is taken |
+| 409 | `branch-refused` | a branch is not opened; the sentence says why (「research runs」) |
 | 500 | `failed` | the daemon failed; the sentence is the failure |
 | 502 | `upstream-failed` | a unit the daemon called failed; the sentence names it |
+| 503 | `unavailable` | a research run cannot go out now: agency refused its seat or its session, or the tool host gave no web listing; the sentence is theirs |
 
 ## Routes by resource
 
@@ -138,7 +140,7 @@ the one to read.
 - **An item** is `id`, `categoryName`, `key` (the canonical address, else the name lower-cased), `name`,
   `maker`, `address` (the maker's page for the thing), `kind` (`model`, `paper`, `release`, `entry`, or
   `asked` for an ask), `shape` (`manual`, `investigation`, `advisory` or `brief`), `sourceId`, `asked`,
-  `priority`, `state`, `tries`, `retryAt`, `runId` (agency's ledger run of the latest try), `documentId`,
+  `priority`, `state`, `tries`, `retryAt`, `runId` (the research run of the latest try), `documentId`,
   `title` and `description` (the document's), `shareUrl`, `koDocumentId` and `koShareUrl` (the Korean
   rendering's document and its live link, null until it is filed, 「The Korean rendering」), `fit`, `fitNodes` (the nodes of the settings'
   `model_nodes` a manual's fit names), `touches` (the hosts and repositories an advisory names), `plan`
@@ -165,7 +167,7 @@ the one to read.
 - **A change** is a merge patch of `state` or `front`; the daemon files nothing and launches nothing, so a
   change only records what was decided elsewhere:
   - `state` `dismissed` dismisses an item in any state but `taken` and `dismissed`; a run under way goes
-    on in agency, and its end is no longer told.
+    on to its end, which is no longer told.
   - `state` `taken` with `jobItemId`, the number of the job item the chat agent filed on the owner's word,
     keeps that number on the item. Only a `reported` or `fit` item is taken; a `taken` naming no
     `jobItemId` is 400 `bad-request`.
@@ -182,8 +184,8 @@ the one to read.
 
 - **A run here is the daemon's record of one try:** `id`, `categoryName`, `itemId` (the item it was
   asked for; a brief's first item), `itemIds` (every item it carries: one, or a brief's whole gathering),
-  `try` (counted from 1), `runId` (agency's ledger run, null where the ask was refused), `state`
-  (`running`, `closed`, `refused`, `cut` or `failed`), `outcome` (agency's, as its ledger closed the run),
+  `try` (counted from 1), `runId` (the research run, null where the ask was refused), `state`
+  (`running`, `closed`, `refused`, `cut` or `failed`), `outcome` (the research run's, as it closed),
   `error`, `startedAt` and `endedAt`.
 
 ### recipients
@@ -230,28 +232,82 @@ the one to read.
 | GET | `/facts` | The figures the briefs kept, newest first, narrowed by `name`, paged by `before`. |
 
 - **A fact** is `id`, `name` (an index, a rate, a price, a release), `value`, `unit`, `asOf` (the date the
-  figure stands for, as the brief writes it), `sourceAddress`, `runId` (agency's ledger run whose brief held it),
+  figure stands for, as the brief writes it), `sourceAddress`, `runId` (the research run whose brief held it),
   `documentId` and `createdAt`. A brief's figures are read from its figures table (「The brief's facts」).
+
+### research runs
+
+| Method | Path | Does |
+|---|---|---|
+| POST | `/research-runs` | Ask a research: a search at a depth or a browse; 202 with the run. |
+| GET | `/research-runs/{runId}` | One research run. |
+| GET | `/research-runs/{runId}/log-lines` | A research run's log, oldest first. |
+| POST | `/branches` | Open a branch of a research run and answer once it ends. |
+
+- **An ask** (`docs/runner.md`) names `key` (`search:basic`, `search:thorough`, `search:exhaustive` or
+  `browse`) and `query`, and may name `asker`, `options`, `roomId` (the room the result is told to; the
+  owner's private room where none is named), `provider` and `model` (the road it goes out on; the seat's
+  where none is named). A key that is no research key or an empty query is 400 `bad-request`. Where agency
+  refuses the seat or the session, or a search's web listing cannot be had, it is 503 `unavailable` with the
+  sentence, and nothing is left standing.
+- **The ask is answered at once,** 202 with `runId`, `key`, `state` (`waiting` while its seat waits for a
+  place, `running` once let in), `provider`, `model` and `closesAt` (when its web tools close; the clock runs
+  from the ask). The run goes on in the background to its end.
+- **A research run** is `runId`, `key`, `query`, `asker`, `roomId`, `provider`, `model`, `state` (`waiting`,
+  `running` or `closed`), `outcome` (`answered`, `failed` or `cut`; null while open), `startedAt`, `closesAt`,
+  `finishedAt`, `documentId` and `link` (the filed document and its share link, null where none was filed),
+  `error` (why it failed), `branches` (how many it opened) and `turns` (the names of the agency turns it went
+  out under, its first answer's and each round's, by which its tool calls are read in agency's log).
+- **Its log** answers `items`, each `id`, `runId`, `at`, `kind` (`asked`, `seated`, `answer`, `round`,
+  `branch`, `filed`, `told` or `ended`) and `text`, the run's own notes from the ask to its end.
+- **A branch** is asked with the token the run's record names, `run` (the run's id) and `angle`, and answered
+  200 once it ends with `index` (counted from 1 per run), `state` (`completed`, `stopped` at research close,
+  or `failed`), `notes` (what the branch wrote, empty where nothing) and `reason` (why, on `failed`; null
+  otherwise). A run that does not stand is 404 `not-found`, an empty angle 400 `bad-request`. It is 409
+  `branch-refused`, the sentence saying why, where the run is no longer running or its research has closed,
+  the run is allowed no branches, it has opened every branch it is allowed (the sentence names how many), or
+  the pool stayed full until research closed; every ask past the first two checks counts against the
+  allowance. A caller that lets go ends its branch: its session ended once its turn is over and its seat
+  given back.
+
+### research settings
+
+| Method | Path | Does |
+|---|---|---|
+| GET | `/research-settings` | The settings every research run is held to, with the search engines' state. |
+| PUT | `/research-settings` | Change them; a field left out keeps what it holds. |
+
+- **The settings** (`docs/runner.md`, 「What a run is held to」) are `branchRole`, `strategy`,
+  `hostIntervalMs` and `engineIntervalMs` (null where the web tools' default stands), `keys` (each `key`,
+  `branches`, `minutes`, `pages` and `branchPages`, the last two null for no ceiling), `source` (`default`
+  where the settings file's stand, `set` once changed), `engines` (each `name`, `category`, `state`, `reason`,
+  `observedAt` and `suspendedUntil`, as the web tools answer them; null where they could not be read) and
+  `enginesUnread` (why not, or null).
+- **A change** names any of `branchRole`, `strategy`, `hostIntervalMs`, `engineIntervalMs` (null returns to
+  the web tools' default) and `keys`; a key's `pages` or `branchPages` left out keeps what it holds. A role
+  agency's `GET /roles` does not list, a strategy outside the three, a gap below 0, a key that is no research
+  key, branches below 0, a clock under a minute or a budget under a page is 400 `bad-request`; it is answered
+  with the settings as they now stand.
 
 ## The deep dive
 
-- **One run at a time,** `concurrency` at most, while the run's category runs. A try asks agency for a
-  research run at the settings' `road.key`, on the category's provider and model (the settings' `road`
-  where it names none), with the question its shape takes (「The questions」) and no room, keeps the run's
-  id on its items and its run row, and reads agency's `GET /runs/{runId}` every `poll_seconds` until the
-  run's `state` is `closed`.
-- **A run that closed** with the outcome `cut` is a failed try. Any other outcome ends the try once the
-  artifact service answers the document filed under the label `research` with the run's id; a closed run
-  with no such document is a failed try.
-- **A failed try** — an ask agency refused (503 or any failure), a cut run, a missing document — puts its
+- **One run at a time,** `concurrency` at most, while the run's category runs. A try asks the runner
+  (「research runs」, `docs/runner.md`) for a research run at the settings' `road.key`, on the category's
+  provider and model (the settings' `road` where it names none), with the question its shape takes (「The
+  questions」) and no room, keeps the run's id on its items and its run row, and reads the run's row every
+  `poll_seconds` until its `state` is `closed`. A run the deep dive asks tells no room itself.
+- **A run that closed** with the outcome `cut` is a failed try. Any other outcome ends the try once the run's
+  row names the document it filed; a closed run with no document is a failed try.
+- **A failed try** — an ask the runner refused (503 or any failure), a cut run, a missing document — puts its
   items back `waiting` with `retryAt` `retry_minutes` ahead. After `retries` retries they are `failed` and
   every recipient of the category is told so once.
 - **A brief** gathers, once its category's `gatherMinutes` have passed since its last run was asked, every
   waiting item of the category, at most its `cap`, into one run; a gathering whose retry is due is asked
   at once.
 - **A try the bench cut is not counted** (「The bench」); every other failed try is.
-- **A daemon that starts** takes up every run it left `running`: one with a run id is polled again, one
-  without puts its items back `waiting`.
+- **A daemon that starts** closes every research run it left open as `cut` (`docs/runner.md`, 「A
+  restart」), then takes up every try it left `running`: one with a run id is read again, and ends as a
+  cut run's try; one without puts its items back `waiting`.
 - **A filed document is rendered in Korean** before it is told (「The Korean rendering」): its items are
   filed `reported` or `fit` first, then the rendering is asked, then the recipients are told.
 
@@ -398,10 +454,26 @@ daemon's settings name, read under the data root the session record's `BMO_DATA_
 | `research/rooms` | `action` (`list`, `add`, `remove`), `category`, `room?` | the same, for the recipients that are rooms | `research.ask`; `add` and `remove` also `research.owner` |
 | `research/stop` | `category?` | `PATCH /state` | `research.owner` |
 | `research/resume` | `category?` | `PATCH /state` | `research.owner` |
+| `research/run` | `key`, `query`, `options?`, `roomId?`, `provider?`, `model?`, `asker?` | `POST /research-runs` | `research.ask` |
+| `research/rulebook` | `name` | none: it reads the rulebook from the deploy tree | `web.rulebooks` |
 
 - **An entry that both reads and changes** is shown to a session holding `research.ask`, and the tool
   refuses its changing actions to a session whose record does not also hold `research.owner`.
 - **Each answers a short text** for the model to read, and a refusal as a result marked as an error.
+- **`research/run` sends a research out** and is answered at once with the run's id, its state, its road and
+  when its web tools close, or why it cannot go out now. What the chat agent is told of it, in the entry's
+  description: the depth is the key — `search:basic` for a question after one value or one fact,
+  `search:thorough` for a question with a few angles, `search:exhaustive` for a deep dive, `browse` for a
+  task that must open and click through pages — and the question is written whole, as the owner means it;
+  `roomId` is the room the turn answers, so the result comes back there; a `model`, with its `provider` where
+  one is meant, is named only where the owner named one for this research, and none otherwise, so the seat's
+  own road carries it; the result comes back to the room as an instruction once the run ends, the answer in a
+  line or two with its document's link.
+- **`research/rulebook` answers one rulebook whole,** read from `prompts/rules/<name>.md` under the first
+  folder, from the tool's working folder upward, that holds `prompts/rules`: the deployment places the
+  rulebooks beside the tool's executable. Only a name the session record's `labels.research.rulebooks` holds is
+  read; any other is refused with the names that are. It is shown to a search run, whose record holds
+  `web.rulebooks`.
 
 ## The command
 
@@ -418,19 +490,34 @@ Each is the documented route of the unit that holds what must reach it; the daem
 of these units, and reads each one's address and token from that unit's own files under the data root's
 `env/`, named by the settings (`docs/settings.md`, 「Peers」).
 
-- **agency:** `POST /research-runs` with `key`, `query`, `provider` and `model`, and no `roomId`; answered
-  202 with `runId`, or 503 where no road carries it. `GET /runs/{runId}`, read for `state` and `outcome`.
+- **agency:** `POST /seat-requests` with `requestKey`, `owner`, `role`, `selection` `auto`, `provider` where
+  one is named, `workKey` and `source`, a run's or a branch's seat, answered with its `token`, `state`,
+  `provider`, `model`, `effort` and `tier`; `PATCH /seat-requests/{token}` naming `admitted` (its place asked
+  for), `bound` with `childId` (bound to its session) or `finished` with `outcome`, and `cancel` where it never
+  ran. `POST /sessions` with `agent`, `scope` `apart`, `provider`, `model`, `cwd`, `line`, `systemPrompt`,
+  `labels`, `toolsAllowed` and `boundMs`, answered with the session's `id`, or 503 `line-not-carried`.
+  `POST /sessions/{id}/turns` with `prompt` and the work parts (`provider`, `model`, `mapping`, `resume`,
+  `cwd`, `name`, `title`, `chat`, `workKey`, `hearsWords`, `variables`), answered once the turn ends with its
+  `answer`. `DELETE /sessions/{id}`, the session ended, answered 409 while its turn runs. `GET /roles`, the
+  co-worker roles a branch role is checked against.
   `GET /models/{registration}?provider=<provider>`, a watched registration read for `healthy`.
   `POST /sessions/{agentName}@worker/turns` with `prompt`, a notice to an agent. `POST /translation-runs`
   with `purpose`, `language`, `text` and `note`, one part of a Korean rendering; answered 200 with `text`,
   413 `too-large` or 503 `no-login-open`.
 - **the artifact service:** `GET /documents?q=<name>&limit=1`, the archive check a candidate passes
-  (`docs/sources.md`); `GET /documents?label=research:<runId>&limit=20`, the document a run filed, the
-  first carrying no `translationOf` label; `GET /documents/{documentId}/content`, its text;
-  `GET /shares?documentId=<documentId>` and `POST /shares` with `documentId`, its live link;
-  `POST /documents`, a Korean rendering.
-- **the receiver:** `GET /owner`, the owner's private room; `POST /instructions`, a report line or the
-  notice that a model stays down.
+  (`docs/sources.md`); `POST /documents`, a run's document or a Korean rendering;
+  `POST /documents/{documentId}/attachments` with `name`, `mediaType` and `content` (base64), a picture of a
+  run's document, and `PATCH /documents/{documentId}` with `body` and `labels` once its pictures are kept;
+  `GET /documents/{documentId}/content`, its text; `GET /shares?documentId=<documentId>` and `POST /shares`
+  with `documentId` and, for a run's document, `expiresAt` a day ahead, its live link.
+- **the receiver:** `GET /owner`, the owner's private room; `POST /instructions`, a report line, the notice
+  that a model stays down, or a research run's end (`room`, null where the run named none, `sort` `notice`,
+  `kind` `research-ended:<run>`, `said`, `summary` and `events`).
+- **the tool host:** on its control socket, under the issuer token it keeps (`docs/settings.md`,
+  「The tool host」): `GET /namespaces/web/tools` page by page, read for each tool's `listing`;
+  `POST /tool-sessions` with a record naming the namespace `explorer` and `BMO_DATA_DIR`,
+  `POST /tool-calls` under that session's token calling `explorer/search_engines`, and
+  `DELETE /tool-sessions/{token}`, the search engines' state.
 - **the arbiter:** the master's `GET /cluster` at the bench watch's address, with its token where one is
   named, read for each node's cards' `turn` and `queue` and the `serviceName` each carries (「The bench」).
   The bench lock of a verification is the job's; the daemon asks no ticket.

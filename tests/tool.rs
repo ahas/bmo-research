@@ -1,6 +1,7 @@
 //! The research tool (`docs/api.md`, 「The tools」): its manifest held to the executable's entries, a call
-//! handed the way the tool host hands it answered against a served daemon, and the owner's actions refused to
-//! a session that does not hold the owner's capability.
+//! handed the way the tool host hands it answered against a served daemon, the owner's actions refused to a
+//! session that does not hold the owner's capability, a research sent out, and a rulebook read whole where the
+//! record hands it.
 
 mod support;
 
@@ -32,8 +33,12 @@ fn the_manifest_names_exactly_the_executable_s_entries_with_their_schemas() {
     assert_eq!(schema["type"], "object", "{input}");
     let capabilities: Vec<&str> =
       entry["capabilities"].as_array().unwrap().iter().map(|c| c.as_str().unwrap()).collect();
-    let owner_only = ["taken", "dismiss", "stop", "resume"].contains(&entry["name"].as_str().unwrap());
-    assert_eq!(capabilities, [if owner_only { research_tool::OWNER } else { "research.ask" }]);
+    let expected = match entry["name"].as_str().unwrap() {
+      "taken" | "dismiss" | "stop" | "resume" => research_tool::OWNER,
+      "rulebook" => "web.rulebooks",
+      _ => "research.ask",
+    };
+    assert_eq!(capabilities, [expected]);
   }
 }
 
@@ -158,4 +163,67 @@ async fn a_request_that_is_no_call_or_names_no_entry_is_refused() {
   assert!(text(&missing).contains("address"));
   let listed = research_tool::answer(json!({"protocol": 1, "kind": "resources_list"})).await;
   assert_eq!(listed, json!({"resources": []}));
+}
+
+#[tokio::test]
+async fn a_research_is_sent_out_through_the_runner() {
+  let (ground, root) = daemon().await;
+  let answer = research_tool::answer(handed(
+    &root,
+    "research/run",
+    json!({"key": "search:basic", "query": "What does Thing-7B cost?", "roomId": 5}),
+    &["research.ask"],
+  ))
+  .await;
+  assert_eq!(answer["isError"], false, "{answer}");
+  assert!(text(&answer).starts_with("Research run 1 on search:basic is "), "{answer}");
+  assert!(text(&answer).contains("registered · seat-model"), "{answer}");
+  let seats = ground.run_seats();
+  assert_eq!(seats[0]["workKey"], "search:basic");
+  let refused = research_tool::answer(handed(
+    &root,
+    "research/run",
+    json!({"key": "search:deep", "query": "Q"}),
+    &["research.ask"],
+  ))
+  .await;
+  assert_eq!(refused["isError"], true);
+  assert!(text(&refused).contains("400"), "{refused}");
+}
+
+fn rulebook_call(labels: Value, name: &str) -> Value {
+  json!({
+    "protocol": 1,
+    "kind": "call",
+    "entry": "research/rulebook",
+    "arguments": {"name": name},
+    "session": {"holderName": "search", "capabilities": ["web.rulebooks"], "variables": {}, "labels": labels},
+  })
+}
+
+#[tokio::test]
+async fn a_rulebook_the_record_hands_is_read_whole_and_any_other_refused() {
+  let labels = json!({"research": {"rulebooks": ["product-search", "deep-dives"]}});
+  let read = research_tool::answer(rulebook_call(labels.clone(), "product-search")).await;
+  assert_eq!(read["isError"], false, "{read}");
+  let whole = std::fs::read_to_string(
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("prompts/rules/product-search.md"),
+  )
+  .unwrap();
+  assert_eq!(text(&read), format!("RULEBOOK prompts/rules/product-search.md:\n{whole}"));
+  let refused = research_tool::answer(rulebook_call(labels, "research")).await;
+  assert_eq!(refused["isError"], true);
+  assert!(text(&refused).contains("product-search, deep-dives"), "{refused}");
+  let none = research_tool::answer(rulebook_call(json!({}), "research")).await;
+  assert_eq!(none["isError"], true);
+
+  let placed = support::scratch().join("placed");
+  std::fs::create_dir_all(placed.join("prompts/rules")).unwrap();
+  std::fs::write(placed.join("prompts/rules/deep-dives.md"), "# Placed\n").unwrap();
+  let inside = placed.join("bin");
+  std::fs::create_dir_all(&inside).unwrap();
+  assert_eq!(research_tool::rules_folder(&inside), Some(placed.join("prompts/rules")));
+  let labels = json!({"research": {"rulebooks": ["deep-dives"]}});
+  let read = research_tool::rulebook(&inside, &labels, &json!({"name": "deep-dives"})).unwrap();
+  assert_eq!(read, "RULEBOOK prompts/rules/deep-dives.md:\n# Placed\n");
 }

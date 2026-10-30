@@ -102,13 +102,6 @@ struct Ticket {
   service_name: String,
 }
 
-/// How a research run's ledger row stands.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RunState {
-  pub state: String,
-  pub outcome: Option<String>,
-}
-
 #[derive(Clone)]
 pub struct Peers {
   http: reqwest::Client,
@@ -196,34 +189,6 @@ impl Peers {
       return Ok(Value::Null);
     }
     serde_json::from_str(&body).map_err(|e| format!("{} {what}: the answer did not read: {e}", peer.name))
-  }
-
-  /// A research run asked of agency on the road named, with no room: its ledger run's id.
-  pub async fn ask_run(&self, query: &str, provider: &str, model: &str) -> Result<i64, String> {
-    let agency = self.agency()?;
-    let body =
-      json!({ "key": self.settings.road.key, "query": query, "provider": provider, "model": model });
-    let answer = self
-      .call(
-        &agency,
-        self.request(&agency, reqwest::Method::POST, "/research-runs").json(&body),
-        "POST /research-runs",
-      )
-      .await?;
-    answer["runId"].as_i64().ok_or_else(|| "agency answered no runId".to_string())
-  }
-
-  /// A ledger run's state and outcome.
-  pub async fn run_state(&self, run_id: i64) -> Result<RunState, String> {
-    let agency = self.agency()?;
-    let path = format!("/runs/{run_id}");
-    let answer = self
-      .call(&agency, self.request(&agency, reqwest::Method::GET, &path), &format!("GET {path}"))
-      .await?;
-    Ok(RunState {
-      state: answer["state"].as_str().unwrap_or_default().to_string(),
-      outcome: answer["outcome"].as_str().map(str::to_string),
-    })
   }
 
   /// Each node's occupants holding a ticket now, granted or waiting, as the arbiter master's cluster
@@ -366,14 +331,6 @@ impl Peers {
     Ok(!self.documents(&[("q", phrase.as_str()), ("limit", "1")]).await?.is_empty())
   }
 
-  /// The document agency filed for a run, under the label `research` with the run's id. A Korean rendering
-  /// carries the same label with its item's id, so a document labelled as a translation is passed over.
-  pub async fn filed_document(&self, run_id: i64) -> Result<Option<Document>, String> {
-    let label = format!("research:{run_id}");
-    let listed = self.documents(&[("label", label.as_str()), ("limit", "20")]).await?;
-    Ok(listed.into_iter().find(|d| !d.labels.contains_key("translationOf")))
-  }
-
   pub async fn content(&self, document_id: i64) -> Result<String, String> {
     let artifact = self.artifact()?;
     let path = format!("/documents/{document_id}/content");
@@ -456,4 +413,115 @@ impl Peers {
       .await?;
     Ok(answer["id"].as_i64())
   }
+
+  // Agency's seats and thrown-away sessions, as the runner asks them (`docs/runner.md`).
+
+  /// A seat asked of the co-worker pool: the request as agency answers it.
+  pub async fn ask_seat(&self, ask: &Value) -> Result<Value, String> {
+    let agency = self.agency()?;
+    let request = self.request(&agency, reqwest::Method::POST, "/seat-requests").timeout(WITHIN).json(ask);
+    self.call(&agency, request, "POST /seat-requests").await
+  }
+
+  /// A seat moved: asked for its place, bound to its session, or given back.
+  pub async fn move_seat(&self, token: &str, change: &Value) -> Result<Value, String> {
+    let agency = self.agency()?;
+    let path = format!("/seat-requests/{}", segment(token));
+    let request = self.request(&agency, reqwest::Method::PATCH, &path).timeout(WITHIN).json(change);
+    self.call(&agency, request, &format!("PATCH {path}")).await
+  }
+
+  /// A thrown-away session started: its id.
+  pub async fn start_session(&self, start: &Value) -> Result<String, String> {
+    let agency = self.agency()?;
+    let request = self.request(&agency, reqwest::Method::POST, "/sessions").timeout(WITHIN).json(start);
+    let answer = self.call(&agency, request, "POST /sessions").await?;
+    answer["id"]
+      .as_str()
+      .filter(|id| !id.is_empty())
+      .map(str::to_string)
+      .ok_or_else(|| "agency answered the session with no id".to_string())
+  }
+
+  /// One turn into a session, answered once it ends: the turn's end as agency answers it.
+  pub async fn send_turn(&self, session: &str, body: &Value, within: Duration) -> Result<Value, String> {
+    let agency = self.agency()?;
+    let path = format!("/sessions/{}/turns", segment(session));
+    let request = self.request(&agency, reqwest::Method::POST, &path).timeout(within).json(body);
+    self.call(&agency, request, &format!("POST {path}")).await
+  }
+
+  /// A session ended; `Busy` while a turn of it still runs.
+  pub async fn end_session(&self, session: &str) -> Result<(), Ending> {
+    let agency = self.agency().map_err(Ending::Failed)?;
+    let path = format!("/sessions/{}", segment(session));
+    let answer = self
+      .request(&agency, reqwest::Method::DELETE, &path)
+      .timeout(WITHIN)
+      .send()
+      .await
+      .map_err(|e| Ending::Failed(format!("agency DELETE {path}: {e}")))?;
+    match answer.status().as_u16() {
+      200..=299 | 404 => Ok(()),
+      409 => Err(Ending::Busy),
+      status => Err(Ending::Failed(format!(
+        "agency DELETE {path} answered {status}: {}",
+        answer.text().await.unwrap_or_default()
+      ))),
+    }
+  }
+
+  /// The co-worker roles agency's pool can lend, by name.
+  pub async fn roles(&self) -> Result<Vec<String>, String> {
+    let agency = self.agency()?;
+    let answer = self
+      .call(
+        &agency,
+        self.request(&agency, reqwest::Method::GET, "/roles").timeout(WITHIN),
+        "GET /roles",
+      )
+      .await?;
+    Ok(
+      answer["items"]
+        .as_array()
+        .map(|roles| roles.iter().filter_map(|r| r["name"].as_str().map(str::to_string)).collect())
+        .unwrap_or_default(),
+    )
+  }
+
+  /// A research run's end queued for its room's answerer, the body as the runner composed it.
+  pub async fn instruct_end(&self, body: &Value) -> Result<(), String> {
+    let receiver = self.receiver()?;
+    let request = self.request(&receiver, reqwest::Method::POST, "/instructions").json(body);
+    self.call(&receiver, request, "POST /instructions").await.map(|_| ())
+  }
+
+  /// One call of the artifact service's routes with a JSON body: its answer.
+  pub async fn artifact_send(
+    &self,
+    method: reqwest::Method,
+    path: &str,
+    body: &Value,
+  ) -> Result<Value, String> {
+    let artifact = self.artifact()?;
+    let what = format!("{method} {path}");
+    self.call(&artifact, self.request(&artifact, method, path).json(body), &what).await
+  }
+}
+
+/// Why a session was not ended: a turn of it still runs, or the call failed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Ending {
+  Busy,
+  Failed(String),
+}
+
+/// How long one call of agency's seat and session routes may take, a turn's send aside.
+const WITHIN: Duration = Duration::from_secs(30);
+
+/// An identifier agency gave, written into a path as one segment.
+fn segment(identifier: &str) -> String {
+  url::form_urlencoded::byte_serialize(identifier.as_bytes())
+    .collect::<String>()
+    .replace('+', "%20")
 }
