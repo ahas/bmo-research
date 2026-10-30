@@ -1,30 +1,28 @@
-//! The Korean rendering of a filed document (`docs/api.md`, 「The Korean rendering」): its body cut at its
-//! headings into parts the translator takes, each part translated with the note that gives it its context,
-//! a part the translator finds too long halved and asked again, and the rendering filed beside the English
-//! document with a share link of its own.
+//! A deep dive's page in Korean (`docs/api.md`, 「The page」): its body, the title set over it as its heading,
+//! cut at its headings into parts the translator takes, each part translated with the note that gives it its
+//! context, a part the translator finds too long halved and asked again, a note the translator answered as
+//! text taken out; and its narration's script translated to be spoken.
 
 use tokio::task::JoinSet;
 
 use crate::App;
-use crate::peers::{NewRendering, Peers, Untranslated};
+use crate::peers::{Peers, Untranslated};
 use crate::reading;
 use crate::words::{self, fill};
 
-/// A Korean rendering filed: its document, its title and description, and its live link.
+/// A page's Korean side: its title, its description and its markdown body.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Rendering {
-  pub document_id: i64,
   pub title: String,
   pub description: Option<String>,
-  pub share_url: String,
+  pub body: String,
 }
 
-/// The English document a rendering is made of, and the item it was filed for.
+/// The English side a rendering is made of: the researched thing's name, and the page's title, description
+/// and body, the body without the heading saying the title.
 #[derive(Debug, Clone)]
 pub struct English<'a> {
-  pub item_id: i64,
   pub name: &'a str,
-  pub document_id: i64,
   pub title: &'a str,
   pub description: Option<&'a str>,
   pub body: &'a str,
@@ -39,9 +37,57 @@ pub fn note(name: &str) -> String {
   fill(&words::translation().note, &[("name", name)])
 }
 
-/// The note a report's title carries.
-pub fn title_note(name: &str) -> String {
-  fill(&words::translation().title_note, &[("name", name)])
+/// The note a narration's script about `name` carries.
+pub fn narration_note(name: &str) -> String {
+  fill(&words::translation().narration_note, &[("name", name)])
+}
+
+// Where each paragraph of a text starts and ends, a paragraph being lines up to a blank one.
+fn paragraphs(text: &str) -> Vec<(usize, usize)> {
+  let mut found = Vec::new();
+  let mut open: Option<usize> = None;
+  let mut at = 0;
+  for line in text.split_inclusive('\n') {
+    if line.trim().is_empty() {
+      if let Some(start) = open.take() {
+        found.push((start, at));
+      }
+    } else if open.is_none() {
+      open = Some(at);
+    }
+    at += line.len();
+  }
+  if let Some(start) = open {
+    found.push((start, text.len()));
+  }
+  found
+}
+
+/// A translation with the note it was asked with taken out, where the translator answered the note as text:
+/// while the translation holds more paragraphs than its part, its first paragraph is prose saying the thing's
+/// `name`, and the part opens with a heading or with a paragraph not saying it, that paragraph is dropped.
+pub fn without_leaked_note<'a>(part: &str, translated: &'a str, name: &str) -> &'a str {
+  let source = paragraphs(part);
+  let opens_apart = source.first().is_none_or(|(start, end)| {
+    let first = &part[*start..*end];
+    first.trim_start().starts_with('#') || !first.contains(name)
+  });
+  if name.trim().is_empty() || !opens_apart {
+    return translated;
+  }
+  let said = paragraphs(translated);
+  let mut from = 0;
+  for (start, end) in &said[..said.len().saturating_sub(source.len())] {
+    let paragraph = &translated[*start..*end];
+    if paragraph.trim_start().starts_with('#') || !paragraph.contains(name) {
+      break;
+    }
+    from += 1;
+  }
+  match said.get(from) {
+    Some((start, _)) if from > 0 => &translated[*start..],
+    _ => translated,
+  }
 }
 
 /// A text halved nearest its middle: at a heading, else after a blank line, else after a line's end, else
@@ -142,18 +188,20 @@ fn join(pieces: Vec<(String, &'static str)>) -> String {
   out
 }
 
-/// One part translated; a part the translator finds too long is halved and each half asked again, in order.
+/// One part of a text about `name` translated; a part the translator finds too long is halved and each half
+/// asked again, in order, and a note the translator answered as text is taken out.
 pub async fn translate_part(
   peers: &Peers,
   language: &str,
   part: &str,
   note: &str,
+  name: &str,
 ) -> Result<String, String> {
   let mut waiting = vec![part.to_string()];
   let mut done = Vec::new();
   while let Some(piece) = waiting.pop() {
     match peers.translate(language, &piece, note).await {
-      Ok(text) => done.push((text, joiner(&piece))),
+      Ok(text) => done.push((without_leaked_note(&piece, &text, name).to_string(), joiner(&piece))),
       Err(Untranslated::TooLarge) => match halve(&piece) {
         Some((first, second)) => {
           waiting.push(second.to_string());
@@ -172,7 +220,7 @@ async fn translate_parts(
   peers: &Peers,
   language: &str,
   parts: Vec<String>,
-  note: &str,
+  (note, name): (&str, &str),
   out: usize,
 ) -> Result<String, String> {
   let joiners: Vec<&'static str> = parts.iter().map(|part| joiner(part)).collect();
@@ -184,8 +232,9 @@ async fn translate_parts(
       let Some((at, part)) = next.next() else {
         break;
       };
-      let (peers, language, note) = (peers.clone(), language.to_string(), note.to_string());
-      asked.spawn(async move { (at, translate_part(&peers, &language, &part, &note).await) });
+      let (peers, language, note, name) =
+        (peers.clone(), language.to_string(), note.to_string(), name.to_string());
+      asked.spawn(async move { (at, translate_part(&peers, &language, &part, &note, &name).await) });
     }
     match asked.join_next().await {
       None => break,
@@ -198,40 +247,45 @@ async fn translate_parts(
   Ok(join(pieces.collect()))
 }
 
-/// The English document rendered in Korean, filed as a document of its own beside it, and shared.
-pub async fn render(app: &App, english: &English<'_>) -> Result<Rendering, String> {
+/// The English side rendered in Korean: the description, then the body with the title set over it as its
+/// heading, so the Korean title is the translated heading, else `title` where the translation opens with
+/// none.
+pub async fn render(app: &App, english: &English<'_>, title: &str) -> Result<Rendering, String> {
   let words = words::translation();
   let note = note(english.name);
-  let titled =
-    translate_part(&app.peers, &words.language, english.title, &title_note(english.name)).await?;
-  let title = titled
-    .lines()
-    .map(str::trim)
-    .find(|line| !line.is_empty())
-    .unwrap_or(english.title)
-    .to_string();
   let description = match english.description.filter(|d| !d.trim().is_empty()) {
-    Some(description) => Some(translate_part(&app.peers, &words.language, description, &note).await?),
+    Some(description) => Some(
+      translate_part(&app.peers, &words.language, description, &note, english.name)
+        .await?
+        .trim()
+        .to_string(),
+    ),
     None => None,
   };
-  let parts = cut(english.body, app.settings.translation.part_chars);
-  let body =
-    translate_parts(&app.peers, &words.language, parts, &note, app.settings.translation.parts_out).await?;
-  let document_id = app
-    .peers
-    .file_rendering(&NewRendering {
-      item_id: english.item_id,
-      translation_of: english.document_id,
-      title: &title,
-      description: description.as_deref(),
-      body: &body,
-    })
-    .await?;
-  let share_url = app.peers.share(document_id).await?;
+  let text = format!("# {}\n\n{}", english.title.trim(), english.body);
+  let parts = cut(&text, app.settings.translation.part_chars);
+  let body = translate_parts(
+    &app.peers,
+    &words.language,
+    parts,
+    (&note, english.name),
+    app.settings.translation.parts_out,
+  )
+  .await?;
+  let (title, body) = match reading::opening_heading(&body) {
+    Some((said, rest)) if !said.is_empty() => (said, rest.to_string()),
+    _ => (title.to_string(), body),
+  };
   Ok(Rendering {
-    document_id,
     title,
     description,
-    share_url,
+    body,
   })
+}
+
+/// A narration's script about `name` translated to be spoken, as one text.
+pub async fn narration(app: &App, name: &str, script: &str) -> Result<String, String> {
+  let words = words::translation();
+  let spoken = translate_part(&app.peers, &words.language, script, &narration_note(name), name).await?;
+  Ok(spoken.trim().to_string())
 }

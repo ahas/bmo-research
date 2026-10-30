@@ -1,6 +1,7 @@
-//! A filed document's Korean rendering, its parts and its notes (`docs/api.md`, 「The Korean rendering」).
+//! A page's Korean side, its parts, its notes and a note the translator answered as text (`docs/api.md`, 「The
+//! page」).
 
-use research_server::translation::{cut, halve, note, title_note};
+use research_server::translation::{cut, halve, narration_note, note, without_leaked_note};
 use research_server::words;
 
 fn chars(text: &str) -> usize {
@@ -64,7 +65,30 @@ fn the_notes_name_the_thing_and_the_language_is_korean() {
   let part = note("Thing-7B");
   assert!(part.contains("Thing-7B") && !part.contains("{name}"), "{part}");
   assert!(part.contains("research report"));
-  let title = title_note("Thing-7B");
-  assert!(title.contains("Thing-7B") && title.contains("title"), "{title}");
-  assert_ne!(part, title);
+  let spoken = narration_note("Thing-7B");
+  assert!(spoken.contains("Thing-7B") && spoken.contains("narration"), "{spoken}");
+  assert_ne!(part, spoken);
+}
+
+#[test]
+fn a_note_the_translator_answered_as_text_is_taken_out_and_nothing_else_is() {
+  let leak = "A note about the report on Thing-7B, which keeps its names.";
+  let part = "# Thing-7B manual\n\n## Running it\n\nIt runs.\n";
+  let answer = format!("{leak}\n\n# Thing-7B manual (ko)\n\n## Running it (ko)\n\nIt runs (ko).\n");
+  assert_eq!(without_leaked_note(part, &answer, "Thing-7B"), &answer[leak.len() + 2..]);
+  let prose = "It runs on one card.\n\nIt needs 24 GB.";
+  let leaked = format!("{leak}\n\nIt runs on one card (ko).\n\nIt needs 24 GB (ko).");
+  assert!(without_leaked_note(prose, &leaked, "Thing-7B").starts_with("It runs on one card (ko)."));
+  let kept = "Thing-7B runs on one card (ko).\n\nIt needs 24 GB (ko).";
+  assert_eq!(
+    without_leaked_note("Thing-7B runs on one card.\n\nIt needs 24 GB.", kept, "Thing-7B"),
+    kept,
+    "a translation holding the part's paragraphs keeps them"
+  );
+  let split = "Thing-7B runs (ko).\n\nOn one card (ko).\n\nIt needs 24 GB (ko).";
+  assert_eq!(
+    without_leaked_note("Thing-7B runs on one card.\n\nIt needs 24 GB.", split, "Thing-7B"),
+    split,
+    "a part opening with the name keeps a first paragraph saying it"
+  );
 }

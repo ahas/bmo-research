@@ -12,8 +12,8 @@ state how all of it works.
 
 - **The unit runs on its own,** with no context from another repository.
 - **It talks to other units only through their documented APIs** (`docs/api.md`, 「Calls this unit makes」):
-  agency, the artifact service, the receiver and the arbiter's master, each at the address and with the
-  token its own files under the data root's `env/` hold, or the settings name, and never copied.
+  agency, the artifact service, the receiver, the voice unit and the arbiter's master, each at the address
+  and with the token its own files under the data root's `env/` hold, or the settings name, and never copied.
 - **No other unit's code is depended on.** Among other repositories nothing is a dependency of any crate
   here; `tests/dependencies.rs` fails on one.
 - **The daemon decides nothing a person should and files nothing an agent should.** It notifies; the work

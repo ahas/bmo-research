@@ -456,13 +456,15 @@ pub struct Item {
   /// the research run of the latest try
   pub run_id: Option<i64>,
   pub document_id: Option<i64>,
+  /// the head the run gave its document, in English
   pub title: Option<String>,
   pub description: Option<String>,
+  /// the document's live link
   pub share_url: Option<String>,
-  /// the Korean rendering's document, null until it is filed
-  pub ko_document_id: Option<i64>,
-  /// the Korean rendering's live link, null until it is filed
-  pub ko_share_url: Option<String>,
+  /// the languages the document's page holds, Korean first; empty before a document is filed
+  pub languages: Vec<String>,
+  /// the languages whose narration the document's page plays, Korean first
+  pub narrations: Vec<String>,
   pub fit: bool,
   /// the settings' model nodes a manual's fit names
   pub fit_nodes: Vec<String>,

@@ -1,18 +1,20 @@
-//! The deep dive against stand-in agency, artifact, receiver and tool host servers (`docs/api.md`, 「The deep dive」,
-//! 「The Korean rendering」 and 「The notices」): the bodies each unit is asked with, the retries, the failure
-//! told once, the Korean rendering and its follow-up, an advisory's parts to the workers of its
-//! repositories, and a brief's gathering with its facts. The filed documents are composed from the English
-//! words `prompts/document.toml` holds, so this file holds none of them.
+//! The deep dive against stand-in agency, artifact, receiver, voice and tool host servers (`docs/api.md`, 「The
+//! deep dive」, 「The page」 and 「The notices」): the bodies each unit is asked with, the retries, the failure
+//! told once, a result short of its shape never filed, the one page with both languages and its switch, the
+//! narration's sounds, the pending Korean side drawn into the same page and its follow-up, an advisory's
+//! parts to the workers of its repositories, and a brief's gathering with its facts. The filed documents are
+//! composed from the English words `prompts/document.toml` holds, so this file holds none of them.
 
 mod support;
 
 use bmo_research_client::{ItemState, NewStackRow, RecipientKind, ResearchRunState, Running, Shape};
 use research_server::dive::{give_owner_room, take_up, tick};
+use research_server::document::{draw, page_body};
 use research_server::store::{NewResearchRun, now_ms};
-use research_server::translation::{cut, note, title_note};
+use research_server::translation::{cut, narration_note, note};
 use research_server::words;
-use serde_json::{Value, json};
-use support::{Filed, Ground, translated};
+use serde_json::Value;
+use support::{Filed, Ground, KO, spoken, translated};
 
 async fn settle(ground: &Ground) {
   for handle in tick(&ground.app).await {
@@ -26,6 +28,26 @@ fn manual_document() -> String {
     "# Thing-7B\n\n## 7. {}\n\n- {} n3, n9\n\n## 9. {}\n\n- re-measure\n",
     w.heading, w.label, w.plan_heading
   )
+}
+
+/// The script a result's narration says.
+const SCRIPT: &str = "Thing-7B is a small model. It fits one card, and its maker's figures hold.";
+
+/// A document with the narration's script after it.
+fn narrated(content: String) -> String {
+  format!("{content}\nLISTEN:\n{SCRIPT}\n")
+}
+
+/// A heading of the investigation's sections.
+fn answer_heading() -> String {
+  words::document().sections.investigation[0].clone()
+}
+
+/// The page's English body as the run drew it, for a document filed by `file`.
+fn english_body(id: i64, content: &str) -> String {
+  let result = format!("TITLE: Report {id}\nTOPIC: It is a thing. It does more.\n\n{content}");
+  let drawn = draw(&result, words::search_document("en"));
+  page_body(&drawn, &format!("Report {id}"))
 }
 
 /// Prose of at least `size` characters, in sentences.
@@ -109,7 +131,14 @@ async fn a_manual_is_asked_read_filed_and_told_with_what_the_owner_s_word_needs(
     (Some("answered"), Some(501), false)
   );
 
-  assert_eq!(ground.asked_path("artifact", "GET", "/documents/501/content").len(), 1);
+  let filed = ground.run_documents();
+  assert_eq!(filed.len(), 1, "one document");
+  assert_eq!(
+    (filed[0]["kind"].as_str(), filed[0]["title"].as_str()),
+    (Some("page"), Some("Report 501"))
+  );
+  assert_eq!(filed[0]["labels"]["languages"], "en");
+  assert!(filed[0]["html"].as_str().unwrap().contains(&words::document().manual[0].plan_heading));
   assert_eq!(ground.asked_path("artifact", "GET", "/shares?documentId=501").len(), 1);
   let made = ground.asked_path("artifact", "POST", "/shares");
   let english: Vec<_> = made.iter().filter(|a| a.body["documentId"] == 501).collect();
@@ -147,7 +176,7 @@ async fn a_manual_is_asked_read_filed_and_told_with_what_the_owner_s_word_needs(
 }
 
 #[tokio::test]
-async fn a_report_is_rendered_in_korean_part_by_part_filed_and_told_with_both_links() {
+async fn a_report_s_korean_side_is_drawn_into_the_same_page_with_a_switch_and_told_with_one_link() {
   let ground = support::ground(|s| {
     s.translation.part_chars = 400;
     s.translation.parts_out = 2;
@@ -164,61 +193,288 @@ async fn a_report_is_rendered_in_korean_part_by_part_filed_and_told_with_both_li
 
   settle(&ground).await;
 
-  assert_eq!(ground.asked_path("artifact", "GET", "/documents/501/content").len(), 1);
-  let parts = cut(&content, 400);
-  assert_eq!(parts.len(), 2, "{parts:#?}");
+  assert_eq!(ground.run_documents().len(), 1, "one document, not two");
+  let text = format!("# Report 501\n\n{}", english_body(501, &content));
+  let parts = cut(&text, 400);
+  assert_eq!(parts.len(), 3, "the title's heading and two sections: {parts:#?}");
   let asks = translations(&ground);
-  assert_eq!(asks.len(), 4, "the title, the description and two parts");
+  assert_eq!(asks.len(), 4, "the description and three parts");
   for ask in &asks {
     assert_eq!((ask["purpose"].as_str(), ask["language"].as_str()), (Some("document"), Some("Korean")));
+    assert_eq!(ask["note"], note("Thing-7B").as_str());
   }
-  assert_eq!(asks[0]["text"], "Report 501");
-  assert_eq!(asks[0]["note"], title_note("Thing-7B").as_str());
-  assert_eq!(asks[1]["text"], "It is a thing. It does more.");
-  let mut sent: Vec<&str> = asks[2..].iter().map(|a| a["text"].as_str().unwrap()).collect();
+  assert_eq!(asks[0]["text"], "It is a thing. It does more.");
+  let mut sent: Vec<&str> = asks[1..].iter().map(|a| a["text"].as_str().unwrap()).collect();
   sent.sort();
   let mut expected: Vec<&str> = parts.iter().map(String::as_str).collect();
   expected.sort();
   assert_eq!(sent, expected);
-  for ask in &asks[1..] {
-    assert_eq!(ask["note"], note("Thing-7B").as_str());
-  }
+  assert!(parts[0].starts_with("# Report 501"), "the title is the body's heading");
   assert!(ground.world.lock().unwrap().translating_most <= 2);
 
-  let filed = ground.renderings();
-  assert_eq!(filed.len(), 1);
-  let record = &filed[0].body;
-  assert_eq!(record["kind"], "record");
-  assert_eq!(record["title"], translated("Report 501").as_str());
-  assert_eq!(record["description"], translated("It is a thing. It does more.").as_str());
-  assert_eq!(record["actorName"], "bmo-research");
-  let body = format!("{}\n\n{}", translated(parts[0].trim()), translated(parts[1].trim()));
-  assert_eq!(record["body"], body.as_str());
-  assert_eq!(
-    record["labels"],
-    json!({"research": item.id.to_string(), "translationOf": "501", "language": "ko"})
-  );
+  let rewrites = ground.rewrites(501);
+  assert_eq!(rewrites.len(), 1);
+  let korean_title = format!("{KO}Report 501");
+  assert_eq!(rewrites[0]["title"], korean_title.as_str());
+  assert_eq!(rewrites[0]["labels"]["languages"], "ko,en");
+  assert_eq!(rewrites[0]["labels"]["research"], "1");
+  let html = rewrites[0]["html"].as_str().unwrap();
+  let page = words::page();
+  for part in [
+    "<html lang=\"ko\" data-shown=\"ko\">",
+    "<style data-archive>",
+    "data-show=\"ko\" lang=\"ko\" aria-pressed=\"true\"",
+    "data-show=\"en\" lang=\"en\" aria-pressed=\"false\"",
+    page.language("ko").unwrap().name.as_str(),
+    page.language("en").unwrap().name.as_str(),
+    &format!("<h1 data-language=\"ko\" lang=\"ko\">{korean_title}</h1>"),
+    "<h1 data-language=\"en\" lang=\"en\">Report 501</h1>",
+    "<article data-language=\"ko\" lang=\"ko\">",
+    "<article data-language=\"en\" lang=\"en\">",
+    "<script>",
+  ] {
+    assert!(html.contains(part), "{part} missing from the page");
+  }
+  assert!(html.find("data-show=\"ko\"") < html.find("data-show=\"en\""), "Korean first");
+  assert!(!html.contains("class=\"listen\""), "no narration, no listen band");
   let shared = ground.asked_path("artifact", "POST", "/shares");
-  assert_eq!(shared.iter().map(|a| a.body["documentId"].clone()).collect::<Vec<_>>(), [501, 901]);
+  assert_eq!(shared.iter().map(|a| a.body["documentId"].clone()).collect::<Vec<_>>(), [501]);
 
   let told = orders(&ground);
   assert_eq!(told.len(), 1);
   let order = told[0]["said"]["order"].as_str().unwrap();
-  let report = words::report();
-  let korean = order.find("https://share.example/d901").expect(order);
-  let english = order
-    .find(&words::fill(&report.english, &[("link", "https://share.example/d501")]))
-    .expect(order);
-  assert!(korean < english, "the Korean link first: {order}");
-  assert!(order.contains(&translated("Report 501")) && order.contains(&translated("It is a thing.")));
-  assert!(!order.contains(&report.pending));
-  assert!(order.contains(&report.fit));
+  assert_eq!(order.matches("https://").count(), 1, "one link: {order}");
+  assert!(
+    order.starts_with(&format!("{korean_title} — {KO}It is a thing. https://share.example/d501")),
+    "{order}"
+  );
+  assert!(!order.contains(&words::report().pending));
+  assert!(order.contains(&words::report().fit));
 
   let rendered = ground.app.store.item(item.id).unwrap();
-  assert_eq!(rendered.ko_document_id, Some(901));
-  assert_eq!(rendered.ko_share_url.as_deref(), Some("https://share.example/d901"));
+  assert_eq!(rendered.languages, ["ko", "en"]);
+  assert!(rendered.narrations.is_empty());
   assert_eq!(rendered.document_id, Some(501));
-  assert_eq!(ground.app.store.translation_state(item.id).unwrap(), (1, None));
+  let state = ground.app.store.page_state(item.id).unwrap();
+  assert_eq!((state.translation_tries, state.retry_at), (1, None));
+}
+
+#[tokio::test]
+async fn a_narration_is_spoken_in_both_languages_and_attached_the_korean_at_the_head() {
+  let ground = support::ground(|_| {}).await;
+  give_owner_room(&ground.app).await;
+  let item = ground
+    .app
+    .store
+    .ask("it", "example.org/thing", "Thing-7B", "https://example.org/thing", Shape::Manual)
+    .unwrap();
+  file(&ground, 1, 501, narrated(manual_document()));
+
+  settle(&ground).await;
+
+  let filed = ground.run_documents();
+  assert!(
+    !filed[0]["html"].as_str().unwrap().contains(SCRIPT),
+    "the script is not the page's text"
+  );
+  let asks = translations(&ground);
+  let script = asks.iter().find(|a| a["text"] == SCRIPT).expect("the script is translated");
+  assert_eq!(script["note"], narration_note("Thing-7B").as_str());
+  let korean = translated(SCRIPT);
+  assert_eq!(ground.spoken(), [korean.clone(), SCRIPT.to_string()]);
+  let kept = ground.world.lock().unwrap().attachments.clone();
+  let sounds: Vec<_> = kept
+    .iter()
+    .filter(|a| a.document == 501)
+    .map(|a| (a.name.as_str(), a.media_type.as_str(), a.role.as_deref(), a.bytes.clone()))
+    .collect();
+  assert_eq!(
+    sounds,
+    [
+      ("narration-ko.ogg", "audio/ogg", Some("head"), spoken(&korean)),
+      ("narration-en.ogg", "audio/ogg", None, spoken(SCRIPT)),
+    ]
+  );
+
+  let rewrites = ground.rewrites(501);
+  assert_eq!(rewrites.len(), 1, "the page is drawn again once, with both sides and both sounds");
+  let html = rewrites[0]["html"].as_str().unwrap();
+  let page = words::page();
+  assert!(html.contains("<div class=\"listen\">"));
+  for code in ["ko", "en"] {
+    assert!(html.contains(&page.language(code).unwrap().listen));
+    assert!(html.contains(&format!(
+      "<audio controls preload=\"metadata\" data-language=\"{code}\" src=\"data:audio/ogg;base64,"
+    )));
+  }
+  let rendered = ground.app.store.item(item.id).unwrap();
+  assert_eq!(rendered.narrations, ["ko", "en"]);
+  assert_eq!(ground.app.store.page_state(item.id).unwrap().retry_at, None);
+  let order = orders(&ground)[0]["said"]["order"].as_str().unwrap().to_string();
+  assert!(!order.contains(&page.language("ko").unwrap().listen), "the notice says nothing of it");
+}
+
+#[tokio::test]
+async fn a_narration_that_cannot_be_made_leaves_the_page_filed_and_is_asked_once_more() {
+  let ground = support::ground(|s| s.retry_minutes = 0).await;
+  give_owner_room(&ground.app).await;
+  let item = ground
+    .app
+    .store
+    .ask("it", "example.org/thing", "Thing-7B", "https://example.org/thing", Shape::Manual)
+    .unwrap();
+  file(&ground, 1, 501, narrated(manual_document()));
+  ground.world.lock().unwrap().voice_failing = true;
+
+  settle(&ground).await;
+
+  assert_eq!(ground.run_documents().len(), 1, "the page is filed");
+  let rewrites = ground.rewrites(501);
+  assert_eq!(rewrites.len(), 1, "drawn again with its Korean side");
+  assert!(!rewrites[0]["html"].as_str().unwrap().contains("class=\"listen\""));
+  assert!(ground.world.lock().unwrap().attachments.is_empty());
+  let filed = ground.app.store.item(item.id).unwrap();
+  assert_eq!(
+    (filed.state, filed.languages.clone()),
+    (ItemState::Fit, vec!["ko".to_string(), "en".to_string()])
+  );
+  assert!(filed.narrations.is_empty());
+  let state = ground.app.store.page_state(item.id).unwrap();
+  assert_eq!(state.narration_tries, 1);
+  assert!(state.retry_at.is_some(), "the narration is asked once more");
+  let told = orders(&ground);
+  assert_eq!(told.len(), 1);
+  assert!(!told[0]["said"]["order"].as_str().unwrap().contains(&words::report().pending));
+
+  ground.world.lock().unwrap().voice_failing = false;
+  settle(&ground).await;
+
+  let rewrites = ground.rewrites(501);
+  assert_eq!(rewrites.len(), 2, "drawn again with its sounds");
+  assert!(rewrites[1]["html"].as_str().unwrap().contains("class=\"listen\""));
+  assert_eq!(rewrites[1]["title"], format!("{KO}Report 501").as_str(), "the Korean side kept");
+  assert_eq!(ground.app.store.item(item.id).unwrap().narrations, ["ko", "en"]);
+  let state = ground.app.store.page_state(item.id).unwrap();
+  assert_eq!((state.narration_tries, state.translation_tries, state.retry_at), (2, 1, None));
+  assert_eq!(orders(&ground).len(), 1, "nobody is told of a narration");
+
+  settle(&ground).await;
+  assert_eq!(ground.rewrites(501).len(), 2, "nothing more is asked");
+}
+
+#[tokio::test]
+async fn a_narration_failing_twice_is_no_longer_asked() {
+  let ground = support::ground(|s| s.retry_minutes = 0).await;
+  give_owner_room(&ground.app).await;
+  let item = ground
+    .app
+    .store
+    .ask("it", "example.org/thing", "Thing-7B", "https://example.org/thing", Shape::Manual)
+    .unwrap();
+  file(&ground, 1, 501, narrated(manual_document()));
+  ground.world.lock().unwrap().voice_failing = true;
+
+  for _ in 0..4 {
+    settle(&ground).await;
+  }
+
+  assert_eq!(ground.spoken().len(), 4, "each language twice");
+  let state = ground.app.store.page_state(item.id).unwrap();
+  assert_eq!((state.narration_tries, state.retry_at), (2, None));
+  assert_eq!(ground.rewrites(501).len(), 1, "the Korean side alone");
+}
+
+#[tokio::test]
+async fn a_result_holding_none_of_its_shape_s_sections_is_not_filed_or_told_and_the_try_waits() {
+  let ground = support::ground(|_| {}).await;
+  give_owner_room(&ground.app).await;
+  let item = ground
+    .app
+    .store
+    .ask("it", "example.org/thing", "Thing-7B", "https://example.org/thing", Shape::Manual)
+    .unwrap();
+  file(&ground, 1, 501, "<tool_call>\n<function=web_fetch>\n</function>\n</tool_call>\n".into());
+
+  settle(&ground).await;
+
+  assert!(ground.run_documents().is_empty(), "nothing is filed");
+  let run = ground.app.store.research_run(1).unwrap();
+  assert_eq!((run.outcome.as_deref(), run.document_id), (Some("failed"), None));
+  let error = run.error.unwrap();
+  let plan = &words::document().manual[0].plan_heading;
+  assert!(error.contains(plan.as_str()), "the error names what was missing: {error}");
+  let waiting = ground.app.store.item(item.id).unwrap();
+  assert_eq!(waiting.state, ItemState::Waiting);
+  assert!(waiting.error.unwrap().contains(plan.as_str()));
+  assert!(orders(&ground).is_empty(), "no notice goes out");
+}
+
+#[tokio::test]
+async fn a_page_with_no_title_line_is_titled_by_its_heading_else_by_the_item_s_name_and_shape() {
+  let ground = support::ground(|_| {}).await;
+  give_owner_room(&ground.app).await;
+  let store = &ground.app.store;
+  let headed = store
+    .ask("it", "example.org/thing", "Thing-7B", "https://example.org/thing", Shape::Manual)
+    .unwrap();
+  let untitled = |id: i64, content: String| Filed {
+    id,
+    title: String::new(),
+    description: "It is a thing.".into(),
+    content,
+  };
+  ground.world.lock().unwrap().filed.insert(1, untitled(501, manual_document()));
+  settle(&ground).await;
+  let filed = ground.run_documents();
+  assert_eq!(filed[0]["title"], "Thing-7B");
+  let html = filed[0]["html"].as_str().unwrap();
+  assert_eq!(html.matches(">Thing-7B</h1>").count(), 1, "the heading saying the title stands once");
+  assert_eq!(store.item(headed.id).unwrap().title.as_deref(), Some("Thing-7B"));
+
+  let bare = store
+    .ask("it", "example.org/other", "Other-1B", "https://example.org/other", Shape::Manual)
+    .unwrap();
+  let w = &words::document().manual[0];
+  let content = format!(
+    "## 7. {}\n\n- {} None\n\n## 9. {}\n\n- re-measure\n",
+    w.heading, w.label, w.plan_heading
+  );
+  ground.world.lock().unwrap().filed.insert(2, untitled(502, content));
+  settle(&ground).await;
+  let filed = ground.run_documents();
+  let fallback = words::page().title("en", Shape::Manual, "Other-1B");
+  assert_eq!(filed[1]["title"], fallback.as_str());
+  assert!(fallback.contains("Other-1B") && fallback != "Other-1B");
+  let rewrites = ground.rewrites(502);
+  let korean = translated(&format!("# {fallback}"));
+  assert_eq!(
+    rewrites[0]["title"],
+    korean.trim_start_matches("# "),
+    "the Korean title is the translated heading"
+  );
+  assert!(!store.item(bare.id).unwrap().title.unwrap().contains("Write a manual"));
+}
+
+#[tokio::test]
+async fn a_note_the_translator_answers_as_text_never_reaches_the_page() {
+  let ground = support::ground(|_| {}).await;
+  give_owner_room(&ground.app).await;
+  ground
+    .app
+    .store
+    .ask("it", "example.org/thing", "Thing-7B", "https://example.org/thing", Shape::Manual)
+    .unwrap();
+  file(&ground, 1, 501, manual_document());
+  ground.world.lock().unwrap().leaking = true;
+
+  settle(&ground).await;
+
+  let rewrites = ground.rewrites(501);
+  assert_eq!(rewrites[0]["title"], format!("{KO}Report 501").as_str());
+  let html = rewrites[0]["html"].as_str().unwrap();
+  assert!(!html.contains("Note: "), "the note was taken out");
+  let order = orders(&ground)[0]["said"]["order"].as_str().unwrap().to_string();
+  assert!(!order.contains("Note: "), "{order}");
 }
 
 #[tokio::test]
@@ -230,7 +486,7 @@ async fn a_part_the_translator_finds_too_large_is_halved_and_asked_again() {
     .store
     .ask("it", "example.org/h", "H", "https://example.org/h", Shape::Investigation)
     .unwrap();
-  let content = format!("## Findings\n\n{}\n", prose(300));
+  let content = format!("## {}\n\n{}\n", answer_heading(), prose(300));
   file(&ground, 1, 60, content.clone());
   ground.world.lock().unwrap().too_large_over = Some(200);
 
@@ -238,18 +494,19 @@ async fn a_part_the_translator_finds_too_large_is_halved_and_asked_again() {
 
   let asks = translations(&ground);
   let texts: Vec<&str> = asks.iter().map(|a| a["text"].as_str().unwrap()).collect();
-  let whole = texts.iter().position(|t| *t == content).expect("the part was asked whole first");
+  let part = format!("# Report 60\n\n{}", english_body(60, &content));
+  let whole = texts.iter().position(|t| *t == part).expect("the part was asked whole first");
   let halves = &texts[whole + 1..];
   assert_eq!(halves.len(), 2, "{halves:#?}");
-  assert_eq!(halves.concat(), content, "the halves are the part, in order");
-  let record = &ground.renderings()[0].body;
-  let body = record["body"].as_str().unwrap();
-  assert!(body.starts_with(&translated(halves[0].trim())) && body.ends_with(&translated(halves[1].trim())));
-  assert!(ground.app.store.item(item.id).unwrap().ko_share_url.is_some());
+  assert_eq!(halves.concat(), part, "the halves are the part, in order");
+  let html = ground.rewrites(60)[0]["html"].as_str().unwrap().to_string();
+  assert!(html.contains(&format!("{KO}Report 60</h1>")));
+  assert_eq!(ground.app.store.item(item.id).unwrap().languages, ["ko", "en"]);
 }
 
 #[tokio::test]
-async fn a_rendering_no_road_carries_is_pending_and_its_retry_sends_the_follow_up() {
+async fn a_korean_side_no_road_carries_is_pending_and_its_retry_draws_the_same_page_and_sends_the_follow_up()
+ {
   let ground = support::ground(|s| s.retry_minutes = 0).await;
   give_owner_room(&ground.app).await;
   let item = ground
@@ -266,38 +523,43 @@ async fn a_rendering_no_road_carries_is_pending_and_its_retry_sends_the_follow_u
   let told = orders(&ground);
   assert_eq!(told.len(), 1);
   let order = told[0]["said"]["order"].as_str().unwrap();
-  assert!(order.contains("Report 501 — It is a thing. https://share.example/d501"), "{order}");
+  assert!(order.starts_with("Report 501 — It is a thing. https://share.example/d501"), "{order}");
   assert!(order.contains(&report.pending) && order.contains(&report.fit), "{order}");
-  assert!(!order.contains("[ko]"));
+  assert!(!order.contains(KO));
   let pending = ground.app.store.item(item.id).unwrap();
-  assert_eq!((pending.state, pending.ko_share_url), (ItemState::Fit, None));
-  let (tries, retry_at) = ground.app.store.translation_state(item.id).unwrap();
-  assert_eq!(tries, 1);
-  assert!(retry_at.is_some());
-  assert!(ground.renderings().is_empty());
+  assert_eq!((pending.state, pending.languages.clone()), (ItemState::Fit, vec!["en".to_string()]));
+  let state = ground.app.store.page_state(item.id).unwrap();
+  assert_eq!(state.translation_tries, 1);
+  assert!(state.retry_at.is_some());
+  assert!(ground.rewrites(501).is_empty(), "the English page stands alone");
 
   settle(&ground).await;
 
   assert_eq!(ground.run_seats().len(), 1, "the run is not asked again");
+  assert_eq!(ground.run_documents().len(), 1, "no second document is filed");
+  let rewrites = ground.rewrites(501);
+  assert_eq!(rewrites.len(), 1, "the same document is drawn again");
+  assert_eq!(rewrites[0]["labels"]["languages"], "ko,en");
   let told = orders(&ground);
   assert_eq!(told.len(), 2);
   assert_eq!(told[1]["kind"], format!("research-report:{}", item.id), "the same kind replaces it");
   let follow = told[1]["said"]["order"].as_str().unwrap();
   let expected = words::fill(
     &report.translated,
-    &[("title", &translated("Report 501")), ("link", "https://share.example/d901")],
+    &[("title", &format!("{KO}Report 501")), ("link", "https://share.example/d501")],
   );
   assert!(follow.starts_with(&expected), "{follow}");
-  assert!(follow.contains(&words::fill(&report.english, &[("link", "https://share.example/d501")])));
+  assert_eq!(follow.matches("https://").count(), 1, "one link: {follow}");
   assert!(follow.contains(&report.fit), "a fit item's follow-up keeps what acts on it: {follow}");
   let rendered = ground.app.store.item(item.id).unwrap();
-  assert_eq!(rendered.ko_share_url.as_deref(), Some("https://share.example/d901"));
-  assert_eq!(ground.app.store.translation_state(item.id).unwrap(), (2, None));
+  assert_eq!(rendered.languages, ["ko", "en"]);
+  let state = ground.app.store.page_state(item.id).unwrap();
+  assert_eq!((state.translation_tries, state.retry_at), (2, None));
   let reports = ground.app.store.reports(item.id).unwrap();
   assert!(reports.contains(&("room:7".into(), "translated".into(), "sent".into())));
 
   settle(&ground).await;
-  assert_eq!(orders(&ground).len(), 2, "a filed rendering is told once");
+  assert_eq!(orders(&ground).len(), 2, "a Korean side is told once");
 }
 
 #[tokio::test]
@@ -313,7 +575,7 @@ async fn a_rendering_still_failing_after_its_retries_is_no_longer_asked() {
     .store
     .ask("it", "example.org/n", "N", "https://example.org/n", Shape::Investigation)
     .unwrap();
-  file(&ground, 1, 70, "# N\n\nIt is a thing.\n".into());
+  file(&ground, 1, 70, format!("# N\n\n## {}\n\nIt is a thing.\n", answer_heading()));
   ground.world.lock().unwrap().translation_answers.extend([503, 503]);
 
   for _ in 0..4 {
@@ -321,9 +583,11 @@ async fn a_rendering_still_failing_after_its_retries_is_no_longer_asked() {
   }
 
   assert_eq!(translations(&ground).len(), 2, "the first try and one retry");
-  assert_eq!(ground.app.store.translation_state(item.id).unwrap(), (2, None));
+  let state = ground.app.store.page_state(item.id).unwrap();
+  assert_eq!((state.translation_tries, state.retry_at), (2, None));
   assert_eq!(orders(&ground).len(), 1, "no follow-up");
-  assert_eq!(ground.app.store.item(item.id).unwrap().ko_share_url, None);
+  assert_eq!(ground.app.store.item(item.id).unwrap().languages, ["en"]);
+  assert!(ground.rewrites(70).is_empty());
 }
 
 #[tokio::test]
@@ -337,7 +601,7 @@ async fn a_refused_ask_is_retried_and_counted() {
     .unwrap();
   ground.world.lock().unwrap().session_answers.push_back(503);
   // The refused ask opened run 1 and closed it; the second try is run 2.
-  file(&ground, 2, 9, "# An investigation\n".into());
+  file(&ground, 2, 9, format!("# An investigation\n\n## {}\n\nIt is.\n", answer_heading()));
 
   settle(&ground).await;
   let waiting = ground.app.store.item(item.id).unwrap();
@@ -450,8 +714,13 @@ async fn a_brief_gathers_its_category_s_items_into_one_run_and_keeps_the_figures
     .unwrap();
   let w = &words::document().brief[0];
   let document = format!(
-    "# Brief\n\n| {} | {} | {} | {} | {} |\n|---|---|---|---|---|\n| index-a | 2,650.1 | pt | 2026-10-29 | [page](https://example.org/e1) |\n",
-    w.name, w.value, w.unit, w.as_of, w.source
+    "# Brief\n\n## {}\n\n| {} | {} | {} | {} | {} |\n|---|---|---|---|---|\n| index-a | 2,650.1 | pt | 2026-10-29 | [page](https://example.org/e1) |\n",
+    words::document().sections.brief[0],
+    w.name,
+    w.value,
+    w.unit,
+    w.as_of,
+    w.source
   );
   file(&ground, 1, 300, document);
 

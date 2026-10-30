@@ -51,18 +51,23 @@ pub enum Untranslated {
   Failed(String),
 }
 
-/// A Korean rendering to file beside its English document.
-#[derive(Debug, Clone)]
-pub struct NewRendering<'a> {
-  pub item_id: i64,
-  pub translation_of: i64,
-  pub title: &'a str,
-  pub description: Option<&'a str>,
-  pub body: &'a str,
+/// The voice unit's own settings file, the parts the daemon reads: where it answers and the file under `env/`
+/// its token stands in.
+#[derive(Deserialize)]
+struct VoiceFile {
+  address: String,
+  #[serde(default)]
+  token_file: Option<String>,
 }
 
-/// Who the daemon files a document as.
-const ACTOR: &str = "bmo-research";
+/// An attachment of a document, as the artifact service lists it.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Attachment {
+  id: i64,
+  name: String,
+  media_type: String,
+}
 
 #[derive(Deserialize)]
 struct Listed<T> {
@@ -154,6 +159,22 @@ impl Peers {
     Ok(Peer {
       name: "the arbiter",
       address: watch.address.clone(),
+      token,
+    })
+  }
+
+  /// The voice unit at the address its own settings file names, with the token of the file it names.
+  pub fn voice(&self) -> Result<Peer, String> {
+    let path = self.settings.env_file(&self.settings.voice.settings);
+    let text = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let file: VoiceFile = toml::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+    let token = match file.token_file.as_deref().map(str::trim).filter(|name| !name.is_empty()) {
+      Some(name) => Some(token_file(&self.settings.env_file(name))?),
+      None => None,
+    };
+    Ok(Peer {
+      name: "the voice unit",
+      address: file.address,
       token,
     })
   }
@@ -282,33 +303,122 @@ impl Peers {
       .ok_or_else(|| Untranslated::Failed("agency's translation answered no text".into()))
   }
 
-  /// A Korean rendering filed as a record of its own, labelled as its English document's translation: its id.
-  pub async fn file_rendering(&self, rendering: &NewRendering<'_>) -> Result<i64, String> {
-    let artifact = self.artifact()?;
-    let mut body = json!({
-      "kind": "record",
-      "title": rendering.title,
-      "body": rendering.body,
-      "actorName": ACTOR,
-      "labels": {
-        "research": rendering.item_id.to_string(),
-        "translationOf": rendering.translation_of.to_string(),
-        "language": "ko",
-      },
-    });
-    if let Some(description) = rendering.description {
-      body["description"] = json!(description);
+  /// One text spoken by the voice unit in the settings' voice, else the first it lists, waited on until it is
+  /// spoken: the sound and its media type.
+  pub async fn speak(&self, text: &str) -> Result<(Vec<u8>, String), String> {
+    let voice = self.voice()?;
+    let name = match self.settings.voice.name.trim() {
+      "" => {
+        let listed = self
+          .call(&voice, self.request(&voice, reqwest::Method::GET, "/voices"), "GET /voices")
+          .await?;
+        listed["items"][0]["name"]
+          .as_str()
+          .map(str::to_owned)
+          .ok_or_else(|| "the voice unit lists no voice".to_string())?
+      }
+      named => named.to_owned(),
+    };
+    let made = self
+      .call(
+        &voice,
+        self
+          .request(&voice, reqwest::Method::POST, "/syntheses")
+          .json(&json!({ "voiceName": name, "text": text })),
+        "POST /syntheses",
+      )
+      .await?;
+    let id = made["id"].as_i64().ok_or("the voice unit answered the synthesis with no id")?;
+    let path = format!("/syntheses/{id}");
+    let until = std::time::Instant::now() + Duration::from_secs(self.settings.voice.wait_seconds.max(1));
+    loop {
+      let read = self
+        .call(&voice, self.request(&voice, reqwest::Method::GET, &path), &format!("GET {path}"))
+        .await?;
+      match read["state"].as_str() {
+        Some("done") => break,
+        Some("failed") => return Err(format!("the voice unit's synthesis {id} failed")),
+        _ if std::time::Instant::now() >= until => {
+          return Err(format!("the voice unit's synthesis {id} was not spoken in time"));
+        }
+        _ => tokio::time::sleep(Duration::from_secs(1)).await,
+      }
     }
+    let sound = format!("{path}/sound");
+    self
+      .bytes(&voice, self.request(&voice, reqwest::Method::GET, &sound), &format!("GET {sound}"))
+      .await
+  }
+
+  // One call answered with a success, its body read as bytes with its media type.
+  async fn bytes(
+    &self,
+    peer: &Peer,
+    request: reqwest::RequestBuilder,
+    what: &str,
+  ) -> Result<(Vec<u8>, String), String> {
+    let answer = request.send().await.map_err(|e| format!("{} {what}: {e}", peer.name))?;
+    let status = answer.status().as_u16();
+    let media = answer
+      .headers()
+      .get(reqwest::header::CONTENT_TYPE)
+      .and_then(|value| value.to_str().ok())
+      .unwrap_or("application/octet-stream")
+      .to_owned();
+    let body = answer.bytes().await.map_err(|e| format!("{} {what}: {e}", peer.name))?;
+    if !(200..300).contains(&status) {
+      return Err(format!("{} {what} answered {status}: {}", peer.name, String::from_utf8_lossy(&body)));
+    }
+    Ok((body.to_vec(), media))
+  }
+
+  /// A file attached to a document under its name, with the role a reader is shown it under where one is
+  /// named.
+  pub async fn attach(
+    &self,
+    document_id: i64,
+    name: &str,
+    media_type: &str,
+    role: Option<&str>,
+    content: &[u8],
+  ) -> Result<(), String> {
+    use base64::Engine;
+    let mut body = json!({
+      "name": name,
+      "mediaType": media_type,
+      "content": base64::engine::general_purpose::STANDARD.encode(content),
+    });
+    if let Some(role) = role {
+      body["role"] = json!(role);
+    }
+    self
+      .artifact_send(reqwest::Method::POST, &format!("/documents/{document_id}/attachments"), &body)
+      .await
+      .map(|_| ())
+  }
+
+  /// A file a document keeps under its name, read back: its bytes and its media type; none where it keeps
+  /// none of that name.
+  pub async fn attached(&self, document_id: i64, name: &str) -> Result<Option<(Vec<u8>, String)>, String> {
+    let artifact = self.artifact()?;
+    let path = format!("/documents/{document_id}/attachments");
     let answer = self
       .call(
         &artifact,
-        self.request(&artifact, reqwest::Method::POST, "/documents").json(&body),
-        "POST /documents",
+        self.request(&artifact, reqwest::Method::GET, &path).query(&[("limit", "1000")]),
+        &format!("GET {path}"),
       )
       .await?;
-    answer["id"]
-      .as_i64()
-      .ok_or_else(|| "the artifact service answered no document id".to_string())
+    let listed: Listed<Attachment> = serde_json::from_value(answer)
+      .map_err(|e| format!("the artifact service's attachments did not read: {e}"))?;
+    let Some(kept) = listed.items.into_iter().find(|kept| kept.name == name) else {
+      return Ok(None);
+    };
+    let file = format!("{path}/{}", kept.id);
+    let (bytes, _) = self
+      .bytes(&artifact, self.request(&artifact, reqwest::Method::GET, &file), &format!("GET {file}"))
+      .await?;
+    Ok(Some((bytes, kept.media_type)))
   }
 
   async fn documents(&self, query: &[(&str, &str)]) -> Result<Vec<Document>, String> {
@@ -329,22 +439,6 @@ impl Peers {
   pub async fn archive_holds(&self, name: &str) -> Result<bool, String> {
     let phrase: String = name.chars().take(200).collect();
     Ok(!self.documents(&[("q", phrase.as_str()), ("limit", "1")]).await?.is_empty())
-  }
-
-  pub async fn content(&self, document_id: i64) -> Result<String, String> {
-    let artifact = self.artifact()?;
-    let path = format!("/documents/{document_id}/content");
-    let answer = self
-      .request(&artifact, reqwest::Method::GET, &path)
-      .send()
-      .await
-      .map_err(|e| format!("the artifact service GET {path}: {e}"))?;
-    let status = answer.status().as_u16();
-    let body = answer.text().await.map_err(|e| format!("the artifact service GET {path}: {e}"))?;
-    if !(200..300).contains(&status) {
-      return Err(format!("the artifact service GET {path} answered {status}: {body}"));
-    }
-    Ok(body)
   }
 
   /// The document's live share link, made where none stands.

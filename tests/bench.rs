@@ -27,6 +27,11 @@ fn stand(ground: &Ground, node: &str, services: &[&str]) {
     .insert(node.into(), services.iter().map(|s| s.to_string()).collect());
 }
 
+// A heading an investigation holds.
+fn sections() -> String {
+  research_server::words::document().sections.investigation[0].clone()
+}
+
 fn file(ground: &Ground, run: i64, id: i64) {
   ground.world.lock().unwrap().filed.insert(
     run,
@@ -34,7 +39,7 @@ fn file(ground: &Ground, run: i64, id: i64) {
       id,
       title: format!("Report {id}"),
       description: "It is a thing.".into(),
-      content: "# An investigation\n".into(),
+      content: format!("# An investigation\n\n## {}\n\nIt is a thing.\n", sections()),
     },
   );
 }

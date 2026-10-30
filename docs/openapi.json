@@ -615,20 +615,12 @@
             "description": "`model`, `paper`, `release`, `entry`, or `asked` for an ask",
             "type": "string"
           },
-          "koDocumentId": {
-            "description": "the Korean rendering's document, null until it is filed",
-            "format": "int64",
-            "type": [
-              "integer",
-              "null"
-            ]
-          },
-          "koShareUrl": {
-            "description": "the Korean rendering's live link, null until it is filed",
-            "type": [
-              "string",
-              "null"
-            ]
+          "languages": {
+            "description": "the languages the document's page holds, Korean first; empty before a document is filed",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           },
           "maker": {
             "type": [
@@ -638,6 +630,13 @@
           },
           "name": {
             "type": "string"
+          },
+          "narrations": {
+            "description": "the languages whose narration the document's page plays, Korean first",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           },
           "plan": {
             "description": "the heading of the document's plan section",
@@ -669,6 +668,7 @@
             "$ref": "#/components/schemas/Shape"
           },
           "shareUrl": {
+            "description": "the document's live link",
             "type": [
               "string",
               "null"
@@ -685,6 +685,7 @@
             "$ref": "#/components/schemas/ItemState"
           },
           "title": {
+            "description": "the head the run gave its document, in English",
             "type": [
               "string",
               "null"
@@ -722,8 +723,8 @@
           "title",
           "description",
           "shareUrl",
-          "koDocumentId",
-          "koShareUrl",
+          "languages",
+          "narrations",
           "fit",
           "fitNodes",
           "touches",
@@ -1890,7 +1891,7 @@
   "info": {
     "description": "The research unit: a daemon that keeps a queue of things to research by category, reads the sources the owner registers, has each item researched by its own runner in its category's shape, and tells the category's recipients. It files no job and launches nothing.",
     "title": "bmo-research",
-    "version": "0.1.0-rev.4"
+    "version": "0.1.0-rev.5"
   },
   "openapi": "3.1.0",
   "paths": {

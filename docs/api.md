@@ -141,8 +141,10 @@ the one to read.
   `maker`, `address` (the maker's page for the thing), `kind` (`model`, `paper`, `release`, `entry`, or
   `asked` for an ask), `shape` (`manual`, `investigation`, `advisory` or `brief`), `sourceId`, `asked`,
   `priority`, `state`, `tries`, `retryAt`, `runId` (the research run of the latest try), `documentId`,
-  `title` and `description` (the document's), `shareUrl`, `koDocumentId` and `koShareUrl` (the Korean
-  rendering's document and its live link, null until it is filed, 「The Korean rendering」), `fit`, `fitNodes` (the nodes of the settings'
+  `title` and `description` (the head the run gave its document, in English), `shareUrl` (the document's
+  live link), `languages` (the languages the document's page holds, Korean first: `["en"]` until the Korean
+  side is had, `["ko", "en"]` after, empty before a document is filed; 「The page」), `narrations` (the
+  languages whose narration the page plays, Korean first), `fit`, `fitNodes` (the nodes of the settings'
   `model_nodes` a manual's fit names), `touches` (the hosts and repositories an advisory names), `plan`
   (the heading of the document's plan section, as the document holds it), `jobItemId` (the job item the
   chat agent filed for it), `error`, `foundAt`, `createdAt` and `changedAt`.
@@ -296,8 +298,12 @@ the one to read.
   provider and model (the settings' `road` where it names none), with the question its shape takes (「The
   questions」) and no room, keeps the run's id on its items and its run row, and reads the run's row every
   `poll_seconds` until its `state` is `closed`. A run the deep dive asks tells no room itself.
+- **The run is held to its shape:** the try hands the runner the section headings its item's shape holds
+  (`prompts/document.toml`, `[sections]`) and the title it falls back on, and the runner files the result as a
+  page only where its body holds one of them (`docs/runner.md`, 「The deep dive's page」).
 - **A run that closed** with the outcome `cut` is a failed try. Any other outcome ends the try once the run's
-  row names the document it filed; a closed run with no document is a failed try.
+  row names the document it filed; a closed run with no document is a failed try, its error the run's, which
+  names what the result was missing where its shape held it back.
 - **A failed try** — an ask the runner refused (503 or any failure), a cut run, a missing document — puts its
   items back `waiting` with `retryAt` `retry_minutes` ahead. After `retries` retries they are `failed` and
   every recipient of the category is told so once.
@@ -308,8 +314,9 @@ the one to read.
 - **A daemon that starts** closes every research run it left open as `cut` (`docs/runner.md`, 「A
   restart」), then takes up every try it left `running`: one with a run id is read again, and ends as a
   cut run's try; one without puts its items back `waiting`.
-- **A filed document is rendered in Korean** before it is told (「The Korean rendering」): its items are
-  filed `reported` or `fit` first, then the rendering is asked, then the recipients are told.
+- **A filed document's page is finished** before it is told (「The page」): its items are filed `reported` or
+  `fit` first, read from the run's result as the ledger keeps it (`written`, drawn as the runner drew it), then
+  the Korean side and the narration are asked and the page drawn again, then the recipients are told.
 
 ### The bench
 
@@ -374,12 +381,17 @@ search runner applies it, and the run writes its document in English, the questi
   Each row naming a name and a value is kept as a fact; a source cell holding a link keeps the link's
   address. A brief with no such table keeps none.
 
-### The Korean rendering
+### The page
 
-- **The English document is rendered in Korean by agency's translator** (`POST /translation-runs`) with
-  `purpose` `document` and `language` the one `prompts/translation.toml` names, `Korean`, one text at a
-  time: the document's title as a part of its own, with the `title_note`; its description, where it has
-  one, with the `note`; then its body.
+- **One document holds both languages:** the page the runner filed in English (`docs/runner.md`, 「The page」)
+  is drawn again with the Korean side first and the narration's sounds, and set with the artifact service's
+  `PATCH /documents/{id}`: `title` the Korean title where the Korean side is had, `html` the page, and
+  `labels` the run's document's labels with `languages` naming the languages the page holds, comma-separated.
+  Every item the document was filed for keeps the languages as `languages` and the narrations as `narrations`.
+- **The Korean side is rendered by agency's translator** (`POST /translation-runs`) with `purpose` `document`
+  and `language` the one `prompts/translation.toml` names, `Korean`, one text at a time: the description,
+  where it has one, then the body with the title set over it as its top-level heading, so the Korean title is
+  the translated heading, else the item's name with its shape's Korean word (`prompts/page.toml`).
 - **The body is cut at its headings** into parts no longer than `translation.part_chars` characters
   (`docs/settings.md`): whole sections are gathered into a part while they fit, and a section longer than
   that is halved, at a heading, else a blank line, else a line's end, else a space, nearest its middle,
@@ -389,28 +401,37 @@ search runner applies it, and the run writes its document in English, the questi
   part of a research report about the thing for the owner, that model, product and dataset names, figures,
   units, code, links and the fixed section names stay as written, and the register of the owner's
   documents.
+- **A note the translator answered as text is taken out:** where a translation holds more paragraphs than its
+  part, and its first paragraph is prose saying the item's name while the part opens with a heading or with
+  a paragraph not saying it, that paragraph restates the note and is dropped, as often as the count allows.
 - **A part refused 413 `too-large`** is halved the same way and each half asked again; a part that cannot
-  be halved any further, a 503 `no-login-open`, or any other failure leaves the whole rendering pending.
-- **The rendering is filed as a document of its own** with the artifact service's `POST /documents`:
-  `kind` `record`, `title` the translated title, `body` the joined parts, `description` the translated
-  description, `actorName` `bmo-research`, and `labels` `research` (the item's id), `translationOf` (the
-  English document's id) and `language` `ko`; its share link is made as the English one's is. Every item
-  the English document was filed for keeps the Korean document as `koDocumentId` and its link as
-  `koShareUrl`.
-- **A pending rendering is asked again** on the retry wait, `retry_minutes` after its last try, while its
-  item stands `reported`, `fit` or `taken`. Its tries are counted apart from the run's tries; after
-  `retries` retries it is no longer asked, and the English link stands alone.
+  be halved any further, a 503 `no-login-open`, or any other failure leaves the Korean side pending. The
+  Korean side had is kept in the store (`docs/store.md`, `renderings`), so the page can be drawn again.
+- **The narration** is the result's `LISTEN:` script. The English sound speaks it as written; the Korean sound
+  speaks it translated as one text with the `narration_note`, the item's name set in: that it is a spoken
+  narration, to be translated in short sentences, its figures written as they are read aloud and model and
+  product names kept. Each is spoken by the voice unit (「Calls this unit makes」) in the settings' voice and
+  attached to the document with `POST /documents/{id}/attachments`: the Korean sound as `narration-ko.ogg`
+  with `role` `head`, the English as `narration-en.ogg` with no role. A sound already attached is read back
+  from the archive when the page is drawn again.
+- **A narration that cannot be made** — no script, no voice, a translation refused, a synthesis failed —
+  leaves the page without that sound and the notice says nothing of it; a missing sound is asked once more,
+  on the retry wait.
+- **What is pending is asked again** on the retry wait, `retry_minutes` after its last try, while its item
+  stands `reported`, `fit` or `taken`: the Korean side until `retries` retries are spent, after which the
+  English page stands alone, and a missing sound once. The tries are counted apart from the run's tries.
 
 ### The notices
 
 - **Every recipient of the category is told every notice:** a report, with the words
-  `prompts/report.toml` holds as `line`, the Korean document's title, the first sentence of its
-  description and its share link set in, then `english`, the English document's share link set in; or a
-  failed try's last, `failed`, with the name and the tries set in.
-- **A report whose rendering is pending** is told with `line` naming the English document's title,
-  description and link, then `pending`. Once the rendering is filed on a later try, every recipient is told
-  a follow-up under the same kind, so the receiver replaces the report where it still waits: `translated`,
-  the Korean title and link set in, then `english`, and for a `fit` item the lines that act on it below.
+  `prompts/report.toml` holds as `line`, the Korean title, the first sentence of the Korean description and
+  the document's one share link set in; or a failed try's last, `failed`, with the name and the tries set in.
+  The narration is never named.
+- **A report whose Korean side is pending** is told with `line` naming the English title and description
+  and the same link, then `pending`. Once the Korean side is had on a later try, every recipient is told a
+  follow-up under the same kind, so the receiver replaces the report where it still waits: `translated`, the
+  Korean title and the same link set in, and for a `fit` item the lines that act on it below. A Korean side
+  no longer asked leaves the English line alone.
 - **A room** is told with the receiver's `POST /instructions`: `room`, `sort` `notice`, `kind`
   `research-report:<itemId>` (a brief's first item), `said` `{"order": "<the notice>"}` and `summary`.
 - **An agent** is told with agency's `POST /sessions/<agentName>@worker/turns`, the notice as `prompt`.
@@ -427,7 +448,7 @@ search runner applies it, and the run writes its document in English, the questi
 - **An advisory's touched repositories are told their own part.** For each repository the exposure table
   touches, every worker the stack names for that repository is told, by a turn as an agent recipient is,
   the words `worker` holds: the advisory's name, the repository, its touched rows, the English document's
-  share link and the plan's place. Workers read English, so the part names no Korean rendering. The
+  share link and the plan's place. Workers read English, which the page's switch shows them. The
   category's recipients are told the whole; a repository no stack row names a worker for is heard by them
   alone.
 - **A model that stays down after a bench** is told to the owner's private room alone, once per wait, with
@@ -502,14 +523,22 @@ of these units, and reads each one's address and token from that unit's own file
   co-worker roles a branch role is checked against.
   `GET /models/{registration}?provider=<provider>`, a watched registration read for `healthy`.
   `POST /sessions/{agentName}@worker/turns` with `prompt`, a notice to an agent. `POST /translation-runs`
-  with `purpose`, `language`, `text` and `note`, one part of a Korean rendering; answered 200 with `text`,
-  413 `too-large` or 503 `no-login-open`.
+  with `purpose`, `language`, `text` and `note`, one part of a page's Korean side or its narration;
+  answered 200 with `text`, 413 `too-large` or 503 `no-login-open`.
 - **the artifact service:** `GET /documents?q=<name>&limit=1`, the archive check a candidate passes
-  (`docs/sources.md`); `POST /documents`, a run's document or a Korean rendering;
-  `POST /documents/{documentId}/attachments` with `name`, `mediaType` and `content` (base64), a picture of a
-  run's document, and `PATCH /documents/{documentId}` with `body` and `labels` once its pictures are kept;
-  `GET /documents/{documentId}/content`, its text; `GET /shares?documentId=<documentId>` and `POST /shares`
-  with `documentId` and, for a run's document, `expiresAt` a day ahead, its live link.
+  (`docs/sources.md`); `POST /documents`, a run's document, `html` for a deep dive's page;
+  `POST /documents/{documentId}/attachments` with `name`, `mediaType`, `content` (base64) and, for the Korean
+  narration, `role` `head`, a picture of a run's document or a narration's sound;
+  `GET /documents/{documentId}/attachments` and `GET /documents/{documentId}/attachments/{attachmentId}`, a
+  narration's sound read back; `PATCH /documents/{documentId}` with `body` and `labels` once a room's
+  document's pictures are kept, or with `title`, `html` and `labels` as a page is drawn again;
+  `GET /shares?documentId=<documentId>` and `POST /shares` with `documentId` and, for a run's document,
+  `expiresAt` a day ahead, its live link.
+- **the voice unit:** at the address and with the token its own settings file under `env/` names
+  (`docs/settings.md`, 「Peers」): `GET /voices`, the first voice where the settings name none;
+  `POST /syntheses` with `voiceName` and `text`, a narration spoken; `GET /syntheses/{synthesisId}` read every
+  second until its `state` is `done` or `failed`, at most `voice.wait_seconds`; and
+  `GET /syntheses/{synthesisId}/sound`, the sound, OGG/Opus.
 - **the receiver:** `GET /owner`, the owner's private room; `POST /instructions`, a report line, the notice
   that a model stays down, or a research run's end (`room`, null where the run named none, `sort` `notice`,
   `kind` `research-ended:<run>`, `said`, `summary` and `events`).

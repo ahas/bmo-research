@@ -13,11 +13,14 @@ use bmo_research_client::{
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
 use crate::sources::{Candidate, ItemKind};
+use crate::translation::Rendering;
 
 /// The schema's steps, each bringing the store one version up; the version is how many have been taken. The
 /// first registers the three categories the unit starts with, so a category taken away is not brought back;
 /// the second keeps an item's Korean rendering and its pending tries; the third holds the runner's research
-/// runs, their log, what they hold of agency and the owner's research settings.
+/// runs, their log, what they hold of agency and the owner's research settings; the fourth keeps what a deep
+/// dive's one page holds — its languages, its narrations and its Korean side — and what it still lacks, a
+/// document filed before it holding English alone and lacking nothing it can be given.
 const MIGRATIONS: &[&str] = &[
   "
   create table categories (
@@ -93,6 +96,19 @@ const MIGRATIONS: &[&str] = &[
   create index research_holds_run on research_holds (run_id);
   create table research_settings (id integer primary key, value text not null);
 ",
+  "
+  alter table queue drop column ko_document_id;
+  alter table queue drop column ko_share_url;
+  alter table queue rename column translation_retry_at to pending_retry_at;
+  alter table queue add column languages text not null default '[]';
+  alter table queue add column narrations text not null default '[]';
+  alter table queue add column narration_tries integer not null default 0;
+  update queue set languages = '[\"en\"]' where document_id is not null;
+  update queue set pending_retry_at = null;
+  create table renderings (
+    document_id integer primary key, title text not null, description text, body text not null,
+    created_at integer not null);
+",
 ];
 
 /// The schema version this binary holds.
@@ -112,7 +128,7 @@ const CATEGORY_COLUMNS: &str = "name, purpose, shape, cap, cadence_minutes, gath
 const ITEM_COLUMNS: &str =
   "id, category, key, name, maker, address, kind, shape, source_id, asked, priority,
   state, tries, retry_at, run_id, document_id, title, description, share_url, fit, fit_nodes, touches, plan,
-  job_item_id, error, found_at, created_at, changed_at, ko_document_id, ko_share_url";
+  job_item_id, error, found_at, created_at, changed_at, languages, narrations";
 
 const SOURCE_COLUMNS: &str =
   "id, category, kind, address, query, require, exclude, every_minutes, item_limit,
@@ -157,6 +173,17 @@ pub struct Filed {
   pub fit_nodes: Vec<String>,
   pub touches: Option<String>,
   pub plan: Option<String>,
+}
+
+/// How a deep dive's page stands for an item: the languages and narrations it holds, Korean first, the Korean
+/// sides and narrations asked, and when what it lacks is asked again.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PageState {
+  pub languages: Vec<String>,
+  pub narrations: Vec<String>,
+  pub translation_tries: i64,
+  pub narration_tries: i64,
+  pub retry_at: Option<i64>,
 }
 
 /// A research run as the runner opens it.
@@ -921,7 +948,8 @@ impl Store {
       .lock()
       .execute(
         "update queue set state = ?2, document_id = ?3, title = ?4, description = ?5, share_url = ?6, fit = ?7,
-           fit_nodes = ?8, touches = ?9, plan = ?10, error = null, changed_at = ?11
+           fit_nodes = ?8, touches = ?9, plan = ?10, error = null, languages = '[\"en\"]', narrations = '[]',
+           changed_at = ?11
          where id = ?1 and state = 'running'",
         params![
           item_id,
@@ -941,72 +969,122 @@ impl Store {
     Ok(n > 0)
   }
 
-  /// A Korean rendering about to be asked for an item: its tries counted, and its next try set at
-  /// `retry_at`, so a rendering the daemon never finished is asked again. Answers the tries.
-  pub fn claim_translation(&self, item_id: i64, retry_at: i64) -> Result<i64, String> {
-    self
-      .lock()
-      .query_row(
-        "update queue set translation_tries = translation_tries + 1, translation_retry_at = ?2
-         where id = ?1 returning translation_tries",
-        params![item_id, retry_at],
-        |r| r.get(0),
-      )
-      .map_err(|e| e.to_string())
-  }
-
-  /// A Korean rendering filed: kept on every item the English document was filed for, none pending.
-  pub fn keep_rendering(
+  /// What an item's page is about to be asked for — its Korean side, a narration, or both — counted, and its
+  /// next try set at `retry_at`, so what the daemon never finished is asked again. Answers how it stands.
+  pub fn claim_page(
     &self,
-    document_id: i64,
-    ko_document_id: i64,
-    ko_share_url: &str,
-  ) -> Result<(), String> {
+    item_id: i64,
+    retry_at: i64,
+    korean: bool,
+    narration: bool,
+  ) -> Result<PageState, String> {
     self
       .lock()
       .execute(
-        "update queue set ko_document_id = ?2, ko_share_url = ?3, translation_retry_at = null, changed_at = ?4
-         where document_id = ?1",
-        params![document_id, ko_document_id, ko_share_url, now_ms()],
+        "update queue set translation_tries = translation_tries + ?2, narration_tries = narration_tries + ?3,
+           pending_retry_at = ?4 where id = ?1",
+        params![item_id, korean as i64, narration as i64, retry_at],
+      )
+      .map_err(|e| e.to_string())?;
+    self.page_state(item_id)
+  }
+
+  /// How an item's page stands: the languages and narrations it holds, the tries asked of each, and when
+  /// what it lacks is asked again.
+  pub fn page_state(&self, item_id: i64) -> Result<PageState, String> {
+    self
+      .lock()
+      .query_row(
+        "select languages, narrations, translation_tries, narration_tries, pending_retry_at from queue
+         where id = ?1",
+        params![item_id],
+        |r| {
+          let languages: String = r.get(0)?;
+          let narrations: String = r.get(1)?;
+          Ok(PageState {
+            languages: serde_json::from_str(&languages).unwrap_or_default(),
+            narrations: serde_json::from_str(&narrations).unwrap_or_default(),
+            translation_tries: r.get(2)?,
+            narration_tries: r.get(3)?,
+            retry_at: r.get(4)?,
+          })
+        },
+      )
+      .map_err(|e| e.to_string())
+  }
+
+  /// A page's Korean side had: kept, and its languages kept on every item its document was filed for.
+  pub fn keep_rendering(&self, document_id: i64, rendering: &Rendering) -> Result<(), String> {
+    let conn = self.lock();
+    conn
+      .execute(
+        "insert or replace into renderings (document_id, title, description, body, created_at)
+         values (?1, ?2, ?3, ?4, ?5)",
+        params![document_id, rendering.title, rendering.description, rendering.body, now_ms()],
+      )
+      .map_err(|e| e.to_string())?;
+    conn
+      .execute(
+        "update queue set languages = ?2, changed_at = ?3 where document_id = ?1",
+        params![document_id, words_json(&["ko".to_string(), "en".to_string()]), now_ms()],
       )
       .map(|_| ())
       .map_err(|e| e.to_string())
   }
 
-  /// A pending Korean rendering no longer asked.
-  pub fn drop_translation(&self, item_id: i64) -> Result<(), String> {
+  /// A page's Korean side as it was kept, or none where it has none.
+  pub fn rendering(&self, document_id: i64) -> Result<Option<Rendering>, String> {
     self
       .lock()
-      .execute("update queue set translation_retry_at = null where id = ?1", params![item_id])
+      .query_row(
+        "select title, description, body from renderings where document_id = ?1",
+        params![document_id],
+        |r| {
+          Ok(Rendering {
+            title: r.get(0)?,
+            description: r.get(1)?,
+            body: r.get(2)?,
+          })
+        },
+      )
+      .optional()
+      .map_err(|e| e.to_string())
+  }
+
+  /// The narrations a page plays, kept on every item its document was filed for.
+  pub fn keep_narrations(&self, document_id: i64, narrations: &[String]) -> Result<(), String> {
+    self
+      .lock()
+      .execute(
+        "update queue set narrations = ?2, changed_at = ?3 where document_id = ?1",
+        params![document_id, words_json(narrations), now_ms()],
+      )
       .map(|_| ())
       .map_err(|e| e.to_string())
   }
 
-  /// The items whose pending Korean rendering is due, while they stand reported, fit or taken.
-  pub fn translations_due(&self, now: i64) -> Result<Vec<Item>, String> {
+  /// When what an item's page lacks is asked again, or none where nothing more is asked.
+  pub fn pend_page(&self, item_id: i64, retry_at: Option<i64>) -> Result<(), String> {
+    self
+      .lock()
+      .execute("update queue set pending_retry_at = ?2 where id = ?1", params![item_id, retry_at])
+      .map(|_| ())
+      .map_err(|e| e.to_string())
+  }
+
+  /// The items whose page's pending part is due, while they stand reported, fit or taken.
+  pub fn pages_due(&self, now: i64) -> Result<Vec<Item>, String> {
     let conn = self.lock();
     let mut stmt = conn
       .prepare(&format!(
-        "select {ITEM_COLUMNS} from queue where translation_retry_at is not null and translation_retry_at <= ?1
-           and state in ('reported', 'fit', 'taken') order by translation_retry_at, id"
+        "select {ITEM_COLUMNS} from queue where pending_retry_at is not null and pending_retry_at <= ?1
+           and state in ('reported', 'fit', 'taken') order by pending_retry_at, id"
       ))
       .map_err(|e| e.to_string())?;
     stmt
       .query_map(params![now], read_item)
       .map_err(|e| e.to_string())?
       .collect::<Result<Vec<_>, _>>()
-      .map_err(|e| e.to_string())
-  }
-
-  /// The renderings asked for an item, and when a pending one may be asked again.
-  pub fn translation_state(&self, item_id: i64) -> Result<(i64, Option<i64>), String> {
-    self
-      .lock()
-      .query_row(
-        "select translation_tries, translation_retry_at from queue where id = ?1",
-        params![item_id],
-        |r| Ok((r.get(0)?, r.get(1)?)),
-      )
       .map_err(|e| e.to_string())
   }
 
@@ -1643,6 +1721,8 @@ fn read_item(r: &rusqlite::Row<'_>) -> rusqlite::Result<Item> {
   let shape: String = r.get(7)?;
   let state: String = r.get(11)?;
   let nodes: String = r.get(20)?;
+  let languages: String = r.get(28)?;
+  let narrations: String = r.get(29)?;
   Ok(Item {
     id: r.get(0)?,
     category_name: r.get(1)?,
@@ -1672,8 +1752,8 @@ fn read_item(r: &rusqlite::Row<'_>) -> rusqlite::Result<Item> {
     found_at: r.get(25)?,
     created_at: r.get(26)?,
     changed_at: r.get(27)?,
-    ko_document_id: r.get(28)?,
-    ko_share_url: r.get(29)?,
+    languages: serde_json::from_str(&languages).unwrap_or_default(),
+    narrations: serde_json::from_str(&narrations).unwrap_or_default(),
   })
 }
 

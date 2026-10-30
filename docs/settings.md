@@ -14,8 +14,8 @@ the daemon does not know is refused, naming it. A path may open with `~/`, the h
 | `store` | `research` | The folder under the data root the store `research.db` stands in |
 | `tick_seconds` | 30 | How often the loop looks for a source due, a slot free and an item to run |
 | `concurrency` | 1 | How many runs stand under way at once, across every category |
-| `retries` | 3 | How many times a failed try is tried again before the item is `failed`, and a pending Korean rendering before it is no longer asked |
-| `retry_minutes` | 30 | How long a failed try, or a pending Korean rendering, waits before it is tried again |
+| `retries` | 3 | How many times a failed try is tried again before the item is `failed`, and a page's pending Korean side before it is no longer asked |
+| `retry_minutes` | 30 | How long a failed try, or what a page still lacks, waits before it is tried again |
 | `restore_wait_minutes` | 20 | How long the queue waits on a watched registration's health once a bench is gone before the owner's private room is told, once, that the model has not come back |
 | `poll_seconds` | 30 | How long the daemon waits between two readings of a run under way |
 | `turn_wait_seconds` | 20 | How long a notice to an agent waits on its turn's answer before it is counted as handed |
@@ -33,9 +33,9 @@ the category's registration (`docs/api.md`, 「categories」), kept in the store
 | `provider` | `registered` | The provider a run goes out on, where its category names none |
 | `model` | `flash-next` | The model a run goes out on, where its category names none |
 
-## The Korean rendering: `[translation]`
+## The Korean side: `[translation]`
 
-How a filed document's body is cut for agency's translator (`docs/api.md`, 「The Korean rendering」).
+How a page's body is cut for agency's translator (`docs/api.md`, 「The page」).
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -98,6 +98,15 @@ Where the tool host's control socket answers (`docs/api.md`, 「Calls this unit 
 | `socket` | empty | The control socket's path; empty for `bmo/mcp-host.sock` under the runtime folder `XDG_RUNTIME_DIR` names, else `/run/user/<uid>` |
 | `issuer_token` | `tool-host/issuer-token` | The file under the data root whose text is the host's issuer token |
 
+## The narration: `[voice]`
+
+How a deep dive's narration is spoken (`docs/api.md`, 「The page」).
+
+| Key | Default | Meaning |
+|---|---|---|
+| `name` | empty | The voice the narration is spoken in; empty for the first voice the voice unit lists |
+| `wait_seconds` | 900 | How long one narration's synthesis is waited on before it is counted as not made |
+
 ## Peers
 
 Every peer's address and token are read from the files that peer already keeps under the data root's
@@ -109,6 +118,7 @@ Every peer's address and token are read from the files that peer already keeps u
 | `[receiver] env` | `receiver.env` | Holds `RECEIVER_ADDRESS`, the receiver's address, and `RECEIVER_TOKEN`, its token |
 | `[artifact] address` | `http://127.0.0.1:3230` | The artifact service's address |
 | `[artifact] token` | `artifact.token` | The file whose text is the artifact service's token |
+| `[voice] settings` | `voice.toml` | The voice unit's own settings file, whose `address` is where it answers and whose `token_file` names the file under `env/` holding its token |
 
 An env file is read as `KEY=value` lines, as the unit that keeps it writes it.
 

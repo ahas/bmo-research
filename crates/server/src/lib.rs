@@ -11,6 +11,7 @@ pub mod config;
 pub mod dive;
 pub mod document;
 pub mod openapi;
+pub mod page;
 pub mod peers;
 pub mod reading;
 pub mod routes;

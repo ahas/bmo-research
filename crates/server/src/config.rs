@@ -1,7 +1,8 @@
 //! The daemon's settings (`docs/settings.md`): where it listens, the loop's numbers, the road its runs go out
 //! on where a category names none, how a document is cut for the translator, the models the bench watch
 //! looks after, how the runner seats a run and what it is held to where the owner changed nothing, where the
-//! tool host answers, and the files its peers' addresses and tokens are read from.
+//! tool host answers, the voice a narration is spoken in, and the files its peers' addresses and tokens are
+//! read from.
 
 use std::collections::BTreeMap;
 
@@ -33,6 +34,7 @@ pub struct Settings {
   pub agency: Agency,
   pub receiver: Receiver,
   pub artifact: Artifact,
+  pub voice: Voice,
   /// The data root, read from the environment as the settings are loaded; never a key of the file.
   #[serde(skip)]
   pub data_root: PathBuf,
@@ -62,6 +64,7 @@ impl Default for Settings {
       agency: Agency::default(),
       receiver: Receiver::default(),
       artifact: Artifact::default(),
+      voice: Voice::default(),
       data_root: data_root(),
     }
   }
@@ -272,6 +275,27 @@ impl Default for Artifact {
     Artifact {
       address: "http://127.0.0.1:3230".into(),
       token: "artifact.token".into(),
+    }
+  }
+}
+
+/// The voice unit a deep dive's narration is spoken by: its own settings file, which names its address and its
+/// token's file, the voice the narration is spoken in, empty for the first the unit lists, and how long one
+/// synthesis is waited on.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Voice {
+  pub settings: String,
+  pub name: String,
+  pub wait_seconds: u64,
+}
+
+impl Default for Voice {
+  fn default() -> Self {
+    Voice {
+      settings: "voice.toml".into(),
+      name: String::new(),
+      wait_seconds: 900,
     }
   }
 }

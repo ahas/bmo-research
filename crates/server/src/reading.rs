@@ -56,6 +56,42 @@ pub fn heading_starts(content: &str) -> Vec<usize> {
   headings(content).into_iter().map(|h| h.start).collect()
 }
 
+/// Whether any heading of the document holds any of the words, regardless of case.
+pub fn holds_heading(content: &str, words: &[String]) -> bool {
+  headings(content).iter().any(|h| words.iter().any(|word| holds(&h.text, word)))
+}
+
+/// The text of the document's first top-level heading.
+pub fn top_heading(content: &str) -> Option<String> {
+  headings(content)
+    .into_iter()
+    .find(|h| h.level == HeadingLevel::H1)
+    .map(|h| h.text)
+    .filter(|text| !text.is_empty())
+}
+
+/// The heading the document opens with, before any other text: its text and what follows it.
+pub fn opening_heading(content: &str) -> Option<(String, &str)> {
+  let opening = Parser::new_ext(content, Options::empty()).into_offset_iter().next();
+  let Some((Event::Start(Tag::Heading { .. }), range)) = opening else {
+    return None;
+  };
+  if !content[..range.start].trim().is_empty() {
+    return None;
+  }
+  let said = headings(&content[range.clone()]).into_iter().next()?.text;
+  Some((said, content[range.end..].trim_start()))
+}
+
+/// The document with the heading it opens with taken out, where that heading says `title`; as it is
+/// otherwise.
+pub fn without_opening_heading<'a>(content: &'a str, title: &str) -> &'a str {
+  match opening_heading(content) {
+    Some((said, rest)) if said.eq_ignore_ascii_case(title.trim()) => rest,
+    _ => content,
+  }
+}
+
 /// Whether `text` holds `word`, regardless of case.
 fn holds(text: &str, word: &str) -> bool {
   text.to_lowercase().contains(&word.to_lowercase())

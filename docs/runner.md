@@ -89,8 +89,9 @@ of a run is this unit's.
    question, the task as the run was given it and the answer written last (「The rounds」). The last answer is the
    run's result. The rounds' session is ended after the last.
 9. **The end:** the seat is given back (`finished`, its outcome `answered` or `failed: <why>`), the result is
-   drawn into its document and filed (「The document」), the run is closed in the ledger with its outcome, the
-   document and its link, and its room is told (「The room」). Every step is written into the run's log.
+   drawn into its document and filed (「The document」; a deep dive's held to its shape first, 「The deep dive's
+   page」), the run is closed in the ledger with its outcome, the document and its link, and its room is told
+   (「The room」). Every step is written into the run's log.
 
 ## The rounds
 
@@ -122,10 +123,10 @@ of a run is this unit's.
 
 ## The document
 
-- **Every result leaves a document,** filed with the artifact service's `POST /documents` and given a share
-  link with `POST /shares` that ends a day after it is made; the document stays in the archive. The result is
-  the searcher's structure lines (`prompts/search/task.md`); the document is made of them and carries none of
-  them:
+- **Every result that may be filed leaves a document,** filed with the artifact service's `POST /documents`
+  and given a share link with `POST /shares` that ends a day after it is made; the document stays in the
+  archive. The result is the searcher's structure lines (`prompts/search/task.md`); the document is made of
+  them and carries none of them:
   - **its head:** the title the `TITLE:` line, the description the `TOPIC:` line, the kind `learning` where
     `KIND: learning` says so and `search` otherwise, `actorName` `research`, `scope` the room, and the labels
     `research` (the run's id), `key`, `query`, and `keywords`, `rule` and `topic` where the result writes them.
@@ -139,8 +140,46 @@ of a run is this unit's.
     public address, at most three redirects, an image type, at most 15 MB — at most twelve within forty seconds,
     attached under a name of its own (`POST /documents/{id}/attachments`), and the body set again with
     `PATCH /documents/{id}`; a picture not kept is drawn from its address.
-  - **the narration:** a deep dive's `LISTEN:` script is lifted out and never filed.
+  - **the narration:** a `LISTEN:` script is lifted out of the body. A run told to its room files it nowhere;
+    the deep dive's page is given it as sound (「The deep dive's page」).
 
+## The deep dive's page
+
+A run the daemon asks for its own deep dive is filed differently from a run told to a room: as one page the
+daemon finishes, held first to the shape the deep dive asked for.
+
+- **The shape is checked before anything is filed.** The deep dive names the section headings its item's shape
+  holds, in every language a result may be written in (`prompts/document.toml`, `[sections]`). A result whose
+  body is empty, or holds none of those headings under any heading of its own (matched without regard to
+  case, a heading's numbering aside), is not filed: the run closes `failed`, its error naming what was
+  missing — the body, or the headings looked for — and the deep dive's try fails with that error, so the item
+  waits for its retry and the queue shows why. No document stands for it and no notice goes out.
+- **The title** is the `TITLE:` line, else the body's first top-level heading, else the title the deep dive
+  names: the item's name with its shape's word (`prompts/page.toml`, `[titles]`). A body that opens with a
+  heading saying the title loses that heading, since the page's head says it.
+- **It is filed as a page,** `kind` `page`, its `html` the page drawn in English alone (「The page」), its head
+  and labels as a room's document's are, with the label `languages` `en`; its pictures are kept beside it as a
+  room's document's are, and the page draws every picture from its address.
+- **The daemon finishes it** (`docs/api.md`, 「The page」): the Korean side, the narration, and the page drawn
+  again with both and set with `PATCH /documents/{id}`. The result stays in the ledger as `written`, which the
+  daemon draws the page from again.
+
+## The page
+
+- **One HTML page holds every language the document has,** Korean first where it has it, then English, each
+  side its title, its description and its body, the body's markdown written as HTML by a maintained library
+  with any raw HTML the result wrote shown as text.
+- **The head** is the archive design's masthead: a `header` opening the body with, where the page holds two
+  languages, a small switch above the title naming each language in its own words (`prompts/page.toml`),
+  Korean pressed first. Pressing a language shows its side, hides the other and pauses a sound playing there.
+  The switch is plain inline script and style, the style marked `data-archive` and drawn in the design's
+  colour variables, so the page reads in the light and the dark scheme alike.
+- **The listen band** stands under the head where the page holds a narration: the line saying it is to be
+  heard while reading, in each language, and an audio player per sound, each sound written into the page as
+  a data address, since a page loads nothing but what it carries or reaches over https. Where both a Korean
+  and an English sound stand, the switch picks the player of its language; where one stands, it plays in
+  both.
+- **A page with one language** has no switch and no hidden side.
 ## The room
 
 - **The room is told through the receiver's `POST /instructions`,** as a `notice` under the kind
@@ -152,7 +191,8 @@ of a run is this unit's.
 - **A result that could not be filed** is told whole; **a run with no answer** is told what it could not do;
   **a cut run** hands what it had written as unfinished, or one line saying the work was cut off.
 - **A run the daemon asks for its own deep dive tells no room:** the dive's notices are its report
-  (`docs/api.md`, 「The deep dive」).
+  (`docs/api.md`, 「The deep dive」), and its document is the page the daemon finishes (「The deep dive's
+  page」).
 
 ## Ending a session
 

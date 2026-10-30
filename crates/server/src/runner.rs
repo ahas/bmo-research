@@ -19,7 +19,7 @@ use crate::App;
 use crate::config::KeyDefaults;
 use crate::document;
 use crate::peers::Ending;
-use crate::store::{NewResearchRun, ResearchRunRow, now_ms};
+use crate::store::{NewResearchRun, ResearchRunRow, RunDocument, now_ms};
 use crate::tool_host::ToolHost;
 use crate::words::{self, FINAL, PastCeiling, fill};
 
@@ -606,10 +606,28 @@ fn note(app: &App, run: i64, kind: &str, text: &str) {
   }
 }
 
+/// Who a run is asked for, which decides how its result is filed and told: a room, told its end with a link
+/// to a document of the result; or the daemon's deep dive, whose result is held to its shape and filed as a
+/// page the daemon finishes (`docs/runner.md`, 「The deep dive's page」).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Filing {
+  Room,
+  Page(PageAsk),
+}
+
+/// What a deep dive asks of its run's page: the section headings its shape holds, in every language a result
+/// may be written in, and the title it falls back on.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PageAsk {
+  pub sections: Vec<String>,
+  pub title: String,
+}
+
 /// A run under way: what it was composed of and what it holds.
 struct Going {
   run: i64,
   ask: ResearchRunAsk,
+  filing: Filing,
   line: &'static str,
   seat: Seat,
   session: String,
@@ -624,9 +642,10 @@ struct Going {
 }
 
 /// One research sent out (`docs/runner.md`, 「One run, step by step」): composed, seated, its session started,
-/// and the rest carried on in the background; answered at once with what it went out on. A run that `tells`
-/// queues its end for its room.
-pub async fn launch(app: Arc<App>, ask: ResearchRunAsk, tells: bool) -> Result<ResearchRun, Refused> {
+/// and the rest carried on in the background; answered at once with what it went out on. A run asked for a
+/// room queues its end for it; a deep dive's tells nothing.
+pub async fn launch(app: Arc<App>, ask: ResearchRunAsk, filing: Filing) -> Result<ResearchRun, Refused> {
+  let tells = filing == Filing::Room;
   if let Some(why) = ask_fault(&ask) {
     return Err(Refused::Ask(why));
   }
@@ -741,6 +760,7 @@ pub async fn launch(app: Arc<App>, ask: ResearchRunAsk, tells: bool) -> Result<R
   let going = Going {
     run,
     ask,
+    filing,
     line,
     seat,
     session,
@@ -953,10 +973,47 @@ async fn rounds(app: &App, going: &Going, seat: &Seat, first: String) -> String 
   last
 }
 
+/// A deep dive's result held to its shape and filed as its page: the outcome, the error and the document.
+async fn file_page(
+  app: &App,
+  going: &Going,
+  page: &PageAsk,
+  text: &str,
+) -> (&'static str, Option<String>, Option<RunDocument>) {
+  let (run, ask) = (going.run, &going.ask);
+  let drawn = document::draw(text, words::search_document(document::language_of(&ask.query)));
+  if let Some(short) = document::short_of(&drawn, &page.sections) {
+    let why = format!("the result was not filed: {short}");
+    note(app, run, "filed", &format!("The result was not filed, since {short}."));
+    return ("failed", Some(why), None);
+  }
+  let title = document::page_title(&drawn, &page.title);
+  let filing = document::page_filing(&drawn, run, &ask.key, &ask.query, &title);
+  match document::file_page(app, &drawn, &filing).await {
+    Ok(filed) => {
+      note(app, run, "filed", &format!("The result was filed as page {}: {}", filed.id, filed.link));
+      ("answered", None, Some(filed))
+    }
+    Err(why) => {
+      note(app, run, "filed", &format!("The result was not filed: {why}"));
+      ("failed", Some(format!("the result was not filed: {why}")), None)
+    }
+  }
+}
+
 /// The run's end: its result filed, the run closed in the ledger, and its room told.
 async fn ended(app: &App, going: &Going, result: Result<String, String>) {
   let run = going.run;
   let ask = &going.ask;
+  if let (Filing::Page(page), Ok(text)) = (&going.filing, &result) {
+    let (outcome, error, filed) = file_page(app, going, page, text).await;
+    match app.store.close_research_run(run, outcome, error.as_deref(), filed.as_ref()) {
+      Ok(true) => note(app, run, "ended", &format!("The research ended {outcome}.")),
+      Ok(false) => {}
+      Err(why) => eprintln!("bmo-research: research {run} was not closed: {why}"),
+    }
+    return;
+  }
   let (told, outcome, error, filed) = match &result {
     Ok(text) => {
       let drawn = document::draw(text, words::search_document(document::language_of(&ask.query)));

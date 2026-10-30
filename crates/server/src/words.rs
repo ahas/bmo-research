@@ -1,6 +1,6 @@
 //! The words under `prompts/`, built into the binary: the question templates, one per shape, the notices'
-//! words, the words a filed document is read by, and the notes the translator is handed (`docs/api.md`,
-//! 「The questions」 and 「The Korean rendering」); and the runner's: the search and browse lines' tasks,
+//! words, the words a filed document is read by and the sections it holds, the notes the translator is handed
+//! and the words a deep dive's page is drawn with (`docs/api.md`, 「The questions」 and 「The page」); and the runner's: the search and browse lines' tasks,
 //! requests and branch instructions, the rulebooks, the words a run's document is written in, and the
 //! rulebooks' order and the rounds (`docs/runner.md`).
 
@@ -17,6 +17,7 @@ const BRIEF: &str = include_str!("../../../prompts/brief.md");
 const REPORT: &str = include_str!("../../../prompts/report.toml");
 const DOCUMENT: &str = include_str!("../../../prompts/document.toml");
 const TRANSLATION: &str = include_str!("../../../prompts/translation.toml");
+const PAGE: &str = include_str!("../../../prompts/page.toml");
 pub const SEARCH_TASK: &str = include_str!("../../../prompts/search/task.md");
 pub const SEARCH_BRANCH: &str = include_str!("../../../prompts/search/branch.md");
 pub const SEARCH_REQUEST: &str = include_str!("../../../prompts/search/request.md");
@@ -45,7 +46,6 @@ const RULEBOOKS: &[(&str, &str)] = &[
 #[serde(deny_unknown_fields)]
 pub struct ReportWords {
   pub line: String,
-  pub english: String,
   pub pending: String,
   pub translated: String,
   pub fit: String,
@@ -65,6 +65,29 @@ pub struct DocumentWords {
   pub manual: Vec<ManualWords>,
   pub advisory: Vec<AdvisoryWords>,
   pub brief: Vec<BriefWords>,
+  pub sections: Sections,
+}
+
+/// The section headings a deep dive's result holds, by its item's shape, in every language it may be written
+/// in.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Sections {
+  pub manual: Vec<String>,
+  pub investigation: Vec<String>,
+  pub advisory: Vec<String>,
+  pub brief: Vec<String>,
+}
+
+impl Sections {
+  pub fn of(&self, shape: Shape) -> &[String] {
+    match shape {
+      Shape::Manual => &self.manual,
+      Shape::Investigation => &self.investigation,
+      Shape::Advisory => &self.advisory,
+      Shape::Brief => &self.brief,
+    }
+  }
 }
 
 /// A manual's: the section on running the thing in the lab, its line of cards, and the plan's heading.
@@ -116,18 +139,78 @@ pub fn document() -> &'static DocumentWords {
   &WORDS
 }
 
-/// The translator's words: the language the owner's copy is rendered in, and the notes its parts carry.
+/// The translator's words: the language the owner's copy is rendered in, the note a page's parts carry and
+/// the one its narration's script carries.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TranslationWords {
   pub language: String,
   pub note: String,
-  pub title_note: String,
+  pub narration_note: String,
 }
 
 pub fn translation() -> &'static TranslationWords {
   static WORDS: LazyLock<TranslationWords> =
     LazyLock::new(|| toml::from_str(TRANSLATION).expect("prompts/translation.toml reads"));
+  &WORDS
+}
+
+/// The words one language of a deep dive's page is drawn with: its code, its name on the switch, what the
+/// switch is called and the listen band's line.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PageLanguage {
+  pub code: String,
+  pub name: String,
+  pub switch: String,
+  pub listen: String,
+}
+
+/// The title a page falls back on, by shape, in one language.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Titles {
+  pub manual: String,
+  pub investigation: String,
+  pub advisory: String,
+  pub brief: String,
+}
+
+/// A deep dive's page's words: each language it may hold, in the switch's order, and the titles it falls back
+/// on by language.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PageWords {
+  pub language: Vec<PageLanguage>,
+  pub titles: BTreeMap<String, Titles>,
+}
+
+impl PageWords {
+  /// A language's words, by its code.
+  pub fn language(&self, code: &str) -> Option<&PageLanguage> {
+    self.language.iter().find(|language| language.code == code)
+  }
+
+  /// The title an item of this shape falls back on in a language, its name set in.
+  pub fn title(&self, code: &str, shape: Shape, name: &str) -> String {
+    let titles = self
+      .titles
+      .get(code)
+      .or_else(|| self.titles.get("en"))
+      .expect("prompts/page.toml holds en");
+    let template = match shape {
+      Shape::Manual => &titles.manual,
+      Shape::Investigation => &titles.investigation,
+      Shape::Advisory => &titles.advisory,
+      Shape::Brief => &titles.brief,
+    };
+    fill(template, &[("name", name)])
+  }
+}
+
+pub fn page() -> &'static PageWords {
+  static WORDS: LazyLock<PageWords> =
+    LazyLock::new(|| toml::from_str(PAGE).expect("prompts/page.toml reads"));
   &WORDS
 }
 

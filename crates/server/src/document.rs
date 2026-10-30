@@ -1,7 +1,8 @@
-//! A research run's document (`docs/runner.md`, 「The document」): the searcher's structure lines made into a
-//! document written for its reader — its title, description, kind and labels from the head, its body as
-//! headed sections in the question's language with the sources as links last, its pictures kept beside it —
-//! and nothing of the structure lines themselves; and the filing of it in the artifact service.
+//! A research run's document (`docs/runner.md`, 「The document」 and 「The deep dive's page」): the searcher's
+//! structure lines made into a document written for its reader — its title, description, kind and labels from
+//! the head, its body as headed sections in the question's language with the sources as links last, its
+//! pictures kept beside it — and nothing of the structure lines themselves; a deep dive's held to its shape
+//! and filed as a page; and the filing of it in the artifact service.
 
 use std::net::IpAddr;
 use std::time::Duration;
@@ -10,6 +11,8 @@ use base64::Engine;
 use serde_json::{Value, json};
 
 use crate::App;
+use crate::page::{self, Side};
+use crate::reading;
 use crate::store::{RunDocument, now_ms};
 use crate::words::SearchDocumentWords as Words;
 
@@ -255,9 +258,9 @@ fn tidy(lines: &[String]) -> String {
   out.join("\n")
 }
 
-/// The document as the artifact service files it: its kind — `search`, or `learning` for study material —
-/// title, description (the topic), body, scope and labels.
-pub fn filing(drawn: &Drawn, run: i64, key: &str, query: &str, room: Option<i64>) -> Value {
+/// The labels a run's document carries: the run, its key, its question, and the keywords, the rule and the
+/// topic where the result writes them.
+pub fn labels(drawn: &Drawn, run: i64, key: &str, query: &str) -> Value {
   let mut labels = json!({ "research": run.to_string(), "key": key, "query": query.trim() });
   if let Some(keywords) = &drawn.keywords {
     labels["keywords"] = keywords.clone().into();
@@ -268,6 +271,13 @@ pub fn filing(drawn: &Drawn, run: i64, key: &str, query: &str, room: Option<i64>
   if let Some(topic) = &drawn.description {
     labels["topic"] = topic.clone().into();
   }
+  labels
+}
+
+/// The document as the artifact service files it: its kind — `search`, or `learning` for study material —
+/// title, description (the topic), body, scope and labels.
+pub fn filing(drawn: &Drawn, run: i64, key: &str, query: &str, room: Option<i64>) -> Value {
+  let labels = labels(drawn, run, key, query);
   json!({
     "kind": if drawn.learning { "learning" } else { "search" },
     "title": drawn.title.clone().unwrap_or_else(|| query.trim().to_owned()),
@@ -412,12 +422,93 @@ pub async fn file(app: &App, drawn: &Drawn, filing: &Value) -> Result<RunDocumen
       )
       .await?;
   }
+  let link = share_for_a_day(app, id).await?;
+  Ok(RunDocument {
+    id,
+    title: filing["title"].as_str().unwrap_or_default().to_owned(),
+    description: filing["description"].as_str().map(str::to_owned),
+    link,
+  })
+}
+
+/// Why a deep dive's result is not filed: a body that is empty, or one holding none of the section headings
+/// its shape holds; none where it may be filed.
+pub fn short_of(drawn: &Drawn, sections: &[String]) -> Option<String> {
+  if drawn.body.trim().is_empty() {
+    return Some("its body is empty".into());
+  }
+  if !sections.is_empty() && !reading::holds_heading(&drawn.body, sections) {
+    return Some(format!(
+      "its body holds none of the section headings its shape holds: {}",
+      sections.join(", ")
+    ));
+  }
+  None
+}
+
+/// A deep dive's page's title: the `TITLE:` line, else the body's first top-level heading, else the title the
+/// deep dive falls back on.
+pub fn page_title(drawn: &Drawn, fallback: &str) -> String {
+  drawn
+    .title
+    .clone()
+    .filter(|title| !title.trim().is_empty())
+    .or_else(|| reading::top_heading(&drawn.body))
+    .unwrap_or_else(|| fallback.to_owned())
+}
+
+/// A deep dive's page's English body: every picture drawn from its address, and the heading it opens with
+/// taken out where it says the title, since the page's head says it.
+pub fn page_body(drawn: &Drawn, title: &str) -> String {
+  let mut body = reading::without_opening_heading(&drawn.body, title).to_owned();
+  for picture in &drawn.pictures {
+    body = body.replace(&format!("]({})", picture.name), &format!("]({})", picture.url));
+  }
+  body
+}
+
+/// A deep dive's page as the artifact service files it: kind `page`, the page drawn in English alone, its
+/// head and its labels as a room's document's, with the languages it holds.
+pub fn page_filing(drawn: &Drawn, run: i64, key: &str, query: &str, title: &str) -> Value {
+  let body = page_body(drawn, title);
+  let html = page::compose(
+    &[Side {
+      code: "en",
+      title,
+      description: drawn.description.as_deref(),
+      body: &body,
+    }],
+    &[],
+  );
+  let mut labels = labels(drawn, run, key, query);
+  labels["languages"] = "en".into();
+  json!({
+    "kind": "page",
+    "title": title,
+    "description": drawn.description,
+    "html": html,
+    "actorName": ACTOR,
+    "labels": labels,
+  })
+}
+
+// A filed document's share link, ending a day after it is made.
+async fn share_for_a_day(app: &App, id: i64) -> Result<String, String> {
   let ends = now_ms() + SHARE_LIFE.as_millis() as i64;
   let shared = app
     .peers
     .artifact_send(reqwest::Method::POST, "/shares", &json!({ "documentId": id, "expiresAt": ends }))
     .await?;
-  let link = shared["url"].as_str().ok_or("the artifact service named no link")?.to_owned();
+  Ok(shared["url"].as_str().ok_or("the artifact service named no link")?.to_owned())
+}
+
+/// A deep dive's page filed in the artifact service, its pictures kept beside it, and given its share link,
+/// which ends a day after it is made.
+pub async fn file_page(app: &App, drawn: &Drawn, filing: &Value) -> Result<RunDocument, String> {
+  let filed = app.peers.artifact_send(reqwest::Method::POST, "/documents", filing).await?;
+  let id = filed["id"].as_i64().ok_or("the artifact service named no document for the result")?;
+  keep_pictures(app, id, drawn).await;
+  let link = share_for_a_day(app, id).await?;
   Ok(RunDocument {
     id,
     title: filing["title"].as_str().unwrap_or_default().to_owned(),

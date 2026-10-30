@@ -25,6 +25,7 @@ hyper.workspace = true
 hyper-util.workspace = true
 libc.workspace = true
 pulldown-cmark.workspace = true
+pulldown-cmark-escape.workspace = true
 reqwest.workspace = true
 rusqlite.workspace = true
 schemars.workspace = true

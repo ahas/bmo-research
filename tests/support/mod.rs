@@ -1,6 +1,7 @@
 //! What the tests share: a scratch data root, the daemon's app over it, and stand-ins for agency (its seats,
-//! its thrown-away sessions and their turns), the artifact service, the receiver, the arbiter's master, the
-//! tool host on its Unix socket and the sources, each keeping every request it was asked.
+//! its thrown-away sessions and their turns), the artifact service, the receiver, the voice unit, the
+//! arbiter's master, the tool host on its Unix socket and the sources, each keeping every request it was
+//! asked.
 
 #![allow(dead_code)]
 
@@ -37,6 +38,18 @@ pub struct Filed {
   pub title: String,
   pub description: String,
   pub content: String,
+}
+
+/// A file attached to a document: the document, the attachment's id, its name, its type, its role and its
+/// bytes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Attached {
+  pub document: i64,
+  pub id: i64,
+  pub name: String,
+  pub media_type: String,
+  pub role: Option<String>,
+  pub bytes: Vec<u8>,
 }
 
 /// How the stand-ins answer, and what they were asked.
@@ -82,6 +95,12 @@ pub struct World {
   pub tickets: BTreeMap<String, Vec<String>>,
   /// Whether every registration answers its health.
   pub healthy: bool,
+  /// Whether the translator answers each text with the note it was handed set before it.
+  pub leaking: bool,
+  /// The files attached to documents.
+  pub attachments: Vec<Attached>,
+  /// Whether every synthesis the voice unit is asked fails.
+  pub voice_failing: bool,
 }
 
 pub type Shared = Arc<Mutex<World>>;
@@ -95,9 +114,32 @@ pub fn world() -> Shared {
   }))
 }
 
-/// What the stand-in translator answers for a text: the text marked as translated.
+/// The mark the stand-in translator sets on every line it translates.
+pub const KO: &str = "[ko] ";
+
+/// What the stand-in translator answers for a text: every line marked as translated, a heading's after its
+/// marks, so the text keeps its shape.
 pub fn translated(text: &str) -> String {
-  format!("[ko] {text}")
+  text
+    .lines()
+    .map(|line| {
+      if line.trim().is_empty() {
+        return line.to_string();
+      }
+      let marks = line.len() - line.trim_start_matches('#').len();
+      if marks > 0 && line[marks..].starts_with(' ') {
+        format!("{} {KO}{}", &line[..marks], line[marks..].trim_start())
+      } else {
+        format!("{KO}{line}")
+      }
+    })
+    .collect::<Vec<_>>()
+    .join("\n")
+}
+
+/// The sound the stand-in voice unit speaks a text as.
+pub fn spoken(text: &str) -> Vec<u8> {
+  format!("OggS {text}").into_bytes()
 }
 
 fn keep(world: &Shared, unit: &'static str, method: &Method, uri: &Uri, body: &Bytes) {
@@ -213,6 +255,7 @@ pub fn run_of(name: &str) -> Option<i64> {
 /// What a research turn writes: the run's filed result, or a result of its own naming the run.
 fn result_of(world: &World, run: i64) -> String {
   match world.filed.get(&run) {
+    Some(doc) if doc.title.is_empty() => format!("TOPIC: {}\n\n{}", doc.description, doc.content),
     Some(doc) => format!("TITLE: {}\nTOPIC: {}\n\n{}", doc.title, doc.description, doc.content),
     None => format!(
       "ANSWERED: yes :: the run\nTITLE: Research {run}\nTOPIC: What run {run} found\n\nVERDICT:\nRun {run} \
@@ -275,9 +318,13 @@ async fn agency_translation(State(w): State<Shared>, method: Method, uri: Uri, b
     world.translating_most = world.translating_most.max(world.translating);
   }
   tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-  w.lock().unwrap().translating -= 1;
-  axum::Json(json!({"text": translated(&text), "provider": "registered", "model": "translator"}))
-    .into_response()
+  let mut world = w.lock().unwrap();
+  world.translating -= 1;
+  let mut answer = translated(&text);
+  if world.leaking {
+    answer = format!("Note: {}\n\n{answer}", asked["note"].as_str().unwrap_or_default());
+  }
+  axum::Json(json!({"text": answer, "provider": "registered", "model": "translator"})).into_response()
 }
 
 async fn agency_model(
@@ -318,10 +365,9 @@ async fn artifact_documents(
   if method == Method::POST {
     let mut document: Value = serde_json::from_slice(&body).unwrap_or_default();
     // A run's document takes the id its run's filing names; any other the next.
-    let filed = document["labels"]["translationOf"]
-      .is_null()
-      .then(|| document["labels"]["research"].as_str().and_then(|r| r.parse::<i64>().ok()))
-      .flatten()
+    let filed = document["labels"]["research"]
+      .as_str()
+      .and_then(|r| r.parse::<i64>().ok())
       .and_then(|run| world.filed.get(&run))
       .map(|doc| doc.id);
     let id = match filed {
@@ -369,6 +415,68 @@ async fn artifact_document(State(w): State<Shared>, method: Method, uri: Uri, bo
   axum::Json(json!({"ok": true})).into_response()
 }
 
+async fn artifact_attach(
+  State(w): State<Shared>,
+  Path(id): Path<i64>,
+  method: Method,
+  uri: Uri,
+  body: Bytes,
+) -> Response {
+  use base64::Engine;
+  keep(&w, "artifact", &method, &uri, &body);
+  let mut world = w.lock().unwrap();
+  if method == Method::GET {
+    let items: Vec<Value> = world
+      .attachments
+      .iter()
+      .filter(|kept| kept.document == id)
+      .map(|kept| json!({"id": kept.id, "documentId": kept.document, "name": kept.name, "mediaType": kept.media_type, "role": kept.role}))
+      .collect();
+    return axum::Json(json!({"items": items, "more": false})).into_response();
+  }
+  let asked: Value = serde_json::from_slice(&body).unwrap_or_default();
+  let name = asked["name"].as_str().unwrap_or_default().to_string();
+  if world.attachments.iter().any(|kept| kept.document == id && kept.name == name) {
+    return (
+      StatusCode::BAD_REQUEST,
+      axum::Json(json!({"code": "bad-request", "error": "a name kept"})),
+    )
+      .into_response();
+  }
+  let bytes = base64::engine::general_purpose::STANDARD
+    .decode(asked["content"].as_str().unwrap_or_default())
+    .unwrap_or_default();
+  let next = world.attachments.len() as i64 + 1;
+  world.attachments.push(Attached {
+    document: id,
+    id: next,
+    name: name.clone(),
+    media_type: asked["mediaType"].as_str().unwrap_or_default().to_string(),
+    role: asked["role"].as_str().map(str::to_string),
+    bytes,
+  });
+  (StatusCode::CREATED, axum::Json(json!({"id": next, "documentId": id, "name": name}))).into_response()
+}
+
+async fn artifact_attachment(
+  State(w): State<Shared>,
+  Path((id, attachment)): Path<(i64, i64)>,
+  method: Method,
+  uri: Uri,
+  body: Bytes,
+) -> Response {
+  keep(&w, "artifact", &method, &uri, &body);
+  let world = w.lock().unwrap();
+  match world.attachments.iter().find(|kept| kept.document == id && kept.id == attachment) {
+    Some(kept) => {
+      ([(axum::http::header::CONTENT_TYPE, kept.media_type.clone())], kept.bytes.clone()).into_response()
+    }
+    None => {
+      (StatusCode::NOT_FOUND, axum::Json(json!({"code": "not-found", "error": "none"}))).into_response()
+    }
+  }
+}
+
 async fn artifact_shares(State(w): State<Shared>, method: Method, uri: Uri, body: Bytes) -> Response {
   keep(&w, "artifact", &method, &uri, &body);
   let mut world = w.lock().unwrap();
@@ -400,7 +508,8 @@ pub fn artifact(world: Shared) -> Router {
   Router::new()
     .route("/documents", get(artifact_documents).post(artifact_documents))
     .route("/documents/{id}", axum::routing::patch(artifact_document))
-    .route("/documents/{id}/attachments", post(artifact_document))
+    .route("/documents/{id}/attachments", get(artifact_attach).post(artifact_attach))
+    .route("/documents/{id}/attachments/{attachment}", get(artifact_attachment))
     .route("/documents/{id}/content", get(artifact_content))
     .route("/shares", get(artifact_shares).post(artifact_shares))
     .with_state(world)
@@ -422,6 +531,78 @@ pub fn receiver(world: Shared) -> Router {
   Router::new()
     .route("/owner", get(receiver_owner))
     .route("/instructions", post(receiver_instruction))
+    .with_state(world)
+}
+
+async fn voice_voices(State(w): State<Shared>, method: Method, uri: Uri, body: Bytes) -> Response {
+  keep(&w, "voice", &method, &uri, &body);
+  axum::Json(json!({"items": [{"name": "voice-a", "language": "ko", "emotions": []}], "more": false}))
+    .into_response()
+}
+
+async fn voice_synthesize(State(w): State<Shared>, method: Method, uri: Uri, body: Bytes) -> Response {
+  keep(&w, "voice", &method, &uri, &body);
+  let n = w
+    .lock()
+    .unwrap()
+    .asked
+    .iter()
+    .filter(|a| a.unit == "voice" && a.method == "POST")
+    .count();
+  let asked: Value = serde_json::from_slice(&body).unwrap_or_default();
+  (
+    StatusCode::CREATED,
+    axum::Json(
+      json!({"id": n, "voiceName": asked["voiceName"], "text": asked["text"], "state": "waiting"}),
+    ),
+  )
+    .into_response()
+}
+
+// The text the synthesis of this id was asked to speak.
+fn synthesis_text(world: &World, id: usize) -> Option<String> {
+  world
+    .asked
+    .iter()
+    .filter(|a| a.unit == "voice" && a.method == "POST")
+    .nth(id.checked_sub(1)?)
+    .and_then(|a| a.body["text"].as_str().map(str::to_string))
+}
+
+async fn voice_synthesis(
+  State(w): State<Shared>,
+  Path(id): Path<usize>,
+  method: Method,
+  uri: Uri,
+  body: Bytes,
+) -> Response {
+  keep(&w, "voice", &method, &uri, &body);
+  let world = w.lock().unwrap();
+  let state = if world.voice_failing { "failed" } else { "done" };
+  axum::Json(json!({"id": id, "text": synthesis_text(&world, id), "state": state})).into_response()
+}
+
+async fn voice_sound(
+  State(w): State<Shared>,
+  Path(id): Path<usize>,
+  method: Method,
+  uri: Uri,
+  body: Bytes,
+) -> Response {
+  keep(&w, "voice", &method, &uri, &body);
+  let world = w.lock().unwrap();
+  let text = synthesis_text(&world, id).unwrap_or_default();
+  ([(axum::http::header::CONTENT_TYPE, "audio/ogg")], spoken(&text)).into_response()
+}
+
+/// A stand-in for the voice unit: its voices, and a synthesis spoken at once, or failed while the world says
+/// so.
+pub fn voice(world: Shared) -> Router {
+  Router::new()
+    .route("/voices", get(voice_voices))
+    .route("/syntheses", post(voice_synthesize))
+    .route("/syntheses/{id}", get(voice_synthesis))
+    .route("/syntheses/{id}/sound", get(voice_sound))
     .with_state(world)
 }
 
@@ -591,22 +772,32 @@ impl Ground {
       .collect()
   }
 
-  /// The documents the research runs filed, a Korean rendering left out.
+  /// The documents the research runs filed.
   pub fn run_documents(&self) -> Vec<Value> {
     self
       .asked_path("artifact", "POST", "/documents")
       .into_iter()
       .map(|a| a.body)
-      .filter(|b| b["labels"]["translationOf"].is_null() && b["actorName"] == "research")
+      .filter(|b| b["actorName"] == "research")
       .collect()
   }
 
-  /// The Korean renderings filed.
-  pub fn renderings(&self) -> Vec<Asked> {
+  /// The rewrites of a document, in the order they were asked.
+  pub fn rewrites(&self, document: i64) -> Vec<Value> {
     self
-      .asked_path("artifact", "POST", "/documents")
+      .asked("artifact")
       .into_iter()
-      .filter(|a| !a.body["labels"]["translationOf"].is_null())
+      .filter(|a| a.method == "PATCH" && a.path == format!("/documents/{document}"))
+      .map(|a| a.body)
+      .collect()
+  }
+
+  /// The texts the voice unit was asked to speak, in order.
+  pub fn spoken(&self) -> Vec<String> {
+    self
+      .asked_path("voice", "POST", "/syntheses")
+      .into_iter()
+      .map(|a| a.body["text"].as_str().unwrap_or_default().to_string())
       .collect()
   }
 }
@@ -619,6 +810,7 @@ pub async fn ground(change: impl FnOnce(&mut Settings)) -> Ground {
   let artifact = serve(artifact(world.clone())).await;
   let receiver = serve(receiver(world.clone())).await;
   let arbiter = serve(arbiter(world.clone())).await;
+  let voice = serve(voice(world.clone())).await;
   let sources = serve(sources(world.clone())).await;
   let root = scratch();
   let port = agency.rsplit(':').next().unwrap();
@@ -633,6 +825,12 @@ pub async fn ground(change: impl FnOnce(&mut Settings)) -> Ground {
   )
   .unwrap();
   std::fs::write(root.join("env/artifact.token"), "artifact-test\n").unwrap();
+  std::fs::write(
+    root.join("env/voice.toml"),
+    format!("listen = \"127.0.0.1:0\"\naddress = \"{voice}\"\ntoken_file = \"voice.token\"\n"),
+  )
+  .unwrap();
+  std::fs::write(root.join("env/voice.token"), "voice-test\n").unwrap();
   std::fs::create_dir_all(root.join("tool-host")).unwrap();
   std::fs::write(root.join("tool-host/issuer-token"), format!("{ISSUER}\n")).unwrap();
   let socket = root.join("mcp-host.sock");

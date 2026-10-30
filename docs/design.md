@@ -30,7 +30,9 @@ word. It is the home of the research feature; agency supplies it sessions and se
     search engines' state;
   - explorer, for the web, through the tool host's `web` namespace in the runs it asks for; the daemon's
     own scan reads sources with its own HTTP client, since a feed is not a page an agent reads;
-  - artifact, to file a run's document and a Korean rendering (`POST /documents`, `POST /shares`);
+  - artifact, to file a run's document, draw a deep dive's page again and keep its narration beside it
+    (`POST /documents`, `PATCH /documents/{id}`, `POST /documents/{id}/attachments`, `POST /shares`);
+  - the voice unit, to speak a deep dive's narration (`POST /syntheses`);
   - the receiver, to tell a room (`POST /instructions`) and to learn the owner's private room (`GET /owner`);
   - the arbiter, to read whether a bench holds a node its model stands on (「The n3–n6 restore path」).
   The job service it never calls: a job is the chat agent's to file.
@@ -230,24 +232,32 @@ take; so its own area stays the research and the measurement, however many categ
   the runner's search writes its document in English, as its rules say a result follows the question's
   language; the rulebooks, the brain rows a run writes and every record of the unit are English as the
   platform's are.
-- **What reaches the owner is Korean, rendered by the platform's translator.** Once a run's document is
-  filed, the daemon has its body translated through agency's translation route on the `translate` road —
-  the registry's translation model first — part by part, each part with a note that gives the translator
-  its context: that the text is a research report about the named thing, that model and product names,
-  figures, units, code, links and the fixed section names stay as written, and that the Korean is the
-  register of the owner's documents. The Korean rendering is filed as a document of its own beside the
-  English one, labelled as its translation, and the notice carries the Korean document's link, the English
-  one named after it. A notice's own line is Korean from the start (`prompts/report.toml`).
+- **What reaches the owner is Korean, rendered by the platform's translator, in the same document.** A deep
+  dive's document is one HTML page (`docs/runner.md`, 「The page」) holding every language it has: filed in
+  English, then drawn again with its Korean side once the daemon has it translated through agency's
+  translation route on the `translate` road — the registry's translation model first — part by part, each
+  part with a note that gives the translator its context: that the text is a research report about the
+  named thing, that model and product names, figures, units, code, links and the fixed section names stay as
+  written, and that the Korean is the register of the owner's documents. A switch at the page's top shows
+  Korean first and English beside it, each named in its own words. A notice's own line is Korean from the
+  start (`prompts/report.toml`).
+- **The page is heard as well as read.** The run's narration script is spoken by the platform's voice unit:
+  in Korean, translated through the same route with a note that it is a spoken narration, as the sound the
+  archive plays at the document's head, and in English as it was written, kept beside it; the page's listen
+  band plays the sound of the language shown. A narration that cannot be made leaves the page without it,
+  and the daemon tries it once more on its retry wait; nobody is told of it.
 - **A translation that cannot be had** (no road carries the translate line, a part refused as too long after
-  cutting) leaves the notice with the English link and a line saying the Korean rendering is pending; the
-  daemon tries again on its retry wait and sends the Korean link when it has it.
+  cutting) leaves the page in English and the notice with a line saying the Korean side is pending; the daemon
+  tries again on its retry wait, draws the page again with the Korean side once it has it, and tells the
+  recipients that the same link now reads in Korean.
 
 ## Reports and rooms
 
-- **A report line** is the Korean document's share link and one line in Korean saying what the thing is
-  and the verdict in a few words, and for a `fit` item the question; the English document's link stands
-  after it. Nothing else goes into the room: the
-  document holds the grounds.
+- **A report line** is the document's one share link and one line in Korean saying what the thing is and
+  the verdict in a few words, and for a `fit` item the question. Nothing else goes into the room: the
+  document holds the grounds, in both languages, and the narration.
+- **A document that is not the research asked for is never reported:** a deep dive's result whose body holds
+  none of its shape's sections is not filed, and the try fails with what was missing, to be tried again.
 - **The recipients** are a registration per category (「The notifier」): the owner's private room first,
   read from the receiver at the daemon's start where a category's list is empty; a room or an agent is
   added and removed through the routes and the tools. Every recipient of the category gets every notice of
