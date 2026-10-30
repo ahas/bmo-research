@@ -170,5 +170,5 @@ fn a_literal_is_found_as_a_word_alone() {
   assert!(!holds("everyone", "someone"));
   assert!(!holds("someones_file", "someone"));
   assert!(hangul('\u{D55C}'));
-  assert!(!hangul('「'));
+  assert!(!hangul('\u{300C}'));
 }
