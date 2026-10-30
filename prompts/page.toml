@@ -1,17 +1,19 @@
 # The words a deep dive's page is drawn with (docs/runner.md, "The page"; docs/api.md, "The page"): one set
 # per language the page may hold, in the order its switch lists them, Korean first, the owner's. `name` is
-# the language named in its own words on the switch and `switch` what the switch is called for a screen
-# reader.
+# the language named in its own words on the switch, `switch` what the switch is called for a screen reader,
+# and `listen` the heading of the listen band, saying the sound is to be heard while reading.
 
 [[language]]
 code = "ko"
 name = "한국어"
 switch = "언어"
+listen = "들으면서 보세요"
 
 [[language]]
 code = "en"
 name = "English"
 switch = "Language"
+listen = "Listen while you read"
 
 # The title a page falls back on where the result names none, by the item's shape and the page's language.
 # {name} is the item's name.

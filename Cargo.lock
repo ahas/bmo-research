@@ -1532,6 +1532,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "libc",
+ "percent-encoding",
  "pulldown-cmark",
  "pulldown-cmark-escape",
  "regex",

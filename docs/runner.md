@@ -225,9 +225,16 @@ daemon finishes, held first to the shape the deep dive asked for.
   Korean pressed first. Pressing a language shows its side and hides the other. The switch is plain inline
   script and style, the style marked `data-archive` and drawn in the design's colour variables, so the page
   reads in the light and the dark scheme alike.
-- **The page draws no player.** The narration's sounds are the document's attachments (`docs/api.md`, 「The
-  page」): the archive's reader draws the listen band above the page and plays them there. The page itself
-  carries no sound, and its switch is tied to no player.
+- **The listen band stands under the title,** after the `header`, once the run has attached a narration
+  (`docs/api.md`, 「The page」): a band element holding its heading in each language side's own words
+  (`prompts/page.toml`, `listen`), each marked as its side, and one `audio` element for each narration
+  attached, written as plain markup — its address `attachment:` and the sound's name, percent-encoded where
+  the name needs it, and `data-language` its language — with no `controls`, no `data:` address and no
+  script of the page's own. The archive draws the player: as the page is read it stands each `audio`
+  element in its place as its own player element, keeping the attributes, and plays the sound kept under the
+  name. The page writes the band and the references alone. Where it holds two languages the switch hides
+  the other side's band heading and player by their `data-language`, selected by that attribute alone since
+  the element is the archive's player by then, and pauses each hidden player.
 - **Diagrams** are a body's fenced `mermaid` blocks, each written as a `pre` of the class `mermaid` with its
   text escaped, and drawn by the page itself: Mermaid, at the exact version the archive's reader draws with,
   loaded once over https and started on the page's load, strict, in the dark theme under a dark colour scheme

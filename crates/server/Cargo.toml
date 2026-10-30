@@ -24,6 +24,7 @@ http-body-util.workspace = true
 hyper.workspace = true
 hyper-util.workspace = true
 libc.workspace = true
+percent-encoding.workspace = true
 pulldown-cmark.workspace = true
 pulldown-cmark-escape.workspace = true
 regex.workspace = true

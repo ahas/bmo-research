@@ -501,12 +501,15 @@ pub fn page_body(drawn: &Drawn, title: &str) -> String {
 /// head and its labels as a room's document's, with the languages it holds.
 pub fn page_filing(drawn: &Drawn, run: i64, key: &str, query: &str, title: &str) -> Value {
   let body = page_body(drawn, title);
-  let html = page::compose(&[Side {
-    code: "en",
-    title,
-    description: drawn.description.as_deref(),
-    body: &body,
-  }]);
+  let html = page::compose(
+    &[Side {
+      code: "en",
+      title,
+      description: drawn.description.as_deref(),
+      body: &body,
+    }],
+    &[],
+  );
   let mut labels = labels(drawn, run, key, query);
   labels["languages"] = "en".into();
   json!({

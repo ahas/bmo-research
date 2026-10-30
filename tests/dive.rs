@@ -302,12 +302,14 @@ async fn a_narration_is_spoken_in_both_languages_and_attached_the_korean_at_the_
   );
 
   let rewrites = ground.rewrites(501);
-  assert_eq!(rewrites.len(), 1, "the page is drawn again once, with both sides");
+  assert_eq!(rewrites.len(), 1, "the page is drawn again once, with both sides and both sounds");
   let html = rewrites[0]["html"].as_str().unwrap();
-  assert!(
-    !html.contains("<audio") && !html.contains("data:audio") && !html.contains("class=\"listen\""),
-    "the page draws no player: the sounds are attachments the archive's reader plays"
-  );
+  assert!(html.contains("class=\"listen\""), "{html}");
+  for code in ["ko", "en"] {
+    let audio = format!("<audio src=\"attachment:narration-{code}.ogg\" data-language=\"{code}\"></audio>");
+    assert!(html.contains(&audio), "{audio} missing from {html}");
+  }
+  assert!(!html.contains("data:audio"), "the page refers to its sounds by name");
   let rendered = ground.app.store.item(item.id).unwrap();
   assert_eq!(rendered.narrations, ["ko", "en"]);
   assert_eq!(ground.app.store.page_state(item.id).unwrap().retry_at, None);
@@ -412,7 +414,11 @@ async fn a_narration_that_cannot_be_made_leaves_the_page_filed_and_is_asked_once
   ground.world.lock().unwrap().voice_failing = false;
   settle(&ground).await;
 
-  assert_eq!(ground.rewrites(501).len(), 1, "a sound attached leaves the page as it is");
+  let rewrites = ground.rewrites(501);
+  assert_eq!(rewrites.len(), 2, "a sound attached draws the page again with its band");
+  let html = rewrites[1]["html"].as_str().unwrap();
+  assert!(html.contains("attachment:narration-ko.ogg") && html.contains("attachment:narration-en.ogg"));
+  assert!(html.contains("data-language=\"ko\" lang=\"ko\""), "the Korean side stays: {html}");
   let attached: Vec<String> =
     ground.world.lock().unwrap().attachments.iter().map(|a| a.name.clone()).collect();
   assert_eq!(attached, ["narration-ko.ogg", "narration-en.ogg"]);
@@ -422,7 +428,7 @@ async fn a_narration_that_cannot_be_made_leaves_the_page_filed_and_is_asked_once
   assert_eq!(orders(&ground).len(), 1, "nobody is told of a narration");
 
   settle(&ground).await;
-  assert_eq!(ground.rewrites(501).len(), 1, "nothing more is asked");
+  assert_eq!(ground.rewrites(501).len(), 2, "nothing more is asked");
   assert_eq!(ground.world.lock().unwrap().attachments.len(), 2, "no sound is made again");
 }
 

@@ -446,9 +446,9 @@ search runner applies it, and the run writes its document in English, the questi
   product names kept. Each is spoken by the voice unit (「Calls this unit makes」) in the settings' voice, a
   text of at most the 4,000 characters the voice unit speaks: a longer one is spoken up to the last sentence
   that ends within them, and the run's log says so. Each is attached to the document with `POST /documents/{id}/attachments`: the Korean sound as `narration-ko.ogg`
-  with `role` `head`, the English as `narration-en.ogg` with no role. The sounds are the document's
-  attachments and nothing of the page: the archive's reader plays them above it, and the page draws no
-  player. A sound already attached is not made again, and a sound made leaves the page as it is.
+  with `role` `head`, the English as `narration-en.ogg` with no role. The page is then drawn again with its
+  listen band referring to every sound attached by its name (`docs/runner.md`, 「The page」), and the
+  archive plays them there. A sound already attached is not made again.
 - **A narration that cannot be made** — no script, no voice, a translation refused, a synthesis failed —
   leaves the document without that sound and the notice says nothing of it; why is written into the run's log
   under `narration`, the synthesis named with the length of the text it was asked to speak, and a missing

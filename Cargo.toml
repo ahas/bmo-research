@@ -23,6 +23,7 @@ hyper = { version = "1.12.0", features = ["client", "http1"] }
 hyper-util = { version = "0.1.21", features = ["tokio"] }
 regex = "1.11.1"
 libc = "0.2.174"
+percent-encoding = "2.3.2"
 pulldown-cmark = { version = "0.13.0", default-features = false, features = ["html"] }
 pulldown-cmark-escape = "0.11.0"
 reqwest = { version = "0.13.5", default-features = false, features = ["json", "query", "rustls", "http2"] }

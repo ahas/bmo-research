@@ -17,7 +17,7 @@ use unicode_segmentation::UnicodeSegmentation;
 use crate::App;
 use crate::document::{self, Drawn};
 use crate::engine;
-use crate::page::{self, Side};
+use crate::page::{self, Side, Sound};
 use crate::reading::{self, Exposure};
 use crate::runner::{self, Filing, PageAsk, Refused};
 use crate::store::{Filed, now_ms};
@@ -430,12 +430,14 @@ async fn narration(
   app.peers.attach(document_id, &name, &media_type, role, &bytes).await
 }
 
-/// The page drawn again with the sides it holds, Korean first, and set in the archive.
+/// The page drawn again with the sides it holds, Korean first, and its listen band referring to each narration
+/// attached, and set in the archive.
 async fn redraw(
   app: &App,
   document_id: i64,
   source: &Source,
   rendering: Option<&Rendering>,
+  narrations: &[String],
 ) -> Result<(), String> {
   let english = document::page_body(&source.drawn, &source.title);
   let mut sides = Vec::new();
@@ -453,7 +455,13 @@ async fn redraw(
     description: source.drawn.description.as_deref(),
     body: &english,
   });
-  let html = page::compose(&sides);
+  let names: Vec<(&str, String)> = LANGUAGES
+    .into_iter()
+    .filter(|code| narrations.iter().any(|had| had == code))
+    .map(|code| (code, sound_name(code)))
+    .collect();
+  let sounds: Vec<Sound<'_>> = names.iter().map(|(code, name)| Sound { code, name }).collect();
+  let html = page::compose(&sides, &sounds);
   let mut labels = source.labels.clone();
   labels["languages"] = sides.iter().map(|side| side.code).collect::<Vec<_>>().join(",").into();
   app
@@ -538,17 +546,19 @@ async fn finish(app: &App, run: i64, lead: &Item, filed: &Filed, source: &Source
   if heard {
     let _ = app.store.keep_narrations(document_id, &sounds);
   }
-  if fresh {
-    match redraw(app, document_id, source, rendering.as_ref()).await {
+  if fresh || heard {
+    match redraw(app, document_id, source, rendering.as_ref(), &sounds).await {
       Ok(()) => {
-        if let Some(korean) = &rendering {
+        if let Some(korean) = rendering.as_ref().filter(|_| fresh) {
           let _ = app.store.keep_rendering(document_id, korean);
         }
       }
       Err(why) => {
         eprintln!("bmo-research: item {}'s page was not drawn again: {why}", lead.id);
-        rendering = None;
-        fresh = false;
+        if fresh {
+          rendering = None;
+          fresh = false;
+        }
       }
     }
   }
