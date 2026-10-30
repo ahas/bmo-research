@@ -55,7 +55,7 @@ sources ──scan──▶ candidates ──new?──▶ queue (cap) ──slo
    the owner has not dismissed it. A new candidate is kept as seen the moment it is read, so it is judged
    once.
 3. **The queue.** New candidates wait in the queue by the order they were found; one the owner asked for
-   by name stands first. The queue holds at most `cap` items waiting or running; a scan that finds more
+   by name stands first. Each category's part of the queue holds at most its `cap` items waiting or running; a scan that finds more
    keeps them as seen but unqueued, and the next scan that finds the queue short takes the oldest
    unqueued first. The queue never idles while something is unqueued.
 4. **The deep dive.** One run at a time (`concurrency`, 1 to start with): the item becomes a research run
@@ -79,9 +79,37 @@ sources ──scan──▶ candidates ──new?──▶ queue (cap) ──slo
    the rooms the verification's link. Registering a service with the arbiter is the job's last step, on
    the owner's word in the item, never the daemon's.
 
+## Categories
+
+Research is done by category: each source belongs to one, and the category says why the daemon reads
+it, what a deep dive of its items produces, where the report goes and how much of the queue it may
+hold. A category is a registration (`docs/settings.md`): its name, its purpose in a line, its report
+shape, its cap, its cadence, its road, and its report rooms. Three stand at the start:
+
+| Category | Purpose | What a deep dive produces | What follows |
+|---|---|---|---|
+| `it` | new AI technology, as Bongbos's lab researches it | the manual or the investigation (agency's `research.md`): the maker's own material, the lab's fit, the reproduction plan | a `fit` item is reported for the owner's word; approved, a verification job under the bench lock, and a service registered with the arbiter |
+| `security` | vulnerability news that bears on the platform's own stack | an advisory investigation: what the flaw is, the affected versions, whether and where the platform runs them (the stack inventory below), the vendor's fix and the patch steps | an item that touches the platform is reported with the question; approved, a patch job on the repository or host it names |
+| `economy` | the economic news and indicators the owner's later portfolio and trading system will read | a brief, not a deep dive: the items of the day in one document with the figures they carry, the sources, and the facts kept for the economy store | nothing to approve; the brief is reported, and the facts stand in the store for the trading system to read later |
+
+- **The shape is the category's, not the source's.** `it` asks the research run for a manual or an
+  investigation; `security` asks for the advisory shape; `economy` gathers a day's items into one run that
+  writes the brief. The question templates under `prompts/` are one per shape.
+- **The security category reads advisories and fixes, never exploits.** Its sources are vendor advisories,
+  CVE feeds and distribution security lists; its deep dive judges exposure from the platform's stack
+  inventory — the distributions, runtimes, libraries and programs the platform runs, kept as a registration
+  the owner and the jobs maintain — and names the patch; writeups of how a flaw is exploited are not read
+  past what the exposure judgement needs. A reported item says which hosts and repositories it touches.
+- **The economy category keeps facts.** Each brief's figures (an index, a rate, a price, a release) are
+  written to the store with their source and date, so a later system reads a series, not documents.
+- **Each category has its own cap, cadence, road and rooms,** so one category's flood never starves
+  another, and a category can be stopped alone. The owner's private room is every category's first room.
+- **A category the owner adds later** needs a shape: one of the three above, or a new template under
+  `prompts/` with its rulebook in agency's `prompts/rules/` until the runner moves here.
+
 ## Sources
 
-A source is a registration: a kind, an address and, where the kind takes them, a query and a filter.
+A source is a registration: a category, a kind, an address and, where the kind takes them, a query and a filter.
 
 | Kind | Reads | Items |
 |---|---|---|
@@ -166,8 +194,9 @@ there, and with it the model the daemon's own research runs go out on. So:
   addresses and token files of agency, explorer's tool host, the artifact service, the receiver, the job
   service and the arbiter of each node. Every address and token file is read from the data root's `env/`
   files the other units already keep, named in the settings, never copied.
-- **The store** (`docs/store.md`): SQLite under the data root's `research/` folder: `sources`, `seen`,
-  `queue`, `runs`, `reports`, `rooms`, `settings_changes`. Schema versioned and migrated at start.
+- **The store** (`docs/store.md`): SQLite under the data root's `research/` folder: `categories`,
+  `sources`, `seen`, `queue`, `runs`, `reports`, `rooms`, `facts` (the economy category's figures),
+  `stack` (the security category's inventory). Schema versioned and migrated at start.
 
 ## The routes and the tools
 
