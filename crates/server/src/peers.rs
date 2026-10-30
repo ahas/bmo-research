@@ -519,9 +519,10 @@ pub enum Ending {
 /// How long one call of agency's seat and session routes may take, a turn's send aside.
 const WITHIN: Duration = Duration::from_secs(30);
 
-/// An identifier agency gave, written into a path as one segment.
+/// An identifier agency gave, written into a path as one segment: what a segment cannot hold encoded, and the
+/// rest — a session id's `@` and `:` among it — as given, which is how agency's routes match it.
 fn segment(identifier: &str) -> String {
-  url::form_urlencoded::byte_serialize(identifier.as_bytes())
-    .collect::<String>()
-    .replace('+', "%20")
+  let mut address = url::Url::parse("http://agency/").expect("the base reads");
+  address.path_segments_mut().expect("the base has a path").push(identifier);
+  address.path().trim_start_matches('/').to_owned()
 }

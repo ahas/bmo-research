@@ -559,7 +559,7 @@ async fn a_restarted_daemon_cuts_the_runs_it_left_open_and_takes_up_its_tries() 
   assert_eq!((cut.state, cut.outcome.as_deref()), (ResearchRunState::Closed, Some("cut")));
   let gave_back = ground.asked_path("agency", "PATCH", "/seat-requests/seat-left");
   assert_eq!(gave_back[0].body["state"], "finished");
-  assert_eq!(ground.asked_path("agency", "DELETE", "/sessions/search%40apart%3A9").len(), 1);
+  assert_eq!(ground.asked_path("agency", "DELETE", "/sessions/search@apart:9").len(), 1);
   let told = orders(&ground);
   assert_eq!(told.len(), 1, "a run the deep dive asked tells no room");
   assert_eq!(
