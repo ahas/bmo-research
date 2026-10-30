@@ -3,7 +3,7 @@
 //! sections it holds, the notes the translator is handed
 //! and the words a deep dive's page is drawn with (`docs/api.md`, 「The questions」 and 「The page」); and the runner's: the search and browse lines' tasks,
 //! requests and branch instructions, the rulebooks, the words a run's document is written in, and the
-//! rulebooks' order and the rounds (`docs/runner.md`).
+//! rulebooks' order, the rounds and the narration's question (`docs/runner.md`).
 
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
@@ -342,6 +342,17 @@ pub struct RunnerWords {
   pub search: SearchRulebooks,
   pub questions: BTreeMap<String, String>,
   pub rounds: BTreeMap<String, Rounds>,
+  pub narration: NarrationAsk,
+}
+
+/// What a deep dive's session is asked for a narration its result lacks: the question, and the rulebook and
+/// its section the narration is written by.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NarrationAsk {
+  pub question: String,
+  pub rulebook: String,
+  pub section: String,
 }
 
 /// The name of the round whose answer is a run's result.

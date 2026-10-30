@@ -396,6 +396,8 @@ search runner applies it, and the run writes its document in English, the questi
   and `language` the one `prompts/translation.toml` names, `Korean`, one text at a time: the description,
   where it has one, then the body with the title set over it as its top-level heading, so the Korean title is
   the translated heading, else the item's name with its shape's Korean word (`prompts/page.toml`).
+- **A name is never translated, only prose:** a description that is the item's name, case aside, or that
+  holds no whitespace, a name or an identifier, stands on the Korean side as written.
 - **The body is cut at its headings** into parts no longer than `translation.part_chars` characters
   (`docs/settings.md`): whole sections are gathered into a part while they fit, and a section longer than
   that is halved, at a heading, else a blank line, else a line's end, else a space, nearest its middle,
@@ -409,7 +411,12 @@ search runner applies it, and the run writes its document in English, the questi
   part, and its first paragraph is prose saying the item's name while the part opens with a heading or with
   a paragraph not saying it, that paragraph restates the note and is dropped, as often as the count allows.
 - **A part refused 413 `too-large`** is halved the same way and each half asked again; a part that cannot
-  be halved any further, a 503 `no-login-open`, or any other failure leaves the Korean side pending. The
+  be halved any further, a 503 `no-login-open`, or any other failure leaves the Korean side pending.
+- **A part translated short is halved the same way:** a part of more than 200 characters whose text ends a
+  sentence — its last character, closing quotes, brackets and emphasis marks aside, a full stop, a question
+  mark, an exclamation mark or an ellipsis — while its translation does not, was cut off by the translator,
+  so the translation is set aside and each half asked again. A part of 200 characters or fewer is taken as
+  it comes. The
   Korean side had is kept in the store (`docs/store.md`, `renderings`), so the page can be drawn again.
 - **The narration** is the result's `LISTEN:` script. The English sound speaks it as written; the Korean sound
   speaks it translated as one text with the `narration_note`, the item's name set in: that it is a spoken

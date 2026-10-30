@@ -1,7 +1,8 @@
 //! A deep dive's page in Korean (`docs/api.md`, 「The page」): its body, the title set over it as its heading,
 //! cut at its headings into parts the translator takes, each part translated with the note that gives it its
-//! context, a part the translator finds too long halved and asked again, a note the translator answered as
-//! text taken out; and its narration's script translated to be spoken.
+//! context, a part the translator finds too long or translates short halved and asked again, a note the
+//! translator answered as text taken out, and a description that is a name kept as written; and its
+//! narration's script translated to be spoken.
 
 use tokio::task::JoinSet;
 
@@ -30,6 +31,31 @@ pub struct English<'a> {
 
 fn chars(text: &str) -> usize {
   text.chars().count()
+}
+
+/// The most characters a part may hold and still be taken as the translator answers it, its end unchecked.
+const SHORT_UNCHECKED: usize = 200;
+
+/// Whether a text ends a sentence: its last character, closing quotes, brackets and emphasis marks aside, a
+/// full stop, a question mark, an exclamation mark or an ellipsis.
+pub fn ends_sentence(text: &str) -> bool {
+  let rest = text
+    .trim_end()
+    .trim_end_matches(['"', '\'', '\u{201d}', '\u{2019}', ')', ']', '*', '_']);
+  rest.ends_with(['.', '!', '?', '\u{2026}', '\u{3002}', '\u{ff01}', '\u{ff1f}'])
+}
+
+/// Whether the translator cut a part's translation short: the part, longer than a few sentences, ends a
+/// sentence and its translation does not.
+pub fn cut_short(part: &str, translated: &str) -> bool {
+  chars(part) > SHORT_UNCHECKED && ends_sentence(part) && !ends_sentence(translated)
+}
+
+/// Whether a description is a name rather than prose: the researched thing's `name`, case aside, or one word
+/// with no whitespace in it. A name is never translated.
+pub fn is_name(description: &str, name: &str) -> bool {
+  let said = description.trim();
+  said.eq_ignore_ascii_case(name.trim()) || !said.contains(char::is_whitespace)
 }
 
 /// The note every part of a report about `name` carries.
@@ -188,8 +214,8 @@ fn join(pieces: Vec<(String, &'static str)>) -> String {
   out
 }
 
-/// One part of a text about `name` translated; a part the translator finds too long is halved and each half
-/// asked again, in order, and a note the translator answered as text is taken out.
+/// One part of a text about `name` translated; a part the translator finds too long, or translates short, is
+/// halved and each half asked again, in order, and a note the translator answered as text is taken out.
 pub async fn translate_part(
   peers: &Peers,
   language: &str,
@@ -201,7 +227,16 @@ pub async fn translate_part(
   let mut done = Vec::new();
   while let Some(piece) = waiting.pop() {
     match peers.translate(language, &piece, note).await {
-      Ok(text) => done.push((without_leaked_note(&piece, &text, name).to_string(), joiner(&piece))),
+      Ok(text) => {
+        let text = without_leaked_note(&piece, &text, name);
+        match halve(&piece).filter(|_| cut_short(&piece, text)) {
+          Some((first, second)) => {
+            waiting.push(second.to_string());
+            waiting.push(first.to_string());
+          }
+          None => done.push((text.to_string(), joiner(&piece))),
+        }
+      }
       Err(Untranslated::TooLarge) => match halve(&piece) {
         Some((first, second)) => {
           waiting.push(second.to_string());
@@ -247,13 +282,14 @@ async fn translate_parts(
   Ok(join(pieces.collect()))
 }
 
-/// The English side rendered in Korean: the description, then the body with the title set over it as its
-/// heading, so the Korean title is the translated heading, else `title` where the translation opens with
-/// none.
+/// The English side rendered in Korean: the description, a name kept as written, then the body with the
+/// title set over it as its heading, so the Korean title is the translated heading, else `title` where the
+/// translation opens with none.
 pub async fn render(app: &App, english: &English<'_>, title: &str) -> Result<Rendering, String> {
   let words = words::translation();
   let note = note(english.name);
   let description = match english.description.filter(|d| !d.trim().is_empty()) {
+    Some(description) if is_name(description, english.name) => Some(description.trim().to_string()),
     Some(description) => Some(
       translate_part(&app.peers, &words.language, description, &note, english.name)
         .await?

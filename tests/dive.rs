@@ -10,6 +10,7 @@ mod support;
 use bmo_research_client::{ItemState, NewStackRow, RecipientKind, ResearchRunState, Running, Shape};
 use research_server::dive::{give_owner_room, take_up, tick};
 use research_server::document::{draw, page_body};
+use research_server::runner::narration_script;
 use research_server::store::{NewResearchRun, now_ms};
 use research_server::translation::{cut, narration_note, note};
 use research_server::words;
@@ -315,6 +316,65 @@ async fn a_narration_is_spoken_in_both_languages_and_attached_the_korean_at_the_
 }
 
 #[tokio::test]
+async fn a_result_with_no_narration_asks_its_session_for_one_before_it_is_filed() {
+  let ground = support::ground(|_| {}).await;
+  give_owner_room(&ground.app).await;
+  ground
+    .app
+    .store
+    .ask("it", "example.org/thing", "Thing-7B", "https://example.org/thing", Shape::Manual)
+    .unwrap();
+  file(&ground, 1, 501, manual_document());
+  ground.world.lock().unwrap().narration = Some(format!("LISTEN:\n{SCRIPT}\n"));
+
+  settle(&ground).await;
+
+  let turns = ground.asked("agency");
+  let asked: Vec<&Value> = turns
+    .iter()
+    .filter(|a| a.path.ends_with("/turns") && a.body["name"] == "research-1-narration")
+    .map(|a| &a.body)
+    .collect();
+  assert_eq!(asked.len(), 1, "the narration is asked once");
+  let prompt = asked[0]["prompt"].as_str().unwrap();
+  assert!(prompt.starts_with(&words::runner().narration.question), "{prompt}");
+  assert!(prompt.contains("## The narration"), "the rule is handed: {prompt}");
+  let last = turns.iter().rposition(|a| a.path.ends_with("/turns")).unwrap();
+  assert_eq!(turns[last].body["name"], "research-1-narration", "it is the session's last turn");
+  assert!(
+    turns[last + 1..]
+      .iter()
+      .any(|a| a.method == "DELETE" && a.path.starts_with("/sessions/")),
+    "the session is ended after it"
+  );
+  let written = ground.app.store.research_run(1).unwrap().written.unwrap();
+  assert!(written.trim_end().ends_with(&format!("LISTEN:\n{SCRIPT}")), "{written}");
+  assert_eq!(ground.spoken(), [translated(SCRIPT), SCRIPT.to_string()]);
+  assert_eq!(narration_script(&format!("LISTEN:\n\n{SCRIPT}\n")), SCRIPT);
+}
+
+#[tokio::test]
+async fn a_result_carrying_its_narration_asks_for_none() {
+  let ground = support::ground(|_| {}).await;
+  give_owner_room(&ground.app).await;
+  ground
+    .app
+    .store
+    .ask("it", "example.org/thing", "Thing-7B", "https://example.org/thing", Shape::Manual)
+    .unwrap();
+  file(&ground, 1, 501, narrated(manual_document()));
+  ground.world.lock().unwrap().narration = Some("Another script.".into());
+
+  settle(&ground).await;
+
+  assert!(
+    ground.asked("agency").iter().all(|a| a.body["name"] != "research-1-narration"),
+    "no narration is asked"
+  );
+  assert_eq!(ground.spoken(), [translated(SCRIPT), SCRIPT.to_string()]);
+}
+
+#[tokio::test]
 async fn a_narration_that_cannot_be_made_leaves_the_page_filed_and_is_asked_once_more() {
   let ground = support::ground(|s| s.retry_minutes = 0).await;
   give_owner_room(&ground.app).await;
@@ -502,6 +562,60 @@ async fn a_part_the_translator_finds_too_large_is_halved_and_asked_again() {
   let html = ground.rewrites(60)[0]["html"].as_str().unwrap().to_string();
   assert!(html.contains(&format!("{KO}Report 60</h1>")));
   assert_eq!(ground.app.store.item(item.id).unwrap().languages, ["ko", "en"]);
+}
+
+#[tokio::test]
+async fn a_part_the_translator_cuts_short_is_halved_and_asked_again() {
+  let ground = support::ground(|s| s.translation.part_chars = 400).await;
+  give_owner_room(&ground.app).await;
+  let item = ground
+    .app
+    .store
+    .ask("it", "example.org/h", "H", "https://example.org/h", Shape::Investigation)
+    .unwrap();
+  let content = format!("## {}\n\n{}\n", answer_heading(), prose(300));
+  file(&ground, 1, 60, content.clone());
+  ground.world.lock().unwrap().cut_over = Some(200);
+
+  settle(&ground).await;
+
+  let asks = translations(&ground);
+  let texts: Vec<&str> = asks.iter().map(|a| a["text"].as_str().unwrap()).collect();
+  let part = format!("# Report 60\n\n{}", english_body(60, &content));
+  let whole = texts.iter().position(|t| *t == part).expect("the part was asked whole first");
+  let halves = &texts[whole + 1..];
+  assert_eq!(halves.len(), 2, "{halves:#?}");
+  assert_eq!(halves.concat(), part, "the halves are the part, in order");
+  let kept = ground.app.store.rendering(60).unwrap().expect("the Korean side is kept");
+  assert!(kept.body.trim_end().ends_with('.'), "the Korean side is whole: {}", kept.body);
+  assert_eq!(ground.app.store.item(item.id).unwrap().languages, ["ko", "en"]);
+}
+
+#[tokio::test]
+async fn a_description_that_is_the_item_s_name_stands_untranslated_on_the_korean_side() {
+  let ground = support::ground(|_| {}).await;
+  give_owner_room(&ground.app).await;
+  let name = "example-lab/Example-Model-7B";
+  ground
+    .app
+    .store
+    .ask("it", "example.org/model", name, "https://example.org/model", Shape::Manual)
+    .unwrap();
+  ground.world.lock().unwrap().filed.insert(
+    1,
+    Filed {
+      id: 70,
+      title: "Report 70".into(),
+      description: name.into(),
+      content: manual_document(),
+    },
+  );
+
+  settle(&ground).await;
+
+  assert!(translations(&ground).iter().all(|a| a["text"] != name), "the name is never translated");
+  let kept = ground.app.store.rendering(70).unwrap().expect("the Korean side is kept");
+  assert_eq!(kept.description.as_deref(), Some(name));
 }
 
 #[tokio::test]

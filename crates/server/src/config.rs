@@ -100,7 +100,7 @@ pub struct Translation {
 impl Default for Translation {
   fn default() -> Self {
     Translation {
-      part_chars: 6000,
+      part_chars: 2500,
       parts_out: 2,
     }
   }

@@ -1,7 +1,9 @@
 //! A page's Korean side, its parts, its notes and a note the translator answered as text (`docs/api.md`, 「The
 //! page」).
 
-use research_server::translation::{cut, halve, narration_note, note, without_leaked_note};
+use research_server::translation::{
+  cut, cut_short, ends_sentence, halve, is_name, narration_note, note, without_leaked_note,
+};
 use research_server::words;
 
 fn chars(text: &str) -> usize {
@@ -91,4 +93,37 @@ fn a_note_the_translator_answered_as_text_is_taken_out_and_nothing_else_is() {
     split,
     "a part opening with the name keeps a first paragraph saying it"
   );
+}
+
+#[test]
+fn a_translation_ending_mid_sentence_where_its_part_ends_one_is_cut_short() {
+  for ended in [
+    "It runs.",
+    "Does it run?",
+    "It runs!\n",
+    "It said \"run.\"",
+    "(It runs.)",
+    "It runs\u{2026}",
+  ] {
+    assert!(ends_sentence(ended), "{ended}");
+  }
+  for open in ["It runs on", "| a | b |", "- re-measure", ""] {
+    assert!(!ends_sentence(open), "{open}");
+  }
+  let part = body(1, 400);
+  assert!(cut_short(&part, "[ko] It runs on its own cards and"));
+  assert!(!cut_short(&part, "[ko] It runs on its own cards."));
+  assert!(!cut_short("It runs.", "[ko] It runs"), "a short part is taken as it comes");
+  assert!(
+    !cut_short("## 1. Section\n\n- re-measure", "[ko] -"),
+    "a part ending no sentence is not checked"
+  );
+}
+
+#[test]
+fn a_description_that_is_a_name_is_never_translated() {
+  let name = "example-lab/Example-Model-7B";
+  assert!(is_name("Example-Lab/example-model-7b", name));
+  assert!(is_name("Thing-7B", name));
+  assert!(!is_name("A usage manual for example-lab/Example-Model-7B", name));
 }

@@ -84,6 +84,11 @@ pub struct World {
   pub translation_answers: VecDeque<u16>,
   /// A text longer than this many characters is refused 413 `too-large`.
   pub too_large_over: Option<usize>,
+  /// A text longer than this many characters is answered with the first half of its translation, cut off
+  /// mid-sentence.
+  pub cut_over: Option<usize>,
+  /// The script a deep dive's narration turn writes; none writes nothing.
+  pub narration: Option<String>,
   /// The translations out at once now, and the most that ever were.
   pub translating: u32,
   pub translating_most: u32,
@@ -279,6 +284,10 @@ async fn research_turn(w: &Shared, name: &str) -> Response {
     tokio::time::sleep(std::time::Duration::from_millis(10)).await;
   }
   let world = w.lock().unwrap();
+  if name.ends_with("-narration") {
+    let script = world.narration.clone().unwrap_or_default();
+    return axum::Json(json!({"outcome": "answered", "answer": script})).into_response();
+  }
   if world.failing.contains(&run) {
     return (
       StatusCode::INTERNAL_SERVER_ERROR,
@@ -321,6 +330,10 @@ async fn agency_translation(State(w): State<Shared>, method: Method, uri: Uri, b
   let mut world = w.lock().unwrap();
   world.translating -= 1;
   let mut answer = translated(&text);
+  if world.cut_over.is_some_and(|most| text.chars().count() > most) {
+    let half: String = answer.chars().take(answer.chars().count() / 2).collect();
+    answer = half.trim_end_matches(['.', '!', '?', ' ']).to_string();
+  }
   if world.leaking {
     answer = format!("Note: {}\n\n{answer}", asked["note"].as_str().unwrap_or_default());
   }

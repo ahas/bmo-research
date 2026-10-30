@@ -1441,6 +1441,15 @@ impl Store {
     tx.commit().map_err(|e| e.to_string())
   }
 
+  /// What a run wrote, set as its result stands now.
+  pub fn keep_research_written(&self, id: i64, written: &str) -> Result<(), String> {
+    self
+      .lock()
+      .execute("update research_runs set written = ?2 where id = ?1", params![id, written])
+      .map_err(|e| e.to_string())?;
+    Ok(())
+  }
+
   /// One branch counted against a running run's allowance: its index, or none where the allowance is spent.
   pub fn count_branch(&self, id: i64) -> Result<Option<i64>, String> {
     let conn = self.lock();

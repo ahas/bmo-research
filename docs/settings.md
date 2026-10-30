@@ -39,7 +39,7 @@ How a page's body is cut for agency's translator (`docs/api.md`, 「The page」)
 
 | Key | Default | Meaning |
 |---|---|---|
-| `part_chars` | 6000 | The most characters one part sent to the translator holds |
+| `part_chars` | 2500 | The most characters one part sent to the translator holds |
 | `parts_out` | 2 | How many parts of one document are out with the translator at once |
 
 ## The bench watch: `[bench_watch]`

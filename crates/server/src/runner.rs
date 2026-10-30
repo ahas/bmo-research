@@ -788,10 +788,15 @@ async fn go(app: Arc<App>, going: Going) {
   let result = match seated {
     Ok(seat) => {
       let first = first_answer(&app, &going, &seat).await;
+      let rounds_follow = words::runner().rounds.contains_key(&going.ask.key);
+      let first = match first {
+        Ok(answer) if !rounds_follow => Ok(narrated(&app, &going, &going.session, &seat, answer).await),
+        other => other,
+      };
       end_session(&app, run, &going.session, until).await;
       match first {
-        Ok(answer) => Ok(rounds(&app, &going, &seat, answer).await),
-        Err(why) => Err(why),
+        Ok(answer) if rounds_follow => Ok(rounds(&app, &going, &seat, answer).await),
+        other => other,
       }
     }
     Err(why) => {
@@ -898,8 +903,8 @@ pub fn round_prompt(question: &str, task: &str, last: &str) -> String {
 }
 
 /// The key's rounds after the first answer, in a session of their own, past the ceiling the final one asked
-/// at once or the last answer kept; a round that does not answer leaves the last answer standing. Answers
-/// the run's result.
+/// at once or the last answer kept; a round that does not answer leaves the last answer standing. A deep
+/// dive's narration is asked of the same session before it is ended. Answers the run's result.
 async fn rounds(app: &App, going: &Going, seat: &Seat, first: String) -> String {
   let run = going.run;
   let runner = words::runner();
@@ -969,8 +974,64 @@ async fn rounds(app: &App, going: &Going, seat: &Seat, first: String) -> String 
     }
     asking += 1;
   }
+  let last = narrated(app, going, &session, seat, last).await;
   end_session(app, run, &session, now_ms() + going.bound_ms + SEND_SLACK.as_millis() as i64).await;
   last
+}
+
+/// The prompt a deep dive's missing narration is asked with: the narration question and the rulebook's
+/// section on the narration, the task as the run was given it, and the answer the run wrote last.
+pub fn narration_prompt(task: &str, last: &str) -> Result<String, String> {
+  let ask = &words::runner().narration;
+  let rule = rulebook_sections(&ask.rulebook, std::slice::from_ref(&ask.section))?;
+  Ok(round_prompt(&format!("{}\n\n{rule}", ask.question), task, last))
+}
+
+/// A narration turn's text as the script: a `LISTEN:` line it wrote itself dropped, its edges trimmed.
+pub fn narration_script(text: &str) -> String {
+  let lines: Vec<&str> = text.lines().filter(|line| line.trim() != "LISTEN:").collect();
+  lines.join("\n").trim().to_owned()
+}
+
+/// A deep dive's result with its narration (`docs/runner.md`, 「The narration」): where it carries no `LISTEN:`
+/// script, `session` is asked one more turn for the narration alone, and its text set after the result as
+/// the script and kept as what the run wrote. A run told to a room, a result that has its script, or a turn
+/// that writes none leaves the result as it stands.
+async fn narrated(app: &App, going: &Going, session: &str, seat: &Seat, result: String) -> String {
+  let run = going.run;
+  if going.filing == Filing::Room {
+    return result;
+  }
+  let drawn = document::draw(&result, words::search_document(document::language_of(&going.ask.query)));
+  if drawn.narration.is_some() {
+    return result;
+  }
+  let prompt = match narration_prompt(&going.prompt, &result) {
+    Ok(prompt) => prompt,
+    Err(why) => {
+      note(app, run, "narration", &format!("The narration was not asked: {why}"));
+      return result;
+    }
+  };
+  let name = format!("research-{run}-narration");
+  let script = match turn(app, going, session, seat, &name, &prompt).await {
+    Ok(text) => narration_script(&text),
+    Err(why) => {
+      note(app, run, "narration", &format!("The narration did not come: {why}"));
+      return result;
+    }
+  };
+  let whole = if script.is_empty() {
+    note(app, run, "narration", "The narration turn wrote no script.");
+    result
+  } else {
+    note(app, run, "narration", "The narration was asked apart and came back.");
+    format!("{}\n\nLISTEN:\n{script}\n", result.trim_end())
+  };
+  if let Err(why) = app.store.keep_research_written(run, &whole) {
+    eprintln!("bmo-research: research {run}'s result was not kept: {why}");
+  }
+  whole
 }
 
 /// A deep dive's result held to its shape and filed as its page: the outcome, the error and the document.

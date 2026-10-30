@@ -87,8 +87,11 @@ of a run is this unit's.
    round's record (the run's with `branches` 0 and no `branchesAt` or `branchesToken`) and the capabilities
    less `web.branches` and `web.rulebooks`, one turn each, named `research-<run>-<round>`, each prompt the round's
    question, the task as the run was given it and the answer written last (「The rounds」). The last answer is the
-   run's result. The rounds' session is ended after the last.
-9. **The end:** the seat is given back (`finished`, its outcome `answered` or `failed: <why>`), the result is
+   run's result. The rounds' session is ended after the last, and after the narration where one is asked.
+9. **The narration, for a deep dive:** a deep dive's result that carries no `LISTEN:` script is asked for one
+   before the session that wrote it is ended: the rounds' session, else the first where the key has no
+   rounds (「The narration」).
+10. **The end:** the seat is given back (`finished`, its outcome `answered` or `failed: <why>`), the result is
    drawn into its document and filed (「The document」; a deep dive's held to its shape first, 「The deep dive's
    page」), the run is closed in the ledger with its outcome, the document and its link, and its room is told
    (「The room」). Every step is written into the run's log.
@@ -142,6 +145,21 @@ of a run is this unit's.
     `PATCH /documents/{id}`; a picture not kept is drawn from its address.
   - **the narration:** a `LISTEN:` script is lifted out of the body. A run told to its room files it nowhere;
     the deep dive's page is given it as sound (「The deep dive's page」).
+
+## The narration
+
+- **A deep dive's result always carries a script for the ear.** Where the result its last turn wrote has no
+  `LISTEN:` block, or an empty one, the same session is asked one more turn, named `research-<run>-narration`,
+  for the narration alone: the narration question (`prompts/runner.toml`, `[narration]`), the deep-dive
+  rulebook's section on the narration, the task as the run was given it and the answer written last. The
+  narration says what the thing is, the verdict and the one thing to know, in plain spoken sentences in the
+  question's language, with no heading, list or structure line.
+- **That turn's text is the script,** a `LISTEN:` line it wrote itself dropped, set after the result under a
+  `LISTEN:` line of its own; the result with it is the run's result and what the ledger keeps as `written`.
+  Only then is the result held to its shape and filed.
+- **A narration turn that writes nothing,** or fails, leaves the result as it stands, and the page has no
+  sound. Where the rounds' session never started, the first answer stands without one. A run told to a room
+  is asked no narration.
 
 ## The deep dive's page
 
