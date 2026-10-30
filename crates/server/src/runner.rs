@@ -553,7 +553,7 @@ pub struct Turn<'a> {
 }
 
 /// A turn's body: its prompt and its work parts, laid on the seat's mapping. The work key and whether it
-/// hears words go under both the names agency's contract gives them and the names its route reads.
+/// hears words go under the camelCase names agency's contract gives them.
 pub fn turn_body(prompt: &str, turn: &Turn<'_>) -> Value {
   json!({
     "prompt": prompt,
@@ -566,9 +566,7 @@ pub fn turn_body(prompt: &str, turn: &Turn<'_>) -> Value {
     "title": turn.title,
     "chat": turn.chat,
     "workKey": turn.work_key,
-    "work_key": turn.work_key,
     "hearsWords": false,
-    "hears_words": false,
     "variables": {},
   })
 }
