@@ -2,8 +2,9 @@
 
 bmo-research is the platform's research unit: a daemon that keeps a queue of things to research, finds new
 ones on the sites the owner registers, deep-dives each one in the lab's own routine, files the report in the
-archive, tells the owner, and carries what he approves on to a verification on the lab's machines. It is
-the home of the research feature; agency supplies it sessions and seats and nothing more.
+archive and tells the agents and rooms that should hear of it. It researches and measures, and notifies;
+it files no job and launches nothing: what a report calls for is the chat agent's to raise on the owner's
+word. It is the home of the research feature; agency supplies it sessions and seats and nothing more.
 
 ## What it is for
 
@@ -15,8 +16,10 @@ the home of the research feature; agency supplies it sessions and seats and noth
   what its sources turned up, unconditionally, and goes on until the owner stops it. The runs go out on
   kakia, the lab's own model, which costs nothing.
 - **Semi-automatic.** A deep dive that finds a thing the maker's own documents show usable in the lab is
-  reported to the owner first. After his approval the verification runs — the maker's figures re-measured
-  on our cards under a bench lock — and what passes is registered with the arbiter as a service.
+  reported to the owner first, as a notice the chat agent delivers. On his word the chat agent raises the
+  verification — the maker's figures re-measured on our cards under a bench lock, by a job that follows the
+  researching-and-benching skill — and what passes is registered with the arbiter as a service. The daemon
+  is the researcher and the notifier in that exchange, never the one that files or launches.
 
 ## Principles
 
@@ -28,24 +31,27 @@ the home of the research feature; agency supplies it sessions and seats and noth
     own scan reads sources with its own HTTP client, since a feed is not a page an agent reads;
   - artifact, to file a report (`POST /documents`, `POST /shares`) where the run does not file it itself;
   - the receiver, to tell a room (`POST /instructions`) and to learn the owner's private room (`GET /owner`);
-  - the job service, to raise a verification item (`POST /items`);
-  - the arbiter, for the bench lock (a ticket under the occupant `bench`).
+  - the arbiter, to read whether a bench holds a node its model stands on (「The n3–n6 restore path」).
+  The job service it never calls: a job is the chat agent's to file.
 - **Every per-deployment choice is a setting or a registration,** never code: the sources, the cap, the
   cadence, the model's road, the report rooms, the token files (`docs/settings.md`).
-- **The daemon decides nothing a person should.** It never approves a verification, never registers a
-  service with the arbiter by itself, and never spends a paid road unless a setting names one.
+- **The daemon decides nothing a person should and files nothing an agent should.** It never approves a
+  verification, never raises a queue item, never registers a service with the arbiter, and never spends a
+  paid road unless a setting names one. It notifies: every report, every `fit` item and every failure is
+  an instruction the receiver hands to the room's agent, which says it in its own voice and acts on the
+  owner's word.
 - **A base never knows its consumers** and this unit is a consumer of every unit it calls; nothing here is
   branched on by agency, explorer or the arbiter.
 
 ## The loop
 
 ```
-sources ──scan──▶ candidates ──new?──▶ queue (cap) ──slot free──▶ deep dive ──▶ report ──▶ owner's room
-                                                                                │
-                                                     approval ◀─── owner ◀──────┘
-                                                        │
-                                                        ▼
-                                       verification item (job) ── bench lock ── registration
+sources ──scan──▶ candidates ──new?──▶ queue (cap) ──slot free──▶ deep dive ──▶ report ──▶ notice to the room's agent
+                                                                                                  │
+                                                     the owner's word ◀── the chat agent says it ◀┘
+                                                              │
+                                                              ▼
+                              the chat agent files the verification job ── bench lock ── registration
 ```
 
 1. **Scan.** On the cadence, each source is read and its items are turned into candidates: a name, the
@@ -68,16 +74,17 @@ sources ──scan──▶ candidates ──new?──▶ queue (cap) ──slo
    share link and one line saying what the thing is, nothing else — never the grounds, never the
    sources. The first room is the owner's private room, read from the receiver at start; rooms are added
    and removed through the routes and the tools.
-6. **Approval.** A report whose document says the thing fits the lab (the manual's 「우리 랩에서 구동하려면」
-   names a card it fits) is marked `fit`, and the room line says so and asks for the word. The owner
-   approves or dismisses through the chat agent's tool or the route; an item nobody answers stays `fit`
-   and is listed, never nagged about.
-7. **The verification.** An approved item raises one queue item in the job service — the title naming the
-   thing, the brief carrying the report's link and its reproduction plan, the label `research` and the
-   assignee the settings name for benches — and the worker's researching-and-benching skill carries it
-   under the bench lock (「The bench lock」). The daemon reads the item's state and, once it closes, tells
-   the rooms the verification's link. Registering a service with the arbiter is the job's last step, on
-   the owner's word in the item, never the daemon's.
+6. **The word.** A report whose document says the thing fits the lab (the manual's 「우리 랩에서 구동하려면」
+   names a card it fits) is marked `fit`, and its notice says so and asks for the owner's word. The notice
+   carries what the chat agent needs to act on that word: the report's link, the thing's name and the
+   reproduction plan's place in the document. The owner answers in the room; the chat agent files the
+   verification item as it files any work, with the report's link in the brief, and tells the daemon the
+   item is taken (`PATCH /queue/{item}` with `taken` and the item's number) or dismissed. An item nobody
+   answers stays `fit` and is listed, never nagged about.
+7. **The verification** is a job of the worker's, under the researching-and-benching skill and the bench
+   lock (「The bench lock」), reported by the job itself as every job reports. Registering a service with
+   the arbiter is the job's last step, on the owner's word in the item. The daemon takes no part in it
+   beyond stepping its own runs off the node the bench takes (「The n3–n6 restore path」).
 
 ## Categories
 
@@ -160,11 +167,10 @@ A source is a registration: a category, a kind, an address and, where the kind t
 kakia and its workers run on lab-arena, the engine on n3 to n6; a bench on one of those nodes evicts lab-arena
 there, and with it the model the daemon's own research runs go out on. So:
 
-- **The daemon never benches what it stands on without stepping off it first.** A verification whose bench
-  names n3 to n6 is raised with the assignee the settings name for those nodes, a worker whose own road is
-  not lab-arena's (a Claude Code worker, or one on a member road), so the bench job itself survives the
-  eviction. The daemon refuses to raise a bench item on a node whose worker would be the thing evicted,
-  and says so in the item's note instead.
+- **A bench on n3 to n6 is carried by a worker that does not stand on them.** The notice for a `fit` item
+  whose fit names one of those nodes says so, so the chat agent files the verification for a worker whose
+  own road is not lab-arena's (a Claude Code worker, or one on a member road), and the bench job survives the
+  eviction it causes.
 - **The daemon pauses its own runs while a bench holds a node its model stands on.** It reads the
   arbiter's card state before each run and while one runs; a bench ticket standing on kakia's node holds
   the queue, and a run cut by the eviction is retried after the bench is gone, not counted against its
@@ -200,17 +206,18 @@ there, and with it the model the daemon's own research runs go out on. So:
 
 ## The routes and the tools
 
-`docs/api.md` is the contract: `/health`, `/sources`, `/queue` and `/queue/{item}` (ask, dismiss, approve,
-reorder), `/runs`, `/rooms`, `/state` (running or stopped, with `PATCH` to stop and resume). The tools the
-tool host places under the namespace `research` are the chat agent's doors to the same: `research/ask`,
-`research/queue`, `research/approve`, `research/dismiss`, `research/sources`, `research/rooms`,
-`research/stop`, `research/resume`; the owner-only ones hold a capability the chat line alone is given.
+`docs/api.md` is the contract: `/health`, `/categories`, `/sources`, `/queue` and `/queue/{item}` (ask,
+dismiss, taken, reorder), `/runs`, `/rooms`, `/facts`, `/stack`, `/state` (running or stopped, whole or by
+category, with `PATCH` to stop and resume). The tools the tool host places under the namespace `research`
+are the chat agent's doors to the same: `research/ask`, `research/queue`, `research/taken`,
+`research/dismiss`, `research/categories`, `research/sources`, `research/rooms`, `research/stop`,
+`research/resume`; the owner-only ones hold a capability the chat line alone is given.
 
 ## Phases
 
 1. **The daemon with the loop on agency's runner:** sources, scan, queue, the deep dive asked of agency on
-   kakia's road, the report line to the owner's room, the tools, the deploy. The verification is raised as
-   a job item; the bench lock is the worker skill's by hand, as today.
+   kakia's road, the notices to the owner's room, the tools, the deploy. The verification is the chat
+   agent's to file on the owner's word; the bench lock is the worker skill's by hand, as today.
 2. **The bench lock and the tiers:** the `bench` occupant in the arbiter's rules at tier 1, every service
    at 2, the skill's bench steps on tickets, the n3–n6 rule in the daemon, the restore wait.
 3. **The runner moves here** from agency (`docs/plan.md`).
