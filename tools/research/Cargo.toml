@@ -1,0 +1,22 @@
+[package]
+name = "research-tool"
+description = "The research namespace's tool: every entry answered by calling the daemon's routes."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "research-tool"
+path = "src/main.rs"
+test = false
+
+[dependencies]
+bmo-research-client = { path = "../../crates/client" }
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+toml.workspace = true

@@ -1,0 +1,31 @@
+[package]
+name = "research-server"
+description = "The research unit: its routes, its store, the scan, the deep dive, and the bmo-research command."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[[bin]]
+name = "bmo-research"
+path = "src/main.rs"
+test = false
+
+[dependencies]
+axum.workspace = true
+bmo-research-client = { path = "../client" }
+chrono.workspace = true
+clap.workspace = true
+dotenvy.workspace = true
+feed-rs.workspace = true
+getrandom.workspace = true
+pulldown-cmark.workspace = true
+reqwest.workspace = true
+rusqlite.workspace = true
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+toml.workspace = true
+unicode-segmentation.workspace = true
+url.workspace = true

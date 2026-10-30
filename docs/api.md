@@ -223,7 +223,7 @@ the one to read.
 | GET | `/facts` | The figures the briefs kept, newest first, narrowed by `name`, paged by `before`. |
 
 - **A fact** is `id`, `name` (an index, a rate, a price, a release), `value`, `unit`, `asOf` (the date the
-  figure stands for, as the brief writes it), `sourceAddress`, `runId` (the try whose brief held it),
+  figure stands for, as the brief writes it), `sourceAddress`, `runId` (agency's ledger run whose brief held it),
   `documentId` and `createdAt`. A brief's figures are read from its figures table (「The brief's facts」).
 
 ## The deep dive

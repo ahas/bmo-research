@@ -1,0 +1,32 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "address": {
+      "description": "The maker's own page for the thing.",
+      "minLength": 1,
+      "type": "string"
+    },
+    "category": {
+      "description": "The category it is researched in; it where none is named.",
+      "type": "string"
+    },
+    "name": {
+      "description": "The thing's name.",
+      "minLength": 1,
+      "type": "string"
+    },
+    "shape": {
+      "description": "For a manual-or-investigation category: manual where none is named.",
+      "enum": [
+        "manual",
+        "investigation"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "name",
+    "address"
+  ],
+  "type": "object"
+}

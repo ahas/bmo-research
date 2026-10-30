@@ -1,0 +1,59 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "list",
+        "add",
+        "remove"
+      ],
+      "type": "string"
+    },
+    "address": {
+      "type": "string"
+    },
+    "category": {
+      "type": "string"
+    },
+    "everyMinutes": {
+      "minimum": 1,
+      "type": "integer"
+    },
+    "exclude": {
+      "description": "Words that rule an item out.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "kind": {
+      "enum": [
+        "huggingface-trending",
+        "huggingface-search",
+        "arxiv",
+        "github-releases",
+        "rss"
+      ],
+      "type": "string"
+    },
+    "limit": {
+      "minimum": 1,
+      "type": "integer"
+    },
+    "query": {
+      "type": "string"
+    },
+    "require": {
+      "description": "Words an item must carry.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "source": {
+      "description": "The source to remove.",
+      "type": "integer"
+    }
+  },
+  "type": "object"
+}

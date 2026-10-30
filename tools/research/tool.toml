@@ -1,0 +1,132 @@
+# The research unit's tool: every entry of the namespace `research`, answered by one executable calling the
+# daemon's routes (docs/api.md, "The tools"). The tests hold the entries here to the executable's.
+
+[tool]
+name = "research"
+protocol = 1
+language = "rust"
+build = 'cargo build --release -p research-tool && cp "$BMO_CARGO_TARGET/release/research-tool" "$BMO_TOOL_OUT/"'
+check = 'cargo test -p research-checks --test tool'
+run = ["research-tool"]
+timeout = 60
+
+[[entry]]
+namespace = "research"
+name = "ask"
+title = "Ask for research"
+description = "Queue a thing for the research daemon by its name and its maker's address; it is researched before anything the sources turned up, and its report comes back to the room."
+input = "ask.json"
+capabilities = ["research.ask"]
+
+[entry.listing]
+line = "- ask — queue a thing for research by its name and its maker's address"
+order = 1
+
+[[entry]]
+namespace = "research"
+name = "queue"
+title = "Research queue"
+description = "List the research queue: what runs, what waits, and what was reported, each with its state and its report's link."
+input = "queue.json"
+hints = { read_only = true }
+capabilities = ["research.ask"]
+
+[entry.listing]
+line = "- queue — the research queue, by category and state"
+order = 2
+
+[[entry]]
+namespace = "research"
+name = "taken"
+title = "Mark research taken"
+description = "Record that a reported item is taken: the job item filed for it on the owner's word is kept on the item."
+input = "taken.json"
+capabilities = ["research.owner"]
+
+[entry.listing]
+line = "- taken — record the job item filed for a reported item"
+order = 3
+
+[[entry]]
+namespace = "research"
+name = "dismiss"
+title = "Dismiss research"
+description = "Dismiss a research item on the owner's word; nothing turns it up again."
+input = "dismiss.json"
+capabilities = ["research.owner"]
+
+[entry.listing]
+line = "- dismiss — dismiss a research item on the owner's word"
+order = 4
+
+[[entry]]
+namespace = "research"
+name = "categories"
+title = "Research categories"
+description = "List the research categories, or, on the owner's word, add, change or remove one."
+input = "categories.json"
+capabilities = ["research.ask"]
+
+[entry.listing]
+line = "- categories — the research categories; adding, changing and removing them is the owner's"
+order = 5
+
+[[entry]]
+namespace = "research"
+name = "sources"
+title = "Research sources"
+description = "List the sources the research daemon reads, or, on the owner's word, add or remove one."
+input = "sources.json"
+capabilities = ["research.ask"]
+
+[entry.listing]
+line = "- sources — the sources read; adding and removing them is the owner's"
+order = 6
+
+[[entry]]
+namespace = "research"
+name = "recipients"
+title = "Research recipients"
+description = "List who hears a category's notices, rooms and agents, or, on the owner's word, add or remove one."
+input = "recipients.json"
+capabilities = ["research.ask"]
+
+[entry.listing]
+line = "- recipients — who hears a category's notices; adding and removing them is the owner's"
+order = 7
+
+[[entry]]
+namespace = "research"
+name = "rooms"
+title = "Research rooms"
+description = "List the rooms that hear a category's notices, or, on the owner's word, add or remove one."
+input = "rooms.json"
+capabilities = ["research.ask"]
+
+[entry.listing]
+line = "- rooms — the rooms that hear a category's notices"
+order = 8
+
+[[entry]]
+namespace = "research"
+name = "stop"
+title = "Stop research"
+description = "Stop the research daemon's runs, every category or the one named; a run under way finishes."
+input = "stop.json"
+capabilities = ["research.owner"]
+
+[entry.listing]
+line = "- stop — stop the research runs, whole or by category"
+order = 9
+
+[[entry]]
+namespace = "research"
+name = "resume"
+title = "Resume research"
+description = "Resume the research daemon's runs, every category or the one named."
+input = "resume.json"
+capabilities = ["research.owner"]
+
+[entry.listing]
+line = "- resume — resume the research runs, whole or by category"
+order = 10

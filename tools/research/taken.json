@@ -1,0 +1,18 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "item": {
+      "description": "The research item.",
+      "type": "integer"
+    },
+    "job": {
+      "description": "The job item filed for it on the owner's word.",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "item",
+    "job"
+  ],
+  "type": "object"
+}

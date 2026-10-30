@@ -1,0 +1,85 @@
+# How bmo-testbed tests, checks, builds and deploys this repository, in the testbed's declaration format.
+
+testbed = 0
+name = "bmo-research"
+
+[test]
+# The workspace's crates and the repository's own tests under tests/, which walk the scan, the deep dive and
+# the routes against stand-in servers.
+languages = ["cargo"]
+
+[tools]
+# The research tool, checked by the command its tool.toml names.
+dir = "tools"
+
+[check]
+quick = ["layout", "dependencies", "korean"]
+korean_ledger = "korean-ledger.json"
+
+[[check.step]]
+id = "check"
+command = "cargo check --workspace --all-targets"
+lane = "wide"
+
+[[check.step]]
+id = "clippy"
+command = "cargo clippy --workspace --all-targets -- -D warnings"
+lane = "wide"
+
+[[check.step]]
+id = "test"
+command = "cargo test --workspace"
+lane = "wide"
+
+[[check.step]]
+id = "fmt"
+command = "cargo fmt --all --check"
+
+[build]
+# The daemon's binary and the tool's executable.
+binaries = ["bmo-research", "research-tool"]
+
+# The unit's own deploy tree, the shared data root its settings and store stand under, the unit a deployment
+# restarts and watches, and the health it waits on (docs/settings.md).
+[deploy]
+root = "~/.local/share/bmo-research"
+link = "deploy"
+data_root = "~/.local/share/bmo/data"
+env_links = [{ link = "settings.toml", target = "research/settings.toml" }]
+units = ["deploy/*.service"]
+health = "~/.local/share/bmo-research/deploy/bin/bmo-research health"
+health_wait_seconds = 120
+stay_up_seconds = 5
+
+# The noun on the path: a link to the deploy tree's own binary, so the next release's binary is what a shell
+# line runs and a pruned release leaves nothing dangling.
+[[deploy.step]]
+id = "link-command"
+phase = "before-flip"
+command = '''
+set -eu
+bmo_dir="$(dirname "$(command -v bmo)")"
+ln -sfn "$HOME/.local/share/bmo-research/deploy/bin/bmo-research" "$bmo_dir/bmo-research"
+'''
+
+# The tool is placed in its folder's .placed/: the executable the release's bin/ holds, its manifest and the
+# schemas beside it.
+[[deploy.step]]
+id = "place-tools"
+phase = "before-flip"
+command = '''
+set -eu
+rm -rf tools/research/.placed
+mkdir -p tools/research/.placed
+cp bin/research-tool tools/research/tool.toml tools/research/*.json tools/research/.placed/
+'''
+
+# The tool registered with the tool host once the daemon answers, as this service's own (docs/api.md, "The
+# tools").
+[[deploy.step]]
+id = "register-tools"
+phase = "after-health"
+command = '''
+set -eu
+bmo pocket put tools/research/.placed --placed --service bmo-research --allow research.ask --allow research.owner
+'''

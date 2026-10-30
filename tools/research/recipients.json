@@ -1,0 +1,28 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "list",
+        "add",
+        "remove"
+      ],
+      "type": "string"
+    },
+    "agent": {
+      "description": "An agent that answers no room, a worker.",
+      "type": "string"
+    },
+    "category": {
+      "type": "string"
+    },
+    "room": {
+      "description": "A room, by the receiver's id.",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "category"
+  ],
+  "type": "object"
+}

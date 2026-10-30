@@ -1,0 +1,23 @@
+[Unit]
+Description=bmo-research: the platform's research unit — the queue, the scan, the deep dive on agency's runner and the notices
+After=network-online.target
+# Without its settings the daemon would run on defaults alone, so the unit does not start where the
+# deployment linked none.
+ConditionPathExists=%h/.local/share/bmo/data/research/settings.toml
+
+[Service]
+# The daemon reads its settings and store under the data root's research/ folder, answers its routes, and
+# runs its loop.
+Type=simple
+WorkingDirectory=%h/.local/share/bmo-research/deploy
+ExecStart=%h/.local/share/bmo-research/deploy/bin/bmo-research serve
+Environment=BMO_DATA_DIR=%h/.local/share/bmo/data
+Environment=PATH=%h/.local/bin:%h/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Restart=always
+RestartSec=2
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target
+# The repository's one service: stopped, restarted and watched by every deployment, which waits on its health.
+X-BMO-Deploy=bot

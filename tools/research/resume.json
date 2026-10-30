@@ -1,0 +1,10 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "category": {
+      "description": "The category to resume; every one where none is named.",
+      "type": "string"
+    }
+  },
+  "type": "object"
+}

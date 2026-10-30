@@ -1,0 +1,49 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "list",
+        "add",
+        "change",
+        "remove"
+      ],
+      "type": "string"
+    },
+    "cadenceMinutes": {
+      "minimum": 1,
+      "type": "integer"
+    },
+    "cap": {
+      "minimum": 1,
+      "type": "integer"
+    },
+    "gatherMinutes": {
+      "minimum": 1,
+      "type": "integer"
+    },
+    "model": {
+      "description": "Empty gives the settings' road back.",
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "provider": {
+      "description": "Empty gives the settings' road back.",
+      "type": "string"
+    },
+    "purpose": {
+      "type": "string"
+    },
+    "shape": {
+      "enum": [
+        "manual-or-investigation",
+        "advisory",
+        "brief"
+      ],
+      "type": "string"
+    }
+  },
+  "type": "object"
+}

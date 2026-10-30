@@ -1,0 +1,13 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "item": {
+      "description": "The research item.",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "item"
+  ],
+  "type": "object"
+}

@@ -1,0 +1,1247 @@
+//! The daemon's store: the categories and their recipients, the sources, the candidates seen, the queue, the
+//! tries, the reports, the facts and the stack, in SQLite under the data root (`docs/store.md`).
+
+use std::path::Path;
+use std::sync::{Arc, Mutex};
+
+use bmo_research_client::{
+  Category, CategoryChange, CategoryShape, CategoryState, DaemonState, Fact, Filter, Item, ItemState,
+  NewCategory, NewSource, NewStackRow, Page, Recipient, RecipientKind, Run, Running, Shape, Source,
+  SourceChange, StackRow,
+};
+use rusqlite::{Connection, OptionalExtension, Transaction, params};
+
+use crate::sources::{Candidate, ItemKind};
+
+/// The schema's steps, each bringing the store one version up; the version is how many have been taken. The
+/// first registers the three categories the unit starts with, so a category taken away is not brought back.
+const MIGRATIONS: &[&str] = &["
+  create table categories (
+    name text primary key, purpose text not null, shape text not null, cap integer not null,
+    cadence_minutes integer not null, gather_minutes integer, provider text, model text,
+    state text not null default 'running', state_at integer, created_at integer not null);
+  insert into categories (name, purpose, shape, cap, cadence_minutes, gather_minutes, created_at) values
+    ('it', 'New AI technology: models, engines, datasets, tools and papers the lab may run or measure.',
+     'manual-or-investigation', 5, 60, null, cast(strftime('%s', 'now') as integer) * 1000),
+    ('security', 'Vulnerability news that bears on the platform''s own stack.',
+     'advisory', 3, 60, null, cast(strftime('%s', 'now') as integer) * 1000),
+    ('economy', 'Economic news and indicators, gathered into a daily brief whose figures are kept.',
+     'brief', 30, 60, 1440, cast(strftime('%s', 'now') as integer) * 1000);
+  create table sources (
+    id integer primary key autoincrement, category text not null, kind text not null, address text not null,
+    query text, require text not null default '[]', exclude text not null default '[]', every_minutes integer,
+    item_limit integer not null, failure_count integer not null default 0, last_error text, read_at integer,
+    created_at integer not null, changed_at integer not null);
+  create table seen (
+    key text primary key, category text not null, name text not null, maker text, address text,
+    kind text not null, published_at integer, source_id integer, state text not null, item_id integer,
+    found_at integer not null);
+  create index seen_unqueued on seen (category, state, found_at);
+  create table queue (
+    id integer primary key autoincrement, category text not null, key text not null, name text not null,
+    maker text, address text, kind text not null, shape text not null, source_id integer, asked integer not null,
+    priority integer not null, state text not null, tries integer not null default 0, retry_at integer,
+    run_id integer, document_id integer, title text, description text, share_url text,
+    fit integer not null default 0, fit_nodes text not null default '[]', touches text, plan text,
+    job_item_id integer, error text, found_at integer not null, created_at integer not null,
+    changed_at integer not null);
+  create index queue_state on queue (category, state);
+  create table runs (
+    id integer primary key autoincrement, category text not null, item_id integer not null,
+    item_ids text not null, try integer not null, run_id integer, state text not null, outcome text, error text,
+    started_at integer not null, ended_at integer);
+  create table reports (
+    id integer primary key autoincrement, item_id integer not null, recipient text not null, kind text not null,
+    instruction_id integer, state text not null, error text, at integer not null);
+  create table recipients (
+    id integer primary key autoincrement, category text not null, kind text not null, room_id integer,
+    agent_name text, origin text not null, added_at integer not null);
+  create unique index recipients_one on recipients (category, kind, coalesce(room_id, 0), coalesce(agent_name, ''));
+  create table facts (
+    id integer primary key autoincrement, name text not null, value text not null, unit text, as_of text,
+    source_address text, run_id integer, document_id integer, created_at integer not null);
+  create index facts_name on facts (name, id);
+  create table stack (
+    id integer primary key autoincrement, component text not null, version text, place text, repository text,
+    worker text, added_at integer not null);
+"];
+
+/// The schema version this binary holds.
+pub fn schema_version() -> i64 {
+  MIGRATIONS.len() as i64
+}
+
+pub fn now_ms() -> i64 {
+  std::time::SystemTime::now()
+    .duration_since(std::time::UNIX_EPOCH)
+    .map(|d| d.as_millis() as i64)
+    .unwrap_or(0)
+}
+
+const CATEGORY_COLUMNS: &str = "name, purpose, shape, cap, cadence_minutes, gather_minutes, provider, model, state, state_at, created_at";
+
+const ITEM_COLUMNS: &str =
+  "id, category, key, name, maker, address, kind, shape, source_id, asked, priority,
+  state, tries, retry_at, run_id, document_id, title, description, share_url, fit, fit_nodes, touches, plan,
+  job_item_id, error, found_at, created_at, changed_at";
+
+const SOURCE_COLUMNS: &str =
+  "id, category, kind, address, query, require, exclude, every_minutes, item_limit,
+  failure_count, last_error, read_at, created_at, changed_at";
+
+const RUN_COLUMNS: &str =
+  "id, category, item_id, item_ids, try, run_id, state, outcome, error, started_at, ended_at";
+
+const RECIPIENT_COLUMNS: &str = "id, category, kind, room_id, agent_name, origin, added_at";
+
+/// Why a change of the store was refused: nothing stood at the key, the state or a key did not allow it, or
+/// the store failed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Refusal {
+  NotFound(String),
+  Conflict(String),
+  Failed(String),
+}
+
+impl From<rusqlite::Error> for Refusal {
+  fn from(e: rusqlite::Error) -> Self {
+    Refusal::Failed(e.to_string())
+  }
+}
+
+impl std::fmt::Display for Refusal {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Refusal::NotFound(why) | Refusal::Conflict(why) | Refusal::Failed(why) => f.write_str(why),
+    }
+  }
+}
+
+/// What a finished try leaves on an item.
+#[derive(Debug, Clone, Default)]
+pub struct Filed {
+  pub document_id: i64,
+  pub title: String,
+  pub description: Option<String>,
+  pub share_url: String,
+  pub fit: bool,
+  pub fit_nodes: Vec<String>,
+  pub touches: Option<String>,
+  pub plan: Option<String>,
+}
+
+/// The shape an item of a category is asked in: the category's, and in a `manual-or-investigation`
+/// category the one its item kind takes.
+pub fn item_shape(category: CategoryShape, kind: Option<ItemKind>) -> Shape {
+  match category {
+    CategoryShape::ManualOrInvestigation => kind.map(ItemKind::shape).unwrap_or(Shape::Manual),
+    CategoryShape::Advisory => Shape::Advisory,
+    CategoryShape::Brief => Shape::Brief,
+  }
+}
+
+#[derive(Clone)]
+pub struct Store {
+  conn: Arc<Mutex<Connection>>,
+}
+
+impl Store {
+  /// The store in `dir`, its schema brought to this binary's version.
+  pub fn open(dir: &Path) -> Result<Store, String> {
+    std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let conn = Connection::open(dir.join("research.db")).map_err(|e| e.to_string())?;
+    conn
+      .execute_batch("pragma journal_mode=wal; pragma busy_timeout=5000;")
+      .map_err(|e| e.to_string())?;
+    migrate(&conn)?;
+    Ok(Store {
+      conn: Arc::new(Mutex::new(conn)),
+    })
+  }
+
+  fn lock(&self) -> std::sync::MutexGuard<'_, Connection> {
+    self.conn.lock().unwrap_or_else(|e| e.into_inner())
+  }
+
+  pub fn version(&self) -> Result<i64, String> {
+    self
+      .lock()
+      .query_row("pragma user_version", [], |r| r.get(0))
+      .map_err(|e| e.to_string())
+  }
+
+  // The categories.
+
+  pub fn categories(&self) -> Result<Vec<Category>, String> {
+    let conn = self.lock();
+    let mut stmt = conn
+      .prepare(&format!("select {CATEGORY_COLUMNS} from categories order by name"))
+      .map_err(|e| e.to_string())?;
+    stmt
+      .query_map([], read_category)
+      .map_err(|e| e.to_string())?
+      .collect::<Result<Vec<_>, _>>()
+      .map_err(|e| e.to_string())
+  }
+
+  pub fn category(&self, name: &str) -> Result<Category, Refusal> {
+    self
+      .lock()
+      .query_row(
+        &format!("select {CATEGORY_COLUMNS} from categories where name = ?1"),
+        params![name],
+        read_category,
+      )
+      .optional()?
+      .ok_or_else(|| Refusal::NotFound(format!("no category {name}")))
+  }
+
+  pub fn add_category(&self, new: &NewCategory) -> Result<Category, Refusal> {
+    let gather = match new.shape {
+      CategoryShape::Brief => Some(new.gather_minutes.unwrap_or(1440)),
+      _ => None,
+    };
+    let n = self.lock().execute(
+      "insert or ignore into categories (name, purpose, shape, cap, cadence_minutes, gather_minutes, provider,
+         model, created_at) values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+      params![
+        new.name,
+        new.purpose,
+        new.shape.as_str(),
+        new.cap.unwrap_or(5),
+        new.cadence_minutes.unwrap_or(60),
+        gather,
+        new.provider.clone().filter(|p| !p.is_empty()),
+        new.model.clone().filter(|m| !m.is_empty()),
+        now_ms()
+      ],
+    )?;
+    if n == 0 {
+      return Err(Refusal::Conflict(format!("a category {} already stands", new.name)));
+    }
+    self.category(&new.name)
+  }
+
+  pub fn change_category(&self, name: &str, change: &CategoryChange) -> Result<Category, Refusal> {
+    let mut category = self.category(name)?;
+    if let Some(purpose) = &change.purpose {
+      category.purpose = purpose.clone();
+    }
+    if let Some(cap) = change.cap {
+      category.cap = cap;
+    }
+    if let Some(cadence) = change.cadence_minutes {
+      category.cadence_minutes = cadence;
+    }
+    if let Some(gather) = change.gather_minutes {
+      category.gather_minutes = Some(gather);
+    }
+    if let Some(provider) = &change.provider {
+      category.provider = Some(provider.clone()).filter(|p| !p.is_empty());
+    }
+    if let Some(model) = &change.model {
+      category.model = Some(model.clone()).filter(|m| !m.is_empty());
+    }
+    self.lock().execute(
+      "update categories set purpose = ?2, cap = ?3, cadence_minutes = ?4, gather_minutes = ?5, provider = ?6,
+         model = ?7 where name = ?1",
+      params![
+        name,
+        category.purpose,
+        category.cap,
+        category.cadence_minutes,
+        category.gather_minutes,
+        category.provider,
+        category.model
+      ],
+    )?;
+    self.category(name)
+  }
+
+  /// A category taken away with its recipients, where no source and no waiting or running item names it.
+  pub fn remove_category(&self, name: &str) -> Result<(), Refusal> {
+    self.category(name)?;
+    let mut conn = self.lock();
+    let tx = conn.transaction()?;
+    let named: i64 = tx.query_row(
+      "select (select count(*) from sources where category = ?1)
+            + (select count(*) from queue where category = ?1 and state in ('waiting', 'running'))",
+      params![name],
+      |r| r.get(0),
+    )?;
+    if named > 0 {
+      return Err(Refusal::Conflict(format!("category {name} still has sources or items under way")));
+    }
+    tx.execute("delete from recipients where category = ?1", params![name])?;
+    tx.execute("delete from categories where name = ?1", params![name])?;
+    tx.commit()?;
+    Ok(())
+  }
+
+  /// A change of state, for the category named or for every one.
+  pub fn set_running(&self, category: Option<&str>, state: Running) -> Result<(), Refusal> {
+    if let Some(name) = category {
+      self.category(name)?;
+    }
+    self.lock().execute(
+      "update categories set state = ?2, state_at = ?3 where ?1 is null or name = ?1",
+      params![category, state.as_str(), now_ms()],
+    )?;
+    Ok(())
+  }
+
+  pub fn daemon_state(&self) -> Result<DaemonState, String> {
+    let categories = self.categories()?;
+    let conn = self.lock();
+    let count = |category: &str, state: &str| -> Result<i64, String> {
+      conn
+        .query_row(
+          "select count(*) from queue where category = ?1 and state = ?2",
+          params![category, state],
+          |r| r.get(0),
+        )
+        .map_err(|e| e.to_string())
+    };
+    let mut states = Vec::new();
+    for c in &categories {
+      states.push(CategoryState {
+        category_name: c.name.clone(),
+        state: c.state,
+        waiting_count: count(&c.name, "waiting")?,
+        running_count: count(&c.name, "running")?,
+        cap: c.cap,
+      });
+    }
+    let stopped = !categories.is_empty() && categories.iter().all(|c| c.state == Running::Stopped);
+    Ok(DaemonState {
+      state: if stopped { Running::Stopped } else { Running::Running },
+      changed_at: categories.iter().filter_map(|c| c.state_at).max(),
+      categories: states,
+    })
+  }
+
+  // The recipients.
+
+  pub fn recipients(&self, category: &str) -> Result<Vec<Recipient>, String> {
+    let conn = self.lock();
+    let mut stmt = conn
+      .prepare(&format!(
+        "select {RECIPIENT_COLUMNS} from recipients where category = ?1
+         order by case origin when 'owner' then 0 else 1 end, id"
+      ))
+      .map_err(|e| e.to_string())?;
+    stmt
+      .query_map(params![category], read_recipient)
+      .map_err(|e| e.to_string())?
+      .collect::<Result<Vec<_>, _>>()
+      .map_err(|e| e.to_string())
+  }
+
+  pub fn add_recipient(
+    &self,
+    category: &str,
+    kind: RecipientKind,
+    room_id: Option<i64>,
+    agent_name: Option<&str>,
+    origin: &str,
+  ) -> Result<Recipient, Refusal> {
+    self.category(category)?;
+    let conn = self.lock();
+    let n = conn.execute(
+      "insert or ignore into recipients (category, kind, room_id, agent_name, origin, added_at)
+       values (?1, ?2, ?3, ?4, ?5, ?6)",
+      params![category, kind.as_str(), room_id, agent_name, origin, now_ms()],
+    )?;
+    if n == 0 {
+      return Err(Refusal::Conflict(format!("category {category} already holds this recipient")));
+    }
+    let id = conn.last_insert_rowid();
+    conn
+      .query_row(
+        &format!("select {RECIPIENT_COLUMNS} from recipients where id = ?1"),
+        params![id],
+        read_recipient,
+      )
+      .map_err(Refusal::from)
+  }
+
+  pub fn remove_recipient(&self, category: &str, id: i64) -> Result<(), Refusal> {
+    let n = self
+      .lock()
+      .execute("delete from recipients where id = ?1 and category = ?2", params![id, category])?;
+    if n == 0 {
+      Err(Refusal::NotFound(format!("no recipient {id} of {category}")))
+    } else {
+      Ok(())
+    }
+  }
+
+  /// The categories holding no recipient, which the owner's room is given as the daemon starts.
+  pub fn categories_without_recipients(&self) -> Result<Vec<String>, String> {
+    let conn = self.lock();
+    let mut stmt = conn
+      .prepare(
+        "select name from categories where not exists (select 1 from recipients where category = name)
+         order by name",
+      )
+      .map_err(|e| e.to_string())?;
+    stmt
+      .query_map([], |r| r.get(0))
+      .map_err(|e| e.to_string())?
+      .collect::<Result<Vec<_>, _>>()
+      .map_err(|e| e.to_string())
+  }
+
+  // The sources.
+
+  pub fn add_source(&self, new: &NewSource, address: &str, limit: i64) -> Result<Source, Refusal> {
+    self.category(&new.category_name)?;
+    let now = now_ms();
+    let filter = new.filter.clone().unwrap_or_default();
+    let conn = self.lock();
+    conn.execute(
+      "insert into sources (category, kind, address, query, require, exclude, every_minutes, item_limit,
+         created_at, changed_at) values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9)",
+      params![
+        new.category_name,
+        new.kind,
+        address,
+        new.query,
+        words_json(&filter.require),
+        words_json(&filter.exclude),
+        new.every_minutes,
+        limit,
+        now
+      ],
+    )?;
+    let id = conn.last_insert_rowid();
+    drop(conn);
+    self.source(id)
+  }
+
+  pub fn source(&self, id: i64) -> Result<Source, Refusal> {
+    self
+      .lock()
+      .query_row(&format!("select {SOURCE_COLUMNS} from sources where id = ?1"), params![id], read_source)
+      .optional()?
+      .ok_or_else(|| Refusal::NotFound(format!("no source {id}")))
+  }
+
+  pub fn sources(
+    &self,
+    category: Option<&str>,
+    after: Option<i64>,
+    limit: i64,
+  ) -> Result<Page<Source>, String> {
+    let conn = self.lock();
+    let mut stmt = conn
+      .prepare(&format!(
+        "select {SOURCE_COLUMNS} from sources where id > ?1 and (?2 is null or category = ?2) order by id limit ?3"
+      ))
+      .map_err(|e| e.to_string())?;
+    let rows = stmt
+      .query_map(params![after.unwrap_or(i64::MIN), category, limit + 1], read_source)
+      .map_err(|e| e.to_string())?
+      .collect::<Result<Vec<_>, _>>()
+      .map_err(|e| e.to_string())?;
+    Ok(page(rows, limit))
+  }
+
+  /// Every source of a category, for the scan.
+  pub fn category_sources(&self, category: &str) -> Result<Vec<Source>, String> {
+    Ok(self.sources(Some(category), None, i64::MAX - 1)?.items)
+  }
+
+  pub fn change_source(&self, id: i64, change: &SourceChange) -> Result<Source, Refusal> {
+    let mut source = self.source(id)?;
+    if let Some(address) = &change.address {
+      source.address = address.clone();
+    }
+    if let Some(query) = &change.query {
+      source.query = Some(query.clone());
+    }
+    if let Some(filter) = &change.filter {
+      source.filter = filter.clone();
+    }
+    if let Some(every) = change.every_minutes {
+      source.every_minutes = Some(every);
+    }
+    if let Some(limit) = change.limit {
+      source.limit = limit;
+    }
+    self.lock().execute(
+      "update sources set address = ?2, query = ?3, require = ?4, exclude = ?5, every_minutes = ?6,
+         item_limit = ?7, changed_at = ?8 where id = ?1",
+      params![
+        id,
+        source.address,
+        source.query,
+        words_json(&source.filter.require),
+        words_json(&source.filter.exclude),
+        source.every_minutes,
+        source.limit,
+        now_ms()
+      ],
+    )?;
+    self.source(id)
+  }
+
+  pub fn remove_source(&self, id: i64) -> Result<(), Refusal> {
+    let n = self.lock().execute("delete from sources where id = ?1", params![id])?;
+    if n == 0 { Err(Refusal::NotFound(format!("no source {id}"))) } else { Ok(()) }
+  }
+
+  /// A reading's end: the time it was read, and its failure counted or the count set back.
+  pub fn source_read(&self, id: i64, failure: Option<&str>) -> Result<(), String> {
+    let now = now_ms();
+    let conn = self.lock();
+    match failure {
+      None => conn.execute(
+        "update sources set read_at = ?2, failure_count = 0, last_error = null where id = ?1",
+        params![id, now],
+      ),
+      Some(why) => conn.execute(
+        "update sources set read_at = ?2, failure_count = failure_count + 1, last_error = ?3 where id = ?1",
+        params![id, now, why],
+      ),
+    }
+    .map_err(|e| e.to_string())?;
+    Ok(())
+  }
+
+  // The candidates seen.
+
+  pub fn is_seen(&self, key: &str) -> Result<bool, String> {
+    self
+      .lock()
+      .query_row("select 1 from seen where key = ?1", params![key], |_| Ok(()))
+      .optional()
+      .map(|r| r.is_some())
+      .map_err(|e| e.to_string())
+  }
+
+  /// Keeps a candidate as seen, `unqueued` or `archived`; a key already seen is left as it stands.
+  pub fn keep_seen(
+    &self,
+    candidate: &Candidate,
+    category: &str,
+    source_id: Option<i64>,
+    archived: bool,
+  ) -> Result<(), String> {
+    self
+      .lock()
+      .execute(
+        "insert or ignore into seen (key, category, name, maker, address, kind, published_at, source_id, state,
+           found_at) values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        params![
+          candidate.key(),
+          category,
+          candidate.name,
+          candidate.maker,
+          candidate.address,
+          candidate.kind.as_str(),
+          candidate.published_at,
+          source_id,
+          if archived { "archived" } else { "unqueued" },
+          now_ms()
+        ],
+      )
+      .map_err(|e| e.to_string())?;
+    Ok(())
+  }
+
+  /// The state a seen row stands in, where one stands for the key.
+  pub fn seen_state(&self, key: &str) -> Result<Option<String>, String> {
+    self
+      .lock()
+      .query_row("select state from seen where key = ?1", params![key], |r| r.get(0))
+      .optional()
+      .map_err(|e| e.to_string())
+  }
+
+  /// A category's free slots filled from its unqueued seen rows, oldest found first; answers the items made.
+  pub fn fill(&self, category: &Category) -> Result<Vec<i64>, String> {
+    let mut conn = self.lock();
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    let active: i64 = tx
+      .query_row(
+        "select count(*) from queue where category = ?1 and asked = 0 and state in ('waiting', 'running')",
+        params![category.name],
+        |r| r.get(0),
+      )
+      .map_err(|e| e.to_string())?;
+    let free = (category.cap - active).max(0);
+    let made = take_unqueued(&tx, category, free).map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(made)
+  }
+
+  // The queue.
+
+  /// An ask queued at once, above every item the scan took in; refused where an item of its key still waits
+  /// or runs.
+  pub fn ask(
+    &self,
+    category: &str,
+    key: &str,
+    name: &str,
+    address: &str,
+    shape: Shape,
+  ) -> Result<Item, Refusal> {
+    let now = now_ms();
+    let mut conn = self.lock();
+    let tx = conn.transaction()?;
+    let standing: Option<i64> = tx
+      .query_row(
+        "select id from queue where key = ?1 and state in ('waiting', 'running') limit 1",
+        params![key],
+        |r| r.get(0),
+      )
+      .optional()?;
+    if let Some(id) = standing {
+      return Err(Refusal::Conflict(format!("item {id} already stands for {key}")));
+    }
+    tx.execute(
+      "insert into queue (category, key, name, address, kind, shape, asked, priority, state, found_at,
+         created_at, changed_at) values (?1, ?2, ?3, ?4, 'asked', ?5, 1, 1, 'waiting', ?6, ?6, ?6)",
+      params![category, key, name, address, shape.as_str(), now],
+    )?;
+    let id = tx.last_insert_rowid();
+    tx.execute(
+      "insert into seen (key, category, name, address, kind, state, item_id, found_at)
+       values (?1, ?2, ?3, ?4, 'asked', 'queued', ?5, ?6)
+       on conflict (key) do update set state = 'queued', item_id = ?5",
+      params![key, category, name, address, id, now],
+    )?;
+    tx.commit()?;
+    drop(conn);
+    self.item(id)
+  }
+
+  pub fn item(&self, id: i64) -> Result<Item, Refusal> {
+    self
+      .lock()
+      .query_row(&format!("select {ITEM_COLUMNS} from queue where id = ?1"), params![id], read_item)
+      .optional()?
+      .ok_or_else(|| Refusal::NotFound(format!("no item {id}")))
+  }
+
+  /// The items in the queue's order: the running ones, the waiting ones in their category's order, then the
+  /// rest newest first; narrowed to a category and to `states` where named, continued past `after`.
+  pub fn queue(
+    &self,
+    category: Option<&str>,
+    states: &[ItemState],
+    after: Option<i64>,
+    limit: i64,
+  ) -> Result<Page<Item>, String> {
+    let conn = self.lock();
+    let mut stmt = conn
+      .prepare(&format!(
+        "select {ITEM_COLUMNS} from queue where ?1 is null or category = ?1 order by
+           case state when 'running' then 0 when 'waiting' then 1 else 2 end,
+           case when state in ('running', 'waiting') then -priority else 0 end,
+           case when state in ('running', 'waiting') then found_at else -id end,
+           id"
+      ))
+      .map_err(|e| e.to_string())?;
+    let all = stmt
+      .query_map(params![category], read_item)
+      .map_err(|e| e.to_string())?
+      .collect::<Result<Vec<_>, _>>()
+      .map_err(|e| e.to_string())?;
+    let named: Vec<Item> = all
+      .into_iter()
+      .filter(|item| states.is_empty() || states.contains(&item.state))
+      .collect();
+    let start = match after {
+      Some(after) => named.iter().position(|item| item.id == after).map(|at| at + 1).unwrap_or(named.len()),
+      None => 0,
+    };
+    Ok(page(named.into_iter().skip(start).collect(), limit))
+  }
+
+  /// A category's waiting items whose retry is due, in its order, at most `limit`.
+  pub fn waiting(&self, category: &str, now: i64, limit: i64) -> Result<Vec<Item>, String> {
+    let conn = self.lock();
+    let mut stmt = conn
+      .prepare(&format!(
+        "select {ITEM_COLUMNS} from queue where category = ?1 and state = 'waiting'
+           and (retry_at is null or retry_at <= ?2)
+         order by priority desc, found_at, id limit ?3"
+      ))
+      .map_err(|e| e.to_string())?;
+    stmt
+      .query_map(params![category, now, limit], read_item)
+      .map_err(|e| e.to_string())?
+      .collect::<Result<Vec<_>, _>>()
+      .map_err(|e| e.to_string())
+  }
+
+  /// Whether a category holds a waiting item whose retry stands set and is due.
+  pub fn retry_due(&self, category: &str, now: i64) -> Result<bool, String> {
+    self
+      .lock()
+      .query_row(
+        "select exists (select 1 from queue where category = ?1 and state = 'waiting' and retry_at is not null
+           and retry_at <= ?2)",
+        params![category, now],
+        |r| r.get(0),
+      )
+      .map_err(|e| e.to_string())
+  }
+
+  /// When a category's latest try was asked, or none.
+  pub fn last_try_at(&self, category: &str) -> Result<Option<i64>, String> {
+    self
+      .lock()
+      .query_row("select max(started_at) from runs where category = ?1", params![category], |r| r.get(0))
+      .map_err(|e| e.to_string())
+  }
+
+  pub fn running_count(&self) -> Result<i64, String> {
+    self
+      .lock()
+      .query_row("select count(*) from runs where state = 'running'", [], |r| r.get(0))
+      .map_err(|e| e.to_string())
+  }
+
+  /// Waiting items taken for one try: each running with its tries counted, and a run row opened carrying
+  /// them all. Answers the run's id and the try's number, or none where the first item no longer waits.
+  pub fn start_try(&self, category: &str, items: &[i64]) -> Result<Option<(i64, i64)>, String> {
+    let Some(&lead) = items.first() else {
+      return Ok(None);
+    };
+    let now = now_ms();
+    let mut conn = self.lock();
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    let mut taken = Vec::new();
+    for id in items {
+      let n = tx
+        .execute(
+          "update queue set state = 'running', tries = tries + 1, retry_at = null, run_id = null, error = null,
+             changed_at = ?2 where id = ?1 and state = 'waiting'",
+          params![id, now],
+        )
+        .map_err(|e| e.to_string())?;
+      if n > 0 {
+        taken.push(*id);
+      }
+    }
+    if !taken.contains(&lead) {
+      return Ok(None);
+    }
+    let tries: i64 = tx
+      .query_row("select tries from queue where id = ?1", params![lead], |r| r.get(0))
+      .map_err(|e| e.to_string())?;
+    tx.execute(
+      "insert into runs (category, item_id, item_ids, try, state, started_at) values (?1, ?2, ?3, ?4, 'running', ?5)",
+      params![category, lead, ids_json(&taken), tries, now],
+    )
+    .map_err(|e| e.to_string())?;
+    let run = tx.last_insert_rowid();
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(Some((run, tries)))
+  }
+
+  /// The ledger run a try's ask was answered with, kept on the try and on its items.
+  pub fn keep_run_id(&self, run: i64, run_id: i64) -> Result<(), String> {
+    let items = self.run(run).map_err(|e| e.to_string())?.item_ids;
+    let conn = self.lock();
+    conn
+      .execute("update runs set run_id = ?2 where id = ?1", params![run, run_id])
+      .map_err(|e| e.to_string())?;
+    for id in items {
+      conn
+        .execute(
+          "update queue set run_id = ?2, changed_at = ?3 where id = ?1",
+          params![id, run_id, now_ms()],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+  }
+
+  /// A try's end in its run row.
+  pub fn end_run(
+    &self,
+    run: i64,
+    state: &str,
+    outcome: Option<&str>,
+    error: Option<&str>,
+  ) -> Result<(), String> {
+    self
+      .lock()
+      .execute(
+        "update runs set state = ?2, outcome = ?3, error = ?4, ended_at = ?5 where id = ?1",
+        params![run, state, outcome, error, now_ms()],
+      )
+      .map_err(|e| e.to_string())?;
+    Ok(())
+  }
+
+  /// A failed try: its items still running wait again until `retry_at`, or are failed where `retry_at` is
+  /// none. Answers the items it moved, so a dismissed one is left as it stands.
+  pub fn fail_try(&self, run: i64, error: &str, retry_at: Option<i64>) -> Result<Vec<i64>, String> {
+    let items = self.run(run).map_err(|e| e.to_string())?.item_ids;
+    let conn = self.lock();
+    let mut moved = Vec::new();
+    for id in items {
+      let n = conn
+        .execute(
+          "update queue set state = ?2, retry_at = ?3, error = ?4, changed_at = ?5
+           where id = ?1 and state = 'running'",
+          params![id, if retry_at.is_some() { "waiting" } else { "failed" }, retry_at, error, now_ms()],
+        )
+        .map_err(|e| e.to_string())?;
+      if n > 0 {
+        moved.push(id);
+      }
+    }
+    Ok(moved)
+  }
+
+  /// A try that filed its document: the item `reported` or `fit`. Answers whether it was still running.
+  pub fn file(&self, item_id: i64, filed: &Filed) -> Result<bool, String> {
+    let n = self
+      .lock()
+      .execute(
+        "update queue set state = ?2, document_id = ?3, title = ?4, description = ?5, share_url = ?6, fit = ?7,
+           fit_nodes = ?8, touches = ?9, plan = ?10, error = null, changed_at = ?11
+         where id = ?1 and state = 'running'",
+        params![
+          item_id,
+          if filed.fit { "fit" } else { "reported" },
+          filed.document_id,
+          filed.title,
+          filed.description,
+          filed.share_url,
+          filed.fit,
+          words_json(&filed.fit_nodes),
+          filed.touches,
+          filed.plan,
+          now_ms()
+        ],
+      )
+      .map_err(|e| e.to_string())?;
+    Ok(n > 0)
+  }
+
+  /// The tries left running, for a daemon taking them up again.
+  pub fn open_runs(&self) -> Result<Vec<Run>, String> {
+    let conn = self.lock();
+    let mut stmt = conn
+      .prepare(&format!("select {RUN_COLUMNS} from runs where state = 'running' order by id"))
+      .map_err(|e| e.to_string())?;
+    stmt
+      .query_map([], read_run)
+      .map_err(|e| e.to_string())?
+      .collect::<Result<Vec<_>, _>>()
+      .map_err(|e| e.to_string())
+  }
+
+  /// A try a stopped daemon never asked: ended, and its items put back to wait without counting it.
+  pub fn requeue(&self, run: i64) -> Result<(), String> {
+    let items = self.run(run).map_err(|e| e.to_string())?.item_ids;
+    self.end_run(run, "failed", None, Some("the daemon stopped before the run was asked"))?;
+    let conn = self.lock();
+    for id in items {
+      conn
+        .execute(
+          "update queue set state = 'waiting', tries = max(tries - 1, 0), changed_at = ?2
+           where id = ?1 and state = 'running'",
+          params![id, now_ms()],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+  }
+
+  pub fn dismiss(&self, id: i64) -> Result<Item, Refusal> {
+    let item = self.item(id)?;
+    if matches!(item.state, ItemState::Taken | ItemState::Dismissed) {
+      return Err(Refusal::Conflict(format!("item {id} is {} and is not dismissed", item.state.as_str())));
+    }
+    self.lock().execute(
+      "update queue set state = 'dismissed', changed_at = ?2 where id = ?1",
+      params![id, now_ms()],
+    )?;
+    self.item(id)
+  }
+
+  /// The job item the chat agent filed kept, and the item taken, where it stands reported or fit.
+  pub fn take(&self, id: i64, job_item_id: i64) -> Result<Item, Refusal> {
+    let item = self.item(id)?;
+    if !matches!(item.state, ItemState::Reported | ItemState::Fit) {
+      return Err(Refusal::Conflict(format!("item {id} is {}, not reported", item.state.as_str())));
+    }
+    self.lock().execute(
+      "update queue set state = 'taken', job_item_id = ?2, changed_at = ?3 where id = ?1",
+      params![id, job_item_id, now_ms()],
+    )?;
+    self.item(id)
+  }
+
+  /// A waiting item given a priority one above the highest any item holds.
+  pub fn front(&self, id: i64) -> Result<Item, Refusal> {
+    let item = self.item(id)?;
+    if item.state != ItemState::Waiting {
+      return Err(Refusal::Conflict(format!("item {id} is {}, not waiting", item.state.as_str())));
+    }
+    self.lock().execute(
+      "update queue set priority = (select coalesce(max(priority), 0) + 1 from queue), changed_at = ?2
+       where id = ?1",
+      params![id, now_ms()],
+    )?;
+    self.item(id)
+  }
+
+  // The tries.
+
+  pub fn runs(
+    &self,
+    item_id: Option<i64>,
+    category: Option<&str>,
+    before: Option<i64>,
+    limit: i64,
+  ) -> Result<Page<Run>, String> {
+    let conn = self.lock();
+    let mut stmt = conn
+      .prepare(&format!(
+        "select {RUN_COLUMNS} from runs where id < ?1
+           and (?2 is null or exists (select 1 from json_each(runs.item_ids) where value = ?2))
+           and (?3 is null or category = ?3)
+         order by id desc limit ?4"
+      ))
+      .map_err(|e| e.to_string())?;
+    let rows = stmt
+      .query_map(params![before.unwrap_or(i64::MAX), item_id, category, limit + 1], read_run)
+      .map_err(|e| e.to_string())?
+      .collect::<Result<Vec<_>, _>>()
+      .map_err(|e| e.to_string())?;
+    Ok(page(rows, limit))
+  }
+
+  pub fn run(&self, id: i64) -> Result<Run, Refusal> {
+    self
+      .lock()
+      .query_row(&format!("select {RUN_COLUMNS} from runs where id = ?1"), params![id], read_run)
+      .optional()?
+      .ok_or_else(|| Refusal::NotFound(format!("no run {id}")))
+  }
+
+  // The reports.
+
+  pub fn keep_report(
+    &self,
+    item_id: i64,
+    recipient: &str,
+    kind: &str,
+    instruction_id: Option<i64>,
+    error: Option<&str>,
+  ) -> Result<(), String> {
+    self
+      .lock()
+      .execute(
+        "insert into reports (item_id, recipient, kind, instruction_id, state, error, at)
+         values (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![
+          item_id,
+          recipient,
+          kind,
+          instruction_id,
+          if error.is_none() { "sent" } else { "refused" },
+          error,
+          now_ms()
+        ],
+      )
+      .map_err(|e| e.to_string())?;
+    Ok(())
+  }
+
+  /// The reports kept for an item: the recipient, the kind and the state of each, in order.
+  pub fn reports(&self, item_id: i64) -> Result<Vec<(String, String, String)>, String> {
+    let conn = self.lock();
+    let mut stmt = conn
+      .prepare("select recipient, kind, state from reports where item_id = ?1 order by id")
+      .map_err(|e| e.to_string())?;
+    stmt
+      .query_map(params![item_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+      .map_err(|e| e.to_string())?
+      .collect::<Result<Vec<_>, _>>()
+      .map_err(|e| e.to_string())
+  }
+
+  // The stack.
+
+  pub fn stack(&self) -> Result<Vec<StackRow>, String> {
+    let conn = self.lock();
+    let mut stmt = conn
+      .prepare("select id, component, version, place, repository, worker, added_at from stack order by component, id")
+      .map_err(|e| e.to_string())?;
+    stmt
+      .query_map([], read_stack_row)
+      .map_err(|e| e.to_string())?
+      .collect::<Result<Vec<_>, _>>()
+      .map_err(|e| e.to_string())
+  }
+
+  pub fn add_stack_row(&self, row: &NewStackRow) -> Result<StackRow, Refusal> {
+    let conn = self.lock();
+    conn.execute(
+      "insert into stack (component, version, place, repository, worker, added_at) values (?1, ?2, ?3, ?4, ?5, ?6)",
+      params![row.component, row.version, row.place, row.repository, row.worker, now_ms()],
+    )?;
+    let id = conn.last_insert_rowid();
+    conn
+      .query_row(
+        "select id, component, version, place, repository, worker, added_at from stack where id = ?1",
+        params![id],
+        read_stack_row,
+      )
+      .map_err(Refusal::from)
+  }
+
+  pub fn remove_stack_row(&self, id: i64) -> Result<(), Refusal> {
+    let n = self.lock().execute("delete from stack where id = ?1", params![id])?;
+    if n == 0 { Err(Refusal::NotFound(format!("no stack row {id}"))) } else { Ok(()) }
+  }
+
+  // The facts.
+
+  #[allow(clippy::too_many_arguments)]
+  pub fn keep_fact(
+    &self,
+    name: &str,
+    value: &str,
+    unit: Option<&str>,
+    as_of: Option<&str>,
+    source_address: Option<&str>,
+    run_id: Option<i64>,
+    document_id: Option<i64>,
+  ) -> Result<(), String> {
+    self
+      .lock()
+      .execute(
+        "insert into facts (name, value, unit, as_of, source_address, run_id, document_id, created_at)
+         values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        params![name, value, unit, as_of, source_address, run_id, document_id, now_ms()],
+      )
+      .map_err(|e| e.to_string())?;
+    Ok(())
+  }
+
+  pub fn facts(&self, name: Option<&str>, before: Option<i64>, limit: i64) -> Result<Page<Fact>, String> {
+    let conn = self.lock();
+    let mut stmt = conn
+      .prepare(
+        "select id, name, value, unit, as_of, source_address, run_id, document_id, created_at from facts
+         where id < ?1 and (?2 is null or name = ?2) order by id desc limit ?3",
+      )
+      .map_err(|e| e.to_string())?;
+    let rows = stmt
+      .query_map(params![before.unwrap_or(i64::MAX), name, limit + 1], |r| {
+        Ok(Fact {
+          id: r.get(0)?,
+          name: r.get(1)?,
+          value: r.get(2)?,
+          unit: r.get(3)?,
+          as_of: r.get(4)?,
+          source_address: r.get(5)?,
+          run_id: r.get(6)?,
+          document_id: r.get(7)?,
+          created_at: r.get(8)?,
+        })
+      })
+      .map_err(|e| e.to_string())?
+      .collect::<Result<Vec<_>, _>>()
+      .map_err(|e| e.to_string())?;
+    Ok(page(rows, limit))
+  }
+}
+
+/// Up to `free` of a category's unqueued seen rows made waiting items, oldest found first.
+fn take_unqueued(tx: &Transaction<'_>, category: &Category, free: i64) -> rusqlite::Result<Vec<i64>> {
+  if free <= 0 {
+    return Ok(Vec::new());
+  }
+  type Row = (String, String, Option<String>, Option<String>, String, Option<i64>, i64);
+  let rows: Vec<Row> = {
+    let mut stmt = tx.prepare(
+      "select key, name, maker, address, kind, source_id, found_at from seen
+       where category = ?1 and state = 'unqueued' order by found_at, rowid limit ?2",
+    )?;
+    stmt
+      .query_map(params![category.name, free], |r| {
+        Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?))
+      })?
+      .collect::<Result<Vec<_>, _>>()?
+  };
+  let now = now_ms();
+  let mut made = Vec::new();
+  for (key, name, maker, address, kind, source_id, found_at) in rows {
+    let shape = item_shape(category.shape, ItemKind::parse(&kind));
+    tx.execute(
+      "insert into queue (category, key, name, maker, address, kind, shape, source_id, asked, priority, state,
+         found_at, created_at, changed_at)
+       values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0, 0, 'waiting', ?9, ?10, ?10)",
+      params![category.name, key, name, maker, address, kind, shape.as_str(), source_id, found_at, now],
+    )?;
+    let id = tx.last_insert_rowid();
+    tx.execute("update seen set state = 'queued', item_id = ?2 where key = ?1", params![key, id])?;
+    made.push(id);
+  }
+  Ok(made)
+}
+
+/// The store's schema brought to this binary's version, a step at a time; a newer store is refused.
+fn migrate(conn: &Connection) -> Result<(), String> {
+  let version: i64 = conn.query_row("pragma user_version", [], |r| r.get(0)).map_err(|e| e.to_string())?;
+  if version > schema_version() {
+    return Err(format!(
+      "the store is at schema version {version}, newer than this binary's {}",
+      schema_version()
+    ));
+  }
+  for (at, step) in MIGRATIONS.iter().enumerate().skip(version as usize) {
+    let next = at as i64 + 1;
+    conn
+      .execute_batch(&format!("begin; {step} pragma user_version = {next}; commit;"))
+      .map_err(|e| format!("the schema's step to version {next}: {e}"))?;
+  }
+  Ok(())
+}
+
+fn page<T>(mut rows: Vec<T>, limit: i64) -> Page<T> {
+  let more = rows.len() as i64 > limit;
+  rows.truncate(limit.max(0) as usize);
+  Page { items: rows, more }
+}
+
+fn words_json(words: &[String]) -> String {
+  serde_json::to_string(words).unwrap_or_else(|_| "[]".into())
+}
+
+fn ids_json(ids: &[i64]) -> String {
+  serde_json::to_string(ids).unwrap_or_else(|_| "[]".into())
+}
+
+fn read_category(r: &rusqlite::Row<'_>) -> rusqlite::Result<Category> {
+  let shape: String = r.get(2)?;
+  let state: String = r.get(8)?;
+  Ok(Category {
+    name: r.get(0)?,
+    purpose: r.get(1)?,
+    shape: CategoryShape::parse(&shape).unwrap_or(CategoryShape::ManualOrInvestigation),
+    cap: r.get(3)?,
+    cadence_minutes: r.get(4)?,
+    gather_minutes: r.get(5)?,
+    provider: r.get(6)?,
+    model: r.get(7)?,
+    state: Running::parse(&state).unwrap_or(Running::Running),
+    state_at: r.get(9)?,
+    created_at: r.get(10)?,
+  })
+}
+
+fn read_recipient(r: &rusqlite::Row<'_>) -> rusqlite::Result<Recipient> {
+  let kind: String = r.get(2)?;
+  Ok(Recipient {
+    id: r.get(0)?,
+    category_name: r.get(1)?,
+    kind: if kind == "agent" { RecipientKind::Agent } else { RecipientKind::Room },
+    room_id: r.get(3)?,
+    agent_name: r.get(4)?,
+    origin: r.get(5)?,
+    added_at: r.get(6)?,
+  })
+}
+
+fn read_source(r: &rusqlite::Row<'_>) -> rusqlite::Result<Source> {
+  let words = |i: usize| -> rusqlite::Result<Vec<String>> {
+    Ok(serde_json::from_str(&r.get::<_, String>(i)?).unwrap_or_default())
+  };
+  Ok(Source {
+    id: r.get(0)?,
+    category_name: r.get(1)?,
+    kind: r.get(2)?,
+    address: r.get(3)?,
+    query: r.get(4)?,
+    filter: Filter {
+      require: words(5)?,
+      exclude: words(6)?,
+    },
+    every_minutes: r.get(7)?,
+    limit: r.get(8)?,
+    failure_count: r.get(9)?,
+    last_error: r.get(10)?,
+    read_at: r.get(11)?,
+    created_at: r.get(12)?,
+    changed_at: r.get(13)?,
+  })
+}
+
+fn read_item(r: &rusqlite::Row<'_>) -> rusqlite::Result<Item> {
+  let shape: String = r.get(7)?;
+  let state: String = r.get(11)?;
+  let nodes: String = r.get(20)?;
+  Ok(Item {
+    id: r.get(0)?,
+    category_name: r.get(1)?,
+    key: r.get(2)?,
+    name: r.get(3)?,
+    maker: r.get(4)?,
+    address: r.get(5)?,
+    kind: r.get(6)?,
+    shape: Shape::parse(&shape).unwrap_or(Shape::Investigation),
+    source_id: r.get(8)?,
+    asked: r.get(9)?,
+    priority: r.get(10)?,
+    state: ItemState::parse(&state).unwrap_or(ItemState::Failed),
+    tries: r.get(12)?,
+    retry_at: r.get(13)?,
+    run_id: r.get(14)?,
+    document_id: r.get(15)?,
+    title: r.get(16)?,
+    description: r.get(17)?,
+    share_url: r.get(18)?,
+    fit: r.get(19)?,
+    fit_nodes: serde_json::from_str(&nodes).unwrap_or_default(),
+    touches: r.get(21)?,
+    plan: r.get(22)?,
+    job_item_id: r.get(23)?,
+    error: r.get(24)?,
+    found_at: r.get(25)?,
+    created_at: r.get(26)?,
+    changed_at: r.get(27)?,
+  })
+}
+
+fn read_run(r: &rusqlite::Row<'_>) -> rusqlite::Result<Run> {
+  let ids: String = r.get(3)?;
+  Ok(Run {
+    id: r.get(0)?,
+    category_name: r.get(1)?,
+    item_id: r.get(2)?,
+    item_ids: serde_json::from_str(&ids).unwrap_or_default(),
+    attempt: r.get(4)?,
+    run_id: r.get(5)?,
+    state: r.get(6)?,
+    outcome: r.get(7)?,
+    error: r.get(8)?,
+    started_at: r.get(9)?,
+    ended_at: r.get(10)?,
+  })
+}
+
+fn read_stack_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<StackRow> {
+  Ok(StackRow {
+    id: r.get(0)?,
+    component: r.get(1)?,
+    version: r.get(2)?,
+    place: r.get(3)?,
+    repository: r.get(4)?,
+    worker: r.get(5)?,
+    added_at: r.get(6)?,
+  })
+}

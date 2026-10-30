@@ -120,7 +120,7 @@ The figures the economy briefs carried, a series a later reader takes in.
 | `name`, `value`, `unit` | The figure, as the brief wrote it |
 | `as_of` | The date it stands for, as the brief wrote it |
 | `source_address` | Where it was read |
-| `run` | The try whose brief held it |
+| `run_id` | Agency's ledger run whose brief held it |
 | `document_id` | That brief's document |
 | `created_at` | When it was kept |
 

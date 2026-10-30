@@ -1,0 +1,14 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "category": {
+      "description": "The category whose items are listed.",
+      "type": "string"
+    },
+    "state": {
+      "description": "A comma-separated list of item states: waiting, running, reported, fit, failed, taken, dismissed.",
+      "type": "string"
+    }
+  },
+  "type": "object"
+}

@@ -1,0 +1,459 @@
+//! The routes `docs/api.md` states.
+
+use std::collections::BTreeMap;
+use std::sync::Arc;
+
+use axum::body::Bytes;
+use axum::extract::{Path, Query, State};
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
+use axum::routing::{delete, get};
+use axum::{Json, Router};
+use bmo_research_client::*;
+use serde::de::DeserializeOwned;
+
+use crate::App;
+use crate::sources::{SourceKind, address_key};
+use crate::store::{Refusal, item_shape};
+
+type Shared = State<Arc<App>>;
+type Queries = Query<BTreeMap<String, String>>;
+
+pub fn router(app: Arc<App>) -> Router {
+  Router::new()
+    .route("/health", get(health))
+    .route("/state", get(get_state).patch(patch_state))
+    .route("/categories", get(list_categories).post(create_category))
+    .route(
+      "/categories/{categoryName}",
+      get(get_category).patch(patch_category).delete(delete_category),
+    )
+    .route("/categories/{categoryName}/recipients", get(list_recipients).post(create_recipient))
+    .route("/categories/{categoryName}/recipients/{recipientId}", delete(delete_recipient))
+    .route("/sources", get(list_sources).post(create_source))
+    .route("/sources/{sourceId}", get(get_source).patch(patch_source).delete(delete_source))
+    .route("/queue", get(list_queue).post(create_ask))
+    .route("/queue/{itemId}", get(get_item).patch(patch_item))
+    .route("/runs", get(list_runs))
+    .route("/runs/{id}", get(get_run))
+    .route("/stack", get(list_stack).post(create_stack_row))
+    .route("/stack/{id}", delete(delete_stack_row))
+    .route("/facts", get(list_facts))
+    .fallback(no_route)
+    .layer(axum::middleware::from_fn_with_state(app.clone(), auth))
+    .with_state(app)
+}
+
+async fn auth(State(app): Shared, req: axum::extract::Request, next: axum::middleware::Next) -> Response {
+  let ok = req
+    .headers()
+    .get(axum::http::header::AUTHORIZATION)
+    .and_then(|v| v.to_str().ok())
+    .and_then(|v| v.strip_prefix("Bearer "))
+    .is_some_and(|t| !app.token.is_empty() && t == app.token);
+  if !ok {
+    return failure(StatusCode::UNAUTHORIZED, "unauthorized", "the token is missing or wrong");
+  }
+  next.run(req).await
+}
+
+pub fn failure(status: StatusCode, code: &str, error: impl Into<String>) -> Response {
+  (
+    status,
+    Json(Failure {
+      code: code.into(),
+      error: error.into(),
+    }),
+  )
+    .into_response()
+}
+
+fn bad(why: impl Into<String>) -> Response {
+  failure(StatusCode::BAD_REQUEST, "bad-request", why)
+}
+
+fn failed(why: impl Into<String>) -> Response {
+  failure(StatusCode::INTERNAL_SERVER_ERROR, "failed", why)
+}
+
+fn refused(refusal: Refusal) -> Response {
+  match refusal {
+    Refusal::NotFound(why) => failure(StatusCode::NOT_FOUND, "not-found", why),
+    Refusal::Conflict(why) => failure(StatusCode::CONFLICT, "conflict", why),
+    Refusal::Failed(why) => failed(why),
+  }
+}
+
+fn answered<T: serde::Serialize>(result: Result<T, Refusal>, status: StatusCode) -> Response {
+  match result {
+    Ok(member) => (status, Json(member)).into_response(),
+    Err(refusal) => refused(refusal),
+  }
+}
+
+fn listed<T: serde::Serialize>(result: Result<Page<T>, String>) -> Response {
+  match result {
+    Ok(page) => Json(page).into_response(),
+    Err(why) => failed(why),
+  }
+}
+
+/// A body read as the route's request type, or the sentence saying what is wrong with it.
+fn body<T: DeserializeOwned>(bytes: &Bytes) -> Result<T, String> {
+  serde_json::from_slice(bytes).map_err(|e| format!("the body does not read: {e}"))
+}
+
+fn number(word: &str, what: &str) -> Result<i64, String> {
+  word.parse().map_err(|_| format!("{what} {word} is not a number"))
+}
+
+fn query_number(q: &BTreeMap<String, String>, key: &str) -> Result<Option<i64>, String> {
+  q.get(key).map(|v| number(v, key)).transpose()
+}
+
+fn limit(q: &BTreeMap<String, String>) -> Result<i64, String> {
+  Ok(query_number(q, "limit")?.unwrap_or(50).clamp(1, 200))
+}
+
+async fn no_route() -> Response {
+  failure(StatusCode::NOT_FOUND, "no-route", "no route answers this method and path")
+}
+
+async fn health() -> Response {
+  Json(Health {
+    ready: true,
+    reason: None,
+    version: env!("CARGO_PKG_VERSION").into(),
+  })
+  .into_response()
+}
+
+// state
+
+async fn get_state(State(app): Shared) -> Response {
+  match app.store.daemon_state() {
+    Ok(state) => Json(state).into_response(),
+    Err(why) => failed(why),
+  }
+}
+
+async fn patch_state(State(app): Shared, bytes: Bytes) -> Response {
+  let change: StateChange = match body(&bytes) {
+    Ok(c) => c,
+    Err(r) => return bad(r),
+  };
+  if let Err(refusal) = app.store.set_running(change.category_name.as_deref(), change.state) {
+    return refused(refusal);
+  }
+  get_state(State(app)).await
+}
+
+// categories
+
+fn valid_name(name: &str) -> bool {
+  let mut chars = name.chars();
+  name.len() <= 32
+    && chars.next().is_some_and(|c| c.is_ascii_lowercase())
+    && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+}
+
+async fn list_categories(State(app): Shared) -> Response {
+  listed(app.store.categories().map(|items| Page { items, more: false }))
+}
+
+async fn create_category(State(app): Shared, bytes: Bytes) -> Response {
+  let new: NewCategory = match body(&bytes) {
+    Ok(c) => c,
+    Err(r) => return bad(r),
+  };
+  if !valid_name(&new.name) {
+    return bad(
+      "a category's name is a lower-case letter, then lower-case letters, digits and -, at most 32",
+    );
+  }
+  if new.purpose.trim().is_empty() {
+    return bad("a category needs a purpose");
+  }
+  if [new.cap, new.cadence_minutes, new.gather_minutes].into_iter().flatten().any(|n| n < 1) {
+    return bad("a category's numbers are 1 or more");
+  }
+  if new.gather_minutes.is_some() && new.shape != CategoryShape::Brief {
+    return bad("only a brief category gathers");
+  }
+  let category = match app.store.add_category(&new) {
+    Ok(c) => c,
+    Err(refusal) => return refused(refusal),
+  };
+  crate::dive::give_owner_room(&app).await;
+  (StatusCode::CREATED, Json(category)).into_response()
+}
+
+async fn get_category(State(app): Shared, Path(name): Path<String>) -> Response {
+  answered(app.store.category(&name), StatusCode::OK)
+}
+
+async fn patch_category(State(app): Shared, Path(name): Path<String>, bytes: Bytes) -> Response {
+  let change: CategoryChange = match body(&bytes) {
+    Ok(c) => c,
+    Err(r) => return bad(r),
+  };
+  if [change.cap, change.cadence_minutes, change.gather_minutes]
+    .into_iter()
+    .flatten()
+    .any(|n| n < 1)
+  {
+    return bad("a category's numbers are 1 or more");
+  }
+  if change.gather_minutes.is_some()
+    && let Ok(category) = app.store.category(&name)
+    && category.shape != CategoryShape::Brief
+  {
+    return bad("only a brief category gathers");
+  }
+  answered(app.store.change_category(&name, &change), StatusCode::OK)
+}
+
+async fn delete_category(State(app): Shared, Path(name): Path<String>) -> Response {
+  match app.store.remove_category(&name) {
+    Ok(()) => StatusCode::NO_CONTENT.into_response(),
+    Err(refusal) => refused(refusal),
+  }
+}
+
+// recipients
+
+async fn list_recipients(State(app): Shared, Path(name): Path<String>) -> Response {
+  if let Err(refusal) = app.store.category(&name) {
+    return refused(refusal);
+  }
+  listed(app.store.recipients(&name).map(|items| Page { items, more: false }))
+}
+
+async fn create_recipient(State(app): Shared, Path(name): Path<String>, bytes: Bytes) -> Response {
+  let new: NewRecipient = match body(&bytes) {
+    Ok(r) => r,
+    Err(r) => return bad(r),
+  };
+  let agent = new.agent_name.as_deref().map(str::trim).filter(|a| !a.is_empty());
+  let added = match (new.kind, new.room_id, agent) {
+    (RecipientKind::Room, Some(room), None) => {
+      app.store.add_recipient(&name, RecipientKind::Room, Some(room), None, "added")
+    }
+    (RecipientKind::Agent, None, Some(agent)) => {
+      app.store.add_recipient(&name, RecipientKind::Agent, None, Some(agent), "added")
+    }
+    _ => return bad("a room names its roomId alone, an agent its agentName alone"),
+  };
+  answered(added, StatusCode::CREATED)
+}
+
+async fn delete_recipient(State(app): Shared, Path((name, id)): Path<(String, String)>) -> Response {
+  let id = match number(&id, "recipient") {
+    Ok(i) => i,
+    Err(r) => return bad(r),
+  };
+  match app.store.remove_recipient(&name, id) {
+    Ok(()) => StatusCode::NO_CONTENT.into_response(),
+    Err(refusal) => refused(refusal),
+  }
+}
+
+// sources
+
+async fn list_sources(State(app): Shared, Query(q): Queries) -> Response {
+  let (after, limit) = match (query_number(&q, "after"), limit(&q)) {
+    (Ok(a), Ok(l)) => (a, l),
+    (Err(r), _) | (_, Err(r)) => return bad(r),
+  };
+  listed(app.store.sources(q.get("categoryName").map(String::as_str), after, limit))
+}
+
+async fn create_source(State(app): Shared, bytes: Bytes) -> Response {
+  let new: NewSource = match body(&bytes) {
+    Ok(s) => s,
+    Err(r) => return bad(r),
+  };
+  let Some(kind) = SourceKind::parse(&new.kind) else {
+    let kinds: Vec<&str> = SourceKind::ALL.iter().map(|k| k.as_str()).collect();
+    return bad(format!("{} is no source kind; the kinds are {}", new.kind, kinds.join(", ")));
+  };
+  if kind.takes_query() && new.query.as_deref().is_none_or(|q| q.trim().is_empty()) {
+    return bad(format!("a {} source needs a query", new.kind));
+  }
+  if [new.every_minutes, new.limit].into_iter().flatten().any(|n| n < 1) {
+    return bad("a source's numbers are 1 or more");
+  }
+  let address = match new
+    .address
+    .clone()
+    .filter(|a| !a.trim().is_empty())
+    .or(kind.default_address().map(String::from))
+  {
+    Some(a) => a,
+    None => return bad(format!("a {} source needs an address", new.kind)),
+  };
+  answered(app.store.add_source(&new, &address, new.limit.unwrap_or(30)), StatusCode::CREATED)
+}
+
+async fn get_source(State(app): Shared, Path(id): Path<String>) -> Response {
+  match number(&id, "source") {
+    Ok(id) => answered(app.store.source(id), StatusCode::OK),
+    Err(r) => bad(r),
+  }
+}
+
+async fn patch_source(State(app): Shared, Path(id): Path<String>, bytes: Bytes) -> Response {
+  let (id, change) = match (number(&id, "source"), body::<SourceChange>(&bytes)) {
+    (Ok(i), Ok(c)) => (i, c),
+    (Err(r), _) | (_, Err(r)) => return bad(r),
+  };
+  if [change.every_minutes, change.limit].into_iter().flatten().any(|n| n < 1) {
+    return bad("a source's numbers are 1 or more");
+  }
+  answered(app.store.change_source(id, &change), StatusCode::OK)
+}
+
+async fn delete_source(State(app): Shared, Path(id): Path<String>) -> Response {
+  let id = match number(&id, "source") {
+    Ok(i) => i,
+    Err(r) => return bad(r),
+  };
+  match app.store.remove_source(id) {
+    Ok(()) => StatusCode::NO_CONTENT.into_response(),
+    Err(refusal) => refused(refusal),
+  }
+}
+
+// queue
+
+async fn list_queue(State(app): Shared, Query(q): Queries) -> Response {
+  let (after, limit) = match (query_number(&q, "after"), limit(&q)) {
+    (Ok(a), Ok(l)) => (a, l),
+    (Err(r), _) | (_, Err(r)) => return bad(r),
+  };
+  let mut states = Vec::new();
+  for word in q
+    .get("state")
+    .map(String::as_str)
+    .unwrap_or_default()
+    .split(',')
+    .filter(|w| !w.is_empty())
+  {
+    match ItemState::parse(word.trim()) {
+      Some(state) => states.push(state),
+      None => return bad(format!("{word} is no item state")),
+    }
+  }
+  listed(app.store.queue(q.get("categoryName").map(String::as_str), &states, after, limit))
+}
+
+async fn create_ask(State(app): Shared, bytes: Bytes) -> Response {
+  let ask: Ask = match body(&bytes) {
+    Ok(a) => a,
+    Err(r) => return bad(r),
+  };
+  let (name, address) = (ask.name.trim(), ask.address.trim());
+  if name.is_empty() || address.is_empty() {
+    return bad("an ask names the thing and its maker's address");
+  }
+  let category = match app.store.category(ask.category_name.as_deref().unwrap_or("it")) {
+    Ok(c) => c,
+    Err(refusal) => return refused(refusal),
+  };
+  let shape = match (category.shape, ask.shape) {
+    (CategoryShape::ManualOrInvestigation, Some(shape @ (Shape::Manual | Shape::Investigation))) => shape,
+    (_, Some(shape)) => {
+      return bad(format!("category {} does not take the shape {}", category.name, shape.as_str()));
+    }
+    (shape, None) => item_shape(shape, None),
+  };
+  answered(
+    app.store.ask(&category.name, &address_key(address), name, address, shape),
+    StatusCode::CREATED,
+  )
+}
+
+async fn get_item(State(app): Shared, Path(id): Path<String>) -> Response {
+  match number(&id, "item") {
+    Ok(id) => answered(app.store.item(id), StatusCode::OK),
+    Err(r) => bad(r),
+  }
+}
+
+async fn patch_item(State(app): Shared, Path(id): Path<String>, bytes: Bytes) -> Response {
+  let (id, change) = match (number(&id, "item"), body::<ItemChange>(&bytes)) {
+    (Ok(i), Ok(c)) => (i, c),
+    (Err(r), _) | (_, Err(r)) => return bad(r),
+  };
+  match (change.state, change.front) {
+    (Some(ItemState::Dismissed), None) => answered(app.store.dismiss(id), StatusCode::OK),
+    (Some(ItemState::Taken), None) => match change.job_item_id {
+      Some(job) => answered(app.store.take(id, job), StatusCode::OK),
+      None => bad("taken names the jobItemId the chat agent filed"),
+    },
+    (Some(state), None) => match app.store.item(id) {
+      Ok(_) => {
+        failure(StatusCode::CONFLICT, "conflict", format!("an item is not moved to {}", state.as_str()))
+      }
+      Err(refusal) => refused(refusal),
+    },
+    (None, Some(true)) => answered(app.store.front(id), StatusCode::OK),
+    _ => bad("a change names a state, dismissed or taken, or front"),
+  }
+}
+
+// runs
+
+async fn list_runs(State(app): Shared, Query(q): Queries) -> Response {
+  let (item, before, limit) = match (query_number(&q, "itemId"), query_number(&q, "before"), limit(&q)) {
+    (Ok(i), Ok(b), Ok(l)) => (i, b, l),
+    (Err(r), _, _) | (_, Err(r), _) | (_, _, Err(r)) => return bad(r),
+  };
+  listed(app.store.runs(item, q.get("categoryName").map(String::as_str), before, limit))
+}
+
+async fn get_run(State(app): Shared, Path(id): Path<String>) -> Response {
+  match number(&id, "run") {
+    Ok(id) => answered(app.store.run(id), StatusCode::OK),
+    Err(r) => bad(r),
+  }
+}
+
+// stack
+
+async fn list_stack(State(app): Shared) -> Response {
+  listed(app.store.stack().map(|items| Page { items, more: false }))
+}
+
+async fn create_stack_row(State(app): Shared, bytes: Bytes) -> Response {
+  let row: NewStackRow = match body(&bytes) {
+    Ok(r) => r,
+    Err(r) => return bad(r),
+  };
+  let named = |v: &Option<String>| v.as_deref().is_some_and(|v| !v.trim().is_empty());
+  if row.component.trim().is_empty() || !(named(&row.place) || named(&row.repository)) {
+    return bad("a stack row names its component and a place or a repository");
+  }
+  answered(app.store.add_stack_row(&row), StatusCode::CREATED)
+}
+
+async fn delete_stack_row(State(app): Shared, Path(id): Path<String>) -> Response {
+  let id = match number(&id, "stack row") {
+    Ok(i) => i,
+    Err(r) => return bad(r),
+  };
+  match app.store.remove_stack_row(id) {
+    Ok(()) => StatusCode::NO_CONTENT.into_response(),
+    Err(refusal) => refused(refusal),
+  }
+}
+
+// facts
+
+async fn list_facts(State(app): Shared, Query(q): Queries) -> Response {
+  let (before, limit) = match (query_number(&q, "before"), limit(&q)) {
+    (Ok(b), Ok(l)) => (b, l),
+    (Err(r), _) | (_, Err(r)) => return bad(r),
+  };
+  listed(app.store.facts(q.get("name").map(String::as_str), before, limit))
+}
