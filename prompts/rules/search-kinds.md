@@ -265,9 +265,9 @@ The request's options may give any of these; one not given is decided from the q
 - **Look at the site tools before the first query.** The task lists them: one per site the same
   kind of value is read from again and again, a rate, a spot price, a listing. Where one covers
   what is asked, it is the answer and no search is run for that value.
-- **A broken tool is repaired, not abandoned.** Sites change shape under their readings. Say so in
-  `UNCONFIRMED:` with what the tool answered, get that one value with the web tools for this
-  answer, and never take a broken tool as a reason to go back to searching for that value every
-  time.
+- **A broken tool is repaired, not abandoned.** Sites change shape under their readings. Get that
+  one value with the web tools for this answer, write nothing of what the tool answered into the
+  result (the task's rule on a tool's answers about itself), and never take a broken tool as a
+  reason to go back to searching for that value every time.
 - **A search asks for no new tool.** A site no tool covers is read with the web tools, and what
   could not be read is said in `UNCONFIRMED:`; a tool is made only where the owner asks for one.
