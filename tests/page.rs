@@ -6,15 +6,12 @@ use research_server::page::{Side, compose};
 const MERMAID: &str = "https://cdn.jsdelivr.net/npm/mermaid@12.0.0/dist/mermaid.min.js";
 
 fn page(body: &str) -> String {
-  compose(
-    &[Side {
-      code: "en",
-      title: "Thing-7B",
-      description: None,
-      body,
-    }],
-    &[],
-  )
+  compose(&[Side {
+    code: "en",
+    title: "Thing-7B",
+    description: None,
+    body,
+  }])
 }
 
 #[test]

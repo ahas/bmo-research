@@ -33,17 +33,16 @@ prompt does. Read it first; where the answer is no, none of what follows applies
 
 - **What a product result is made of**, in this order:
   1. the head, as every result has it;
-  2. `VERDICT:`: the pick, set out below, before anything else;
-  3. `SUMMARY:`: the three-line summary, set out below;
-  4. the comparison table, directly under the summary with no section line of its own;
-  5. `SECTION: New products and prices`: the product line's news, set out in 「The product line's news」;
-  6. one entry per candidate, between `===ITEM===` lines, each opening with `NAME:`;
-  7. `UNCONFIRMED:`: what could not be checked.
-- **The verdict, the summary, the news section and what could not be confirmed are never left
-  out**, whatever else is.
+  2. `VERDICT:`: the pick and the candidates' criteria, set out below, before anything else;
+  3. the comparison table, directly under the verdict with no section line of its own;
+  4. `SECTION: New products and prices`: the product line's news, set out in 「The product line's news」;
+  5. one entry per candidate, between `===ITEM===` lines, each opening with `NAME:`;
+  6. `UNCONFIRMED:`: what could not be checked.
+- **The verdict, the news section and what could not be confirmed are never left out**, whatever
+  else is.
 - A one-product question (what does this cost, is this still sold) is a brief result like any
   one-value question, with no entries, no table and no section. Its line's news is searched all the
-  same, and a successor or an announced price change found is a summary line of its own.
+  same, and a successor or an announced price change found is a line of its own in the verdict.
 
 ## What every candidate's entry carries
 
@@ -258,7 +257,7 @@ Before writing the answer, check two things:
 
 ## Pictures, tables and reviews
 
-- **A comparison is a table**, standing under the summary with no section line of its own: the
+- **A comparison is a table**, standing under the verdict with no section line of its own: the
   candidates as rows; as columns the price, the landed price, the delivery time, the selling
   state, the release date and the deciding specs, each price and state with its as-of time and an
   unchecked cell reading unchecked.
@@ -280,13 +279,13 @@ Before writing the answer, check two things:
 
 ## The shape of the final recommendation
 
-- **The summary sets the candidates on different criteria**, one line each, as `search-kinds.md`
-  sets it for every comparison: each line names the candidate best on one criterion, and
+- **The verdict sets the candidates on different criteria** after the pick, one line each, as
+  `search-kinds.md` sets it for every comparison: each line names the candidate best on one criterion, and
   no two lines share a criterion. The criteria are those that actually divide these candidates:
   what they cost, what they do, what buyers actually chose, or whatever else splits them. First, second
   and third place on one criterion is not written.
 - A product search answer still chooses one. An answer listing candidates without choosing has not
-  answered the question: the pick stands first, under `VERDICT:` above the summary, and holds
+  answered the question: the pick stands first, under `VERDICT:` above those lines, and holds
   three things:
   - **Where to buy**: the seller's name: where the payment is actually made, not a comparison site.
   - **What it costs**: the price until it is in hand. Overseas, the won price with rate, shipping

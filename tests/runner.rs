@@ -1,7 +1,8 @@
 //! The research runner against stand-in agency, artifact, receiver and tool host servers (`docs/runner.md`,
 //! `docs/api.md`, 「research runs」 and 「research settings」): a run end to end — its seat, its session's start
 //! with its record and capabilities, its first turn, its rounds, its filing and its room's instruction — a run
-//! agency refuses, the branches and their allowance, and the settings' round trip.
+//! agency refuses, the branches and their allowance, the settings' round trip, and a summary a result still
+//! writes folded into its document's answer.
 
 mod support;
 
@@ -9,6 +10,7 @@ use std::time::Duration;
 
 use bmo_research_client::*;
 use reqwest::StatusCode;
+use research_server::document::draw;
 use research_server::store::{NewResearchRun, now_ms};
 use research_server::words;
 use serde_json::{Value, json};
@@ -487,4 +489,37 @@ async fn the_research_settings_are_read_changed_and_refused_where_they_do_not_st
       "{body}"
     );
   }
+}
+
+#[test]
+fn a_summary_a_result_still_writes_is_folded_into_the_answer() {
+  let words = words::search_document("en");
+  let answer = format!("## {}", words.answer);
+
+  let drawn = draw(
+    "TITLE: Pick\nTOPIC: What to buy\n\nVERDICT:\nBuy the B.\n\nSUMMARY:\n1. It is the cheapest.\n2. It ships \
+     today.\n\nSECTION: Prices\nThe B costs less.\n\nUNCONFIRMED:\n1. Nothing.\n",
+    words,
+  );
+  let body = &drawn.body;
+  let (opened, prices) = (body.find(&answer).unwrap(), body.find("## Prices").unwrap());
+  let held = &body[opened..prices];
+  assert!(
+    held.contains("Buy the B.")
+      && held.contains("1. It is the cheapest.")
+      && held.contains("2. It ships today."),
+    "the summary stands in the answer's text: {body}"
+  );
+  assert_eq!(body.matches("## ").count(), 3, "no heading of its own: {body}");
+  assert!(!body.contains("SUMMARY"), "{body}");
+
+  let drawn = draw(
+    "TITLE: Rate\nTOPIC: The rate\n\nSUMMARY:\n1. 1.25 as of today.\n\nSECTION: Grounds\nRead twice.\n",
+    words,
+  );
+  assert!(
+    drawn.body.starts_with(&format!("{answer}\n\n1. 1.25 as of today.")),
+    "with no verdict the summary is the answer: {}",
+    drawn.body
+  );
 }

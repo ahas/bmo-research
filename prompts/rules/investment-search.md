@@ -212,16 +212,15 @@ their own section on top of the views.
 
 ## The shape of the answer
 
-- **The recommendation stands above everything, the summary included.** It is the result's
-  `VERDICT:` part, the answer the task puts ahead of the summary, and it is what was asked for:
+- **The recommendation stands above everything.** It is the result's `VERDICT:` part, the answer
+  the task puts first, and it is what was asked for:
   - **short-term trading**: what to trade short term: the name or product with its code, buy or sell, entry, stop-loss,
     take-profit;
   - **long-term investing**: what to hold long term, the same way;
   - **by strategy**: for each strategy frame, what it trades now.
   It is one table, a row to a trade, with no grounds in it: everything after it is why.
-- **The summary comes second** and summarises the document: the one strategy each view would take
-  now and why, the pick's strongest ground, and the one figure whose change would turn the
-  judgement.
+- **Under the table, still in the verdict,** one short paragraph: the pick's strongest ground and
+  the one figure whose change would turn the judgement.
 - **Then the grounds, one table to a section,** each under a `SECTION:` line named for what it
   holds:
   - the market figures, as rows of figure, value, date;

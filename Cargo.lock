@@ -169,7 +169,7 @@ checksum = "3ded4057c258ba199e2d26386d3af3780957ecaee6c4ef4041c6b4b8b97c0b06"
 
 [[package]]
 name = "bmo-research-client"
-version = "0.1.0-rev.9"
+version = "0.1.0-rev.10"
 dependencies = [
  "reqwest",
  "schemars",
@@ -1501,7 +1501,7 @@ dependencies = [
 
 [[package]]
 name = "research-checks"
-version = "0.1.0-rev.9"
+version = "0.1.0-rev.10"
 dependencies = [
  "axum",
  "base64",
@@ -1518,7 +1518,7 @@ dependencies = [
 
 [[package]]
 name = "research-server"
-version = "0.1.0-rev.9"
+version = "0.1.0-rev.10"
 dependencies = [
  "axum",
  "base64",
@@ -1549,7 +1549,7 @@ dependencies = [
 
 [[package]]
 name = "research-tool"
-version = "0.1.0-rev.9"
+version = "0.1.0-rev.10"
 dependencies = [
  "bmo-research-client",
  "serde",

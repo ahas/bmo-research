@@ -56,7 +56,7 @@
      comparison the answer rests on, and is named in UNCONFIRMED with what was missing. A
      leaderboard, an index or an aggregator naming a model by its family is no exception: the
      model is pinned from that site's own model page or the figure is marked so, and this holds in
-     the VERDICT and the summary as much as in a table.
+     the VERDICT as much as in a table.
    - **Whether a later dated release of the same name exists is checked**, as for a product, and the
      newest is named with its date.
 4. **Law, regulation and tax.**
@@ -179,10 +179,11 @@ The request's options may give any of these; one not given is decided from the q
 2. **Region and language**: domestic material first, or overseas material too.
 3. **Excluded sources**: advertising blogs or named sites left out.
 4. **Result shape**: one of four:
-   - **brief**: the head, the numbered summary and what could not be confirmed, nothing else.
+   - **brief**: the head, the verdict with the value, its grounds and what could not be confirmed,
+     nothing else.
    - **table**: the full document with the comparison as a table.
-   - **full**: the whole document: the verdict, the summary, the body in the shape the question
-     asks for, and what could not be confirmed.
+   - **full**: the whole document: the verdict, the body in the shape the question asks for, and
+     what could not be confirmed.
    - **learning**: study material, in the shape `study-material.md` sets.
 
 ## The shape of the body
@@ -190,48 +191,36 @@ The request's options may give any of these; one not given is decided from the q
 - **Every document has the contents that fit it**; none borrows another's outline. This section
   is the shape of a search's answer; study material is its own kind, shaped wholly by
   `study-material.md`, and nothing here binds it.
-- **Three places are fixed and the middle is not.** Every result with a body opens with the
-  verdict, then the three-line summary, and closes with what could not be confirmed. What stands between is the question's,
+- **Two places are fixed and the middle is not.** Every result with a body opens with the
+  verdict and closes with what could not be confirmed. What stands between is the question's,
   and no part is required: no introduction and no conclusion, since what was asked is the head's `TOPIC:` and
   the answer is the verdict.
 
 ### The verdict (core answer)
 
-- **The answer comes before the summary.** A summary sums up a document; what was asked for is
-  read before any document, so it stands first, under `VERDICT:`, above `SUMMARY:`.
+- **The answer comes first.** What was asked for is read before any document, so it stands alone
+  right under the head, under `VERDICT:`, and the sections follow it. Nothing restates it in a list of
+  its own.
 - **It is the answer itself:** what to buy, where and at what cost, which one, the pick for each
   case the question splits into, the conclusion, the value.
   - One line per pick, numbered, or one small table where several picks share the same few
     columns.
   - No grounds beyond the one line a kind's rulebook asks of a pick: why a pick wins belongs
-    to the summary and the sections.
+    to the sections.
+- **It carries what the answer cannot be read without**, in its own lines: the one thing to know
+  first where the answer is unreadable without its setting, the conditions that narrow it where it
+  holds only under them (when, for whom, at what cost).
+- **A comparison's verdict sets the candidates on different criteria** after its pick, one line
+  each: the best on one criterion, then the best on another (what it costs, what it does, what the
+  market actually chose, whatever really divides that search). The search names its own criteria,
+  and no two lines share a criterion. First, second and third place on one criterion is one line
+  split three ways, and is not written.
 - **A kind's own rulebook fills it** where it sets what the answer is: the product pick, the
   places to go, the trades to make.
 - **It is what the room is answered from first:** the chat agent opens its answer with it, under the
   document's link where it gives one.
-- **Not every result has one.** A brief result is the value on its summary line, which is already
-  the answer; study material answers nothing and has neither.
-
-### The three-line summary
-
-- **Pick the form the answer fits**, one of three:
-  - background, fact, verdict: the one thing to know first, what was found, and what it comes
-    to, for an answer unreadable without its setting;
-  - the answer, then the two conditions that narrow it: the two things deciding when it holds,
-    for whom, or at what cost, for an answer right only under conditions;
-  - three important facts: only where the search really returned three facts side by side, none
-    the answer to the others, which is rare and never the default, never the form taken because
-    nothing else came to mind.
-- **Three lines is the aim, not a quota.** A fourth line where one more axis of its own stands
-  beside the three; two, or one, where anything more would repeat. A line restating another, or only
-  making the count, is not written.
-- **A comparison sets its candidates on different criteria**, one line each: the best on one
-  criterion, then the best on another (what it costs, what it does, what the market actually
-  chose, whatever really divides that search). The search names its own criteria, and
-  no two lines share a criterion. First, second and third place on one criterion is one line
-  split three ways, and is not written.
-- **It stands under the verdict and does not repeat it.** It says what the document found around
-  the answer: what it rests on, when it holds, how the candidates divide.
+- **Study material has none;** it answers nothing. A brief result's verdict is the value with its
+  as-of time.
 
 ### The middle
 
@@ -244,7 +233,7 @@ The request's options may give any of these; one not given is decided from the q
 - **A section is named for what it holds.** Each opens with `SECTION: <its name>`, the name saying
   what stands in it: the dispute so far, what the maker says, how the options divide. Never a
   generic word like body, background or conclusion standing for any content.
-- **A single table or a single set needs no section line**; it stands under the summary as is.
+- **A single table or a single set needs no section line**; it stands under the verdict as is.
 - **Figures that are compared or that move are drawn as a chart** as well as tabled: values set
   against each other across the candidates, a price, rate or count over time, the shares of a
   whole.
@@ -264,10 +253,9 @@ The request's options may give any of these; one not given is decided from the q
 - **Every result leaves its document, a brief one too.** The room hears the answer in a line or two
   and is handed the document's link; the grounds and the sources stand in the document, where anyone
   can later ask which page a value came from, and never in the chat.
-- **Its shape:** the head, `SUMMARY:` with the value and its as-of time, `SECTION: Grounds` with a
+- **Its shape:** the head, `VERDICT:` with the value and its as-of time, `SECTION: Grounds` with a
   few lines on what the value rests on and how it was checked against a second source, the
-  `SOURCE` lines that close it, and `UNCONFIRMED:`. No `VERDICT:`: the value on the summary line is
-  the answer.
+  `SOURCE` lines that close it, and `UNCONFIRMED:`.
 - **It is the same cut as the brief shape.** Options asking for the brief shape ask for this result
   whatever the question; a question with more in it than one value takes the body the rest of this
   rulebook sets.

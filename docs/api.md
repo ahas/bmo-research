@@ -325,7 +325,8 @@ the one to read.
   cut run's try; one without puts its items back `waiting`.
 - **A filed document's page is finished** before it is told (「The page」): its items are filed `reported` or
   `fit` first, read from the run's result as the ledger keeps it (`written`, drawn as the runner drew it), then
-  the Korean side and the narration are asked and the page drawn again, then the recipients are told.
+  the Korean side and the narration are asked, the page drawn again with the Korean side, then the
+  recipients are told.
 
 ### The bench
 
@@ -393,7 +394,7 @@ search runner applies it, and the run writes its document in English, the questi
 ### The page
 
 - **One document holds both languages:** the page the runner filed in English (`docs/runner.md`, 「The page」)
-  is drawn again with the Korean side first and the narration's sounds, and set with the artifact service's
+  is drawn again with the Korean side first once that side is had, and set with the artifact service's
   `PATCH /documents/{id}`: `title` the Korean title where the Korean side is had, `html` the page, and
   `labels` the run's document's labels with `languages` naming the languages the page holds, comma-separated.
   Every item the document was filed for keeps the languages as `languages` and the narrations as `narrations`.
@@ -428,10 +429,11 @@ search runner applies it, and the run writes its document in English, the questi
   narration, to be translated in short sentences, its figures written as they are read aloud and model and
   product names kept. Each is spoken by the voice unit (「Calls this unit makes」) in the settings' voice and
   attached to the document with `POST /documents/{id}/attachments`: the Korean sound as `narration-ko.ogg`
-  with `role` `head`, the English as `narration-en.ogg` with no role. A sound already attached is read back
-  from the archive when the page is drawn again.
+  with `role` `head`, the English as `narration-en.ogg` with no role. The sounds are the document's
+  attachments and nothing of the page: the archive's reader plays them above it, and the page draws no
+  player. A sound already attached is not made again, and a sound made leaves the page as it is.
 - **A narration that cannot be made** — no script, no voice, a translation refused, a synthesis failed —
-  leaves the page without that sound and the notice says nothing of it; a missing sound is asked once more,
+  leaves the document without that sound and the notice says nothing of it; a missing sound is asked once more,
   on the retry wait.
 - **What is pending is asked again** on the retry wait, `retry_minutes` after its last try, while its item
   stands `reported`, `fit` or `taken`: the Korean side until `retries` retries are spent, after which the
@@ -545,9 +547,9 @@ of these units, and reads each one's address and token from that unit's own file
   (`docs/sources.md`); `POST /documents`, a run's document, `html` for a deep dive's page;
   `POST /documents/{documentId}/attachments` with `name`, `mediaType`, `content` (base64) and, for the Korean
   narration, `role` `head`, a picture of a run's document or a narration's sound;
-  `GET /documents/{documentId}/attachments` and `GET /documents/{documentId}/attachments/{attachmentId}`, a
-  narration's sound read back; `PATCH /documents/{documentId}` with `body` and `labels` once a room's
-  document's pictures are kept, or with `title`, `html` and `labels` as a page is drawn again;
+  `GET /documents/{documentId}/attachments`, whether a narration's sound is already attached;
+  `PATCH /documents/{documentId}` with `body` and `labels` once a room's document's pictures are kept, or with
+  `title`, `html` and `labels` as a page is drawn again;
   `GET /shares?documentId=<documentId>` and `POST /shares` with `documentId` and, for a run's document,
   `expiresAt` a day ahead, its live link.
 - **the voice unit:** at the address and with the token its own settings file under `env/` names

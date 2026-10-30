@@ -1144,7 +1144,7 @@ fn block(result: &str, opener: &str) -> Option<String> {
   Some(text.join("\n").trim().to_owned()).filter(|text| !text.is_empty())
 }
 
-/// The answer in brief a result gives the room: its verdict, else its summary, else its title.
+/// The answer in brief a result gives the room: its verdict, else a summary it still writes, else its title.
 pub fn brief_of(result: &str) -> Option<String> {
   block(result, "VERDICT:")
     .or_else(|| block(result, "SUMMARY:"))

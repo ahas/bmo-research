@@ -96,7 +96,7 @@
 
 ## The investigation
 
-- **Its sections, in this order,** the verdict and the summary above them as every result has:
+- **Its sections, in this order,** the verdict above them as every result has:
   - `지금 결론` — the verdict, one paragraph, under `VERDICT:`.
   - `조사 시각` — the line above.
   - `처음 → 무엇이 틀려서 → 다음 → 지금` — how the matter came about, dated: what was first said,

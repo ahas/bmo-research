@@ -28,8 +28,8 @@
 
 ## The shape of the body
 
-- **The verdict is the day in one line:** what moved and why, in the owner's language.
-- **The three-line summary:** the three things that matter most, each with its figure.
+- **The verdict is the day in one short paragraph,** in the owner's language: what moved and why,
+  then the three things that matter most, each with its figure.
 - **The middle:**
   1. `오늘의 항목` — one short section per item handed: what happened in two to four lines, the figure or
      figures it carries with their as-of date, and what it may mean, said as a reading and marked as one.

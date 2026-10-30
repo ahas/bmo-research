@@ -268,7 +268,7 @@ fn result_of(world: &World, run: i64) -> String {
     Some(doc) => format!("TITLE: {}\nTOPIC: {}\n\n{}", doc.title, doc.description, doc.content),
     None => format!(
       "ANSWERED: yes :: the run\nTITLE: Research {run}\nTOPIC: What run {run} found\n\nVERDICT:\nRun {run} \
-       answered.\n\nSUMMARY:\n1. It answered.\n\nUNCONFIRMED:\n1. Nothing.\nSOURCE [1]: https://example.org/{run} :: the answer\n"
+       answered.\n\nUNCONFIRMED:\n1. Nothing.\nSOURCE [1]: https://example.org/{run} :: the answer\n"
     ),
   }
 }

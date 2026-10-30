@@ -33,10 +33,10 @@
 
 ## The shape of the body
 
-- **The verdict is the exposure in one line:** `노출` with the hosts or repositories touched, `노출 아님`
-  with the reason (the version run is fixed, the component is not run, the flawed feature is off), or
-  `미확인` with what the inventory lacks.
-- **The three-line summary:** the flaw in one line, the fix in one line, what the platform does next.
+- **The verdict is one short paragraph:** the exposure first, `노출` with the hosts or repositories
+  touched, `노출 아님` with the reason (the version run is fixed, the component is not run, the flawed
+  feature is off), or `미확인` with what the inventory lacks; then the flaw in a sentence, the fix in a
+  sentence and what the platform does next. It is prose, not a list.
 - **The middle, in this order,** each a section:
   1. `취약점` — the identifier, the component and the affected versions as the advisory states them, the
      severity the vendor gives with its scale named, and the one line of how it is reached.

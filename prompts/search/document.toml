@@ -4,8 +4,6 @@
 
 [ko]
 answer = "핵심 답"
-brief_answer = "답"
-summary = "세 줄 요약"
 grounds = "근거"
 unconfirmed = "확인하지 못한 것"
 sources = "출처"
@@ -22,8 +20,6 @@ news = "신제품·가격 소식"
 
 [en]
 answer = "The answer"
-brief_answer = "The answer"
-summary = "In three lines"
 grounds = "Grounds"
 unconfirmed = "Not confirmed"
 sources = "Sources"

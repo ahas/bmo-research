@@ -136,15 +136,16 @@ of a run is this unit's.
     The `ANSWERED:` line is the run's own and stands nowhere.
   - **its body:** each block a section under a heading in the question's language, the words of
     `prompts/search/document.toml` (Korean where the question holds Hangul, English otherwise): the verdict
-    under the answer, the summary under the summary (under the answer on a brief result), each `SECTION:` under
-    its own name, the unconfirmed list, and the sources last, one link a line, titled by what each supports. A
-    set's entries stand as sections of their own; a menu as its own list.
+    under the answer, a `SUMMARY:` block a result still writes folded into the answer's text (the answer itself
+    where it writes no verdict), each `SECTION:` under its own name, the unconfirmed list, and the sources
+    last, one link a line, titled by what each supports. A set's entries stand as sections of their own; a menu
+    as its own list.
   - **its pictures:** every `IMAGE:` line's picture fetched by a guarded direct fetch — every hop's host a
     public address, at most three redirects, an image type, at most 15 MB — at most twelve within forty seconds,
     attached under a name of its own (`POST /documents/{id}/attachments`), and the body set again with
     `PATCH /documents/{id}`; a picture not kept is drawn from its address.
   - **the narration:** a `LISTEN:` script is lifted out of the body. A run told to its room files it nowhere;
-    the deep dive's page is given it as sound (「The deep dive's page」).
+    the deep dive's document is given it as sound, attached beside its page (「The deep dive's page」).
 
 ## The narration
 
@@ -157,7 +158,7 @@ of a run is this unit's.
 - **That turn's text is the script,** a `LISTEN:` line it wrote itself dropped, set after the result under a
   `LISTEN:` line of its own; the result with it is the run's result and what the ledger keeps as `written`.
   Only then is the result held to its shape and filed.
-- **A narration turn that writes nothing,** or fails, leaves the result as it stands, and the page has no
+- **A narration turn that writes nothing,** or fails, leaves the result as it stands, and the document has no
   sound. Where the rounds' session never started, the first answer stands without one. A run told to a room
   is asked no narration.
 
@@ -178,9 +179,9 @@ daemon finishes, held first to the shape the deep dive asked for.
 - **It is filed as a page,** `kind` `page`, its `html` the page drawn in English alone (「The page」), its head
   and labels as a room's document's are, with the label `languages` `en`; its pictures are kept beside it as a
   room's document's are, and the page draws every picture from its address.
-- **The daemon finishes it** (`docs/api.md`, 「The page」): the Korean side, the narration, and the page drawn
-  again with both and set with `PATCH /documents/{id}`. The result stays in the ledger as `written`, which the
-  daemon draws the page from again.
+- **The daemon finishes it** (`docs/api.md`, 「The page」): the Korean side, with the page drawn again with
+  both languages and set with `PATCH /documents/{id}`, and the narration's sounds attached beside it. The
+  result stays in the ledger as `written`, which the daemon draws the page from again.
 
 ## The page
 
@@ -189,14 +190,12 @@ daemon finishes, held first to the shape the deep dive asked for.
   with any raw HTML the result wrote shown as text.
 - **The head** is the archive design's masthead: a `header` opening the body with, where the page holds two
   languages, a small switch above the title naming each language in its own words (`prompts/page.toml`),
-  Korean pressed first. Pressing a language shows its side, hides the other and pauses a sound playing there.
-  The switch is plain inline script and style, the style marked `data-archive` and drawn in the design's
-  colour variables, so the page reads in the light and the dark scheme alike.
-- **The listen band** stands under the head where the page holds a narration: the line saying it is to be
-  heard while reading, in each language, and an audio player per sound, each sound written into the page as
-  a data address, since a page loads nothing but what it carries or reaches over https. Where both a Korean
-  and an English sound stand, the switch picks the player of its language; where one stands, it plays in
-  both.
+  Korean pressed first. Pressing a language shows its side and hides the other. The switch is plain inline
+  script and style, the style marked `data-archive` and drawn in the design's colour variables, so the page
+  reads in the light and the dark scheme alike.
+- **The page draws no player.** The narration's sounds are the document's attachments (`docs/api.md`, 「The
+  page」): the archive's reader draws the listen band above the page and plays them there. The page itself
+  carries no sound, and its switch is tied to no player.
 - **Diagrams** are a body's fenced `mermaid` blocks, each written as a `pre` of the class `mermaid` with its
   text escaped, and drawn by the page itself: Mermaid, at the exact version the archive's reader draws with,
   loaded once over https and started on the page's load, strict, in the dark theme under a dark colour scheme
@@ -208,9 +207,9 @@ daemon finishes, held first to the shape the deep dive asked for.
 - **The room is told through the receiver's `POST /instructions`,** as a `notice` under the kind
   `research-ended:<run>`; a run that names no room is sent with none, and the receiver hands it the owner's
   private room.
-- **A filed result** is told as the answer in brief — the verdict, else the summary, else the title — and the
-  one link, with the shape the chat agent answers in: one or two short lines in the owner's language and its
-  own voice, then the link, and no grounds, sources or document text in the chat.
+- **A filed result** is told as the answer in brief — the verdict, else a `SUMMARY:` block it still writes,
+  else the title — and the one link, with the shape the chat agent answers in: one or two short lines in the
+  owner's language and its own voice, then the link, and no grounds, sources or document text in the chat.
 - **A result that could not be filed** is told whole; **a run with no answer** is told what it could not do;
   **a cut run** hands what it had written as unfinished, or one line saying the work was cut off.
 - **A run the daemon asks for its own deep dive tells no room:** the dive's notices are its report

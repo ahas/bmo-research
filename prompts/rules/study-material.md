@@ -17,8 +17,7 @@
 
 - **The head says so.** `KIND: learning` stands in the head beside `TITLE:`, `TOPIC:` and
   `KEYWORDS:`. The title names the material as a book is named, never the request restated.
-- **No summary.** No `VERDICT:`, no `SUMMARY:` and no three-line summary: study material is read through,
-  not answered from. The contents are what a reader takes in first.
+- **No verdict.** No `VERDICT:`: study material is read through, not answered from. The contents are what a reader takes in first.
 
 ## The levels and the frame
 

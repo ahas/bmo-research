@@ -168,15 +168,14 @@ pub fn translation() -> &'static TranslationWords {
   &WORDS
 }
 
-/// The words one language of a deep dive's page is drawn with: its code, its name on the switch, what the
-/// switch is called and the listen band's line.
+/// The words one language of a deep dive's page is drawn with: its code, its name on the switch and what the
+/// switch is called.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PageLanguage {
   pub code: String,
   pub name: String,
   pub switch: String,
-  pub listen: String,
 }
 
 /// The title a page falls back on, by shape, in one language.
@@ -279,8 +278,6 @@ pub fn rulebook(name: &str) -> Result<&'static str, String> {
 #[serde(deny_unknown_fields)]
 pub struct SearchDocumentWords {
   pub answer: String,
-  pub brief_answer: String,
-  pub summary: String,
   pub grounds: String,
   pub unconfirmed: String,
   pub sources: String,

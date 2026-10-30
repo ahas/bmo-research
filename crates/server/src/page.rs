@@ -1,9 +1,9 @@
 //! A deep dive's page (`docs/runner.md`, 「The page」): every language its document holds drawn into one HTML
-//! page on the archive's design, Korean first, a switch between them where it holds two, and the listen band
-//! playing the narration of the language shown. The markdown is written as HTML by `pulldown-cmark`, any raw
-//! HTML a result wrote stands as text, and a fenced `mermaid` block is a diagram the page draws with Mermaid.
+//! page on the archive's design, Korean first, and a switch between them where it holds two. The page draws no
+//! player: the narration's sounds are the document's attachments, which the archive's reader plays. The
+//! markdown is written as HTML by `pulldown-cmark`, any raw HTML a result wrote stands as text, and a fenced
+//! `mermaid` block is a diagram the page draws with Mermaid.
 
-use base64::Engine;
 use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd, html};
 
 use crate::words;
@@ -17,14 +17,6 @@ pub struct Side<'a> {
   pub body: &'a str,
 }
 
-/// A narration's sound: the language it speaks, its media type and its bytes.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Sound {
-  pub code: String,
-  pub media_type: String,
-  pub bytes: Vec<u8>,
-}
-
 // The switch's look, an addition to the archive's design drawn in its colour variables, so it follows the
 // reader's scheme.
 const SWITCH_STYLE: &str = ".switch{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;margin:0 0 12px;\
@@ -33,14 +25,12 @@ var(--doc-rule);border-radius:999px;background:var(--doc-surface);color:var(--do
 .switch button[aria-pressed=\"true\"]{border-color:var(--doc-accent);background:var(--doc-accent-soft);\
 color:var(--doc-accent);font-weight:600}";
 
-// The switch's behaviour: the language pressed shown, the other hidden, and a sound playing there paused.
+// The switch's behaviour: the language pressed shown and the other hidden.
 const SWITCH_SCRIPT: &str = "(function(){var root=document.documentElement;\
 var buttons=document.querySelectorAll(\".switch button\");\
 function show(code){root.setAttribute(\"data-shown\",code);root.setAttribute(\"lang\",code);\
 for(var i=0;i<buttons.length;i++){buttons[i].setAttribute(\"aria-pressed\",\
-String(buttons[i].getAttribute(\"data-show\")===code));}\
-var sounds=document.querySelectorAll(\"audio[data-language]\");\
-for(var j=0;j<sounds.length;j++){if(sounds[j].getAttribute(\"data-language\")!==code){sounds[j].pause();}}}\
+String(buttons[i].getAttribute(\"data-show\")===code));}}\
 for(var k=0;k<buttons.length;k++){buttons[k].addEventListener(\"click\",function(event){\
 show(event.currentTarget.getAttribute(\"data-show\"));});}})();";
 
@@ -93,28 +83,8 @@ pub fn body_html(markdown: &str) -> String {
   out
 }
 
-/// The sounds a page plays and whether each is tied to its language: where the page holds two languages and
-/// both have a sound, each plays under its own; otherwise the one of the page's first language, else any one,
-/// plays under every language.
-fn playing<'a>(sides: &[Side<'_>], sounds: &'a [Sound]) -> Vec<(&'a Sound, bool)> {
-  let held: Vec<&Sound> =
-    sounds.iter().filter(|sound| sides.iter().any(|side| side.code == sound.code)).collect();
-  if sides.len() > 1 && held.len() == sides.len() {
-    return held.into_iter().map(|sound| (sound, true)).collect();
-  }
-  let first = sides.first().map(|side| side.code).unwrap_or_default();
-  held
-    .iter()
-    .find(|sound| sound.code == first)
-    .or_else(|| held.first())
-    .copied()
-    .or_else(|| sounds.first())
-    .map(|sound| vec![(sound, false)])
-    .unwrap_or_default()
-}
-
-/// The page: every side in the order given, the first shown first, and the narration's sounds.
-pub fn compose(sides: &[Side<'_>], sounds: &[Sound]) -> String {
+/// The page: every side in the order given, the first shown first.
+pub fn compose(sides: &[Side<'_>]) -> String {
   let words = words::page();
   let Some(first) = sides.first() else {
     return String::new();
@@ -181,28 +151,6 @@ pub fn compose(sides: &[Side<'_>], sounds: &[Sound]) -> String {
     }
   }
   page.push_str("</header>\n");
-  let played = playing(sides, sounds);
-  if !played.is_empty() {
-    page.push_str("<div class=\"listen\">\n");
-    for side in sides {
-      if let Some(language) = words.language(side.code) {
-        page.push_str(&format!("<p{}>{}</p>\n", mark(side.code), escaped(&language.listen)));
-      }
-    }
-    for (sound, tied) in played {
-      let tie = if tied {
-        format!(" data-language=\"{}\"", escaped(&sound.code))
-      } else {
-        String::new()
-      };
-      page.push_str(&format!(
-        "<audio controls preload=\"metadata\"{tie} src=\"data:{};base64,{}\"></audio>\n",
-        escaped(&sound.media_type),
-        base64::engine::general_purpose::STANDARD.encode(&sound.bytes)
-      ));
-    }
-    page.push_str("</div>\n");
-  }
   let mut diagrams = false;
   for side in sides {
     let body = body_html(side.body);

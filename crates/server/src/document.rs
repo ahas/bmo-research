@@ -103,7 +103,7 @@ pub fn draw(result: &str, words: &Words) -> Drawn {
   let mut sources: Vec<(String, String, String)> = Vec::new();
   let mut narration: Vec<String> = Vec::new();
   let mut mode = Mode::Body;
-  let brief = !result.lines().any(|line| line.trim() == "VERDICT:");
+  let mut answered = false;
   let heading = |body: &mut Vec<String>, text: &str| {
     body.push(String::new());
     body.push(format!("## {text}"));
@@ -142,10 +142,15 @@ pub fn draw(result: &str, words: &Words) -> Drawn {
     } else if after(trimmed, "ANSWERED:").is_some() || after(trimmed, "DOCUMENT:").is_some() {
     } else if trimmed == "LISTEN:" {
       mode = Mode::Narration;
-    } else if trimmed == "VERDICT:" {
-      heading(&mut body, &words.answer);
-    } else if trimmed == "SUMMARY:" {
-      heading(&mut body, if brief { &words.brief_answer } else { &words.summary });
+    } else if trimmed == "VERDICT:" || trimmed == "SUMMARY:" {
+      // A summary a result still writes is the answer's text where it stands, and the answer itself where no
+      // verdict came before it.
+      if answered {
+        body.push(String::new());
+      } else {
+        heading(&mut body, &words.answer);
+        answered = true;
+      }
     } else if let Some(name) = after(trimmed, "SECTION:") {
       let grounds = name.eq_ignore_ascii_case("grounds") || name == words.grounds;
       // The product rulebook names its news section in English, the one name a result writes as it stands.
@@ -471,15 +476,12 @@ pub fn page_body(drawn: &Drawn, title: &str) -> String {
 /// head and its labels as a room's document's, with the languages it holds.
 pub fn page_filing(drawn: &Drawn, run: i64, key: &str, query: &str, title: &str) -> Value {
   let body = page_body(drawn, title);
-  let html = page::compose(
-    &[Side {
-      code: "en",
-      title,
-      description: drawn.description.as_deref(),
-      body: &body,
-    }],
-    &[],
-  );
+  let html = page::compose(&[Side {
+    code: "en",
+    title,
+    description: drawn.description.as_deref(),
+    body: &body,
+  }]);
   let mut labels = labels(drawn, run, key, query);
   labels["languages"] = "en".into();
   json!({

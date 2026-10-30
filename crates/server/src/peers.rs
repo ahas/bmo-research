@@ -60,13 +60,10 @@ struct VoiceFile {
   token_file: Option<String>,
 }
 
-/// An attachment of a document, as the artifact service lists it.
+/// An attachment of a document, as the artifact service lists it: its name, all that is read of it.
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
 struct Attachment {
-  id: i64,
   name: String,
-  media_type: String,
 }
 
 #[derive(Deserialize)]
@@ -397,9 +394,8 @@ impl Peers {
       .map(|_| ())
   }
 
-  /// A file a document keeps under its name, read back: its bytes and its media type; none where it keeps
-  /// none of that name.
-  pub async fn attached(&self, document_id: i64, name: &str) -> Result<Option<(Vec<u8>, String)>, String> {
+  /// Whether a document keeps a file under a name.
+  pub async fn attached(&self, document_id: i64, name: &str) -> Result<bool, String> {
     let artifact = self.artifact()?;
     let path = format!("/documents/{document_id}/attachments");
     let answer = self
@@ -411,14 +407,7 @@ impl Peers {
       .await?;
     let listed: Listed<Attachment> = serde_json::from_value(answer)
       .map_err(|e| format!("the artifact service's attachments did not read: {e}"))?;
-    let Some(kept) = listed.items.into_iter().find(|kept| kept.name == name) else {
-      return Ok(None);
-    };
-    let file = format!("{path}/{}", kept.id);
-    let (bytes, _) = self
-      .bytes(&artifact, self.request(&artifact, reqwest::Method::GET, &file), &format!("GET {file}"))
-      .await?;
-    Ok(Some((bytes, kept.media_type)))
+    Ok(listed.items.iter().any(|kept| kept.name == name))
   }
 
   async fn documents(&self, query: &[(&str, &str)]) -> Result<Vec<Document>, String> {

@@ -237,7 +237,7 @@ async fn a_report_s_korean_side_is_drawn_into_the_same_page_with_a_switch_and_to
     assert!(html.contains(part), "{part} missing from the page");
   }
   assert!(html.find("data-show=\"ko\"") < html.find("data-show=\"en\""), "Korean first");
-  assert!(!html.contains("class=\"listen\""), "no narration, no listen band");
+  assert!(!html.contains("<audio"), "the page draws no player");
   let shared = ground.asked_path("artifact", "POST", "/shares");
   assert_eq!(shared.iter().map(|a| a.body["documentId"].clone()).collect::<Vec<_>>(), [501]);
 
@@ -298,21 +298,20 @@ async fn a_narration_is_spoken_in_both_languages_and_attached_the_korean_at_the_
   );
 
   let rewrites = ground.rewrites(501);
-  assert_eq!(rewrites.len(), 1, "the page is drawn again once, with both sides and both sounds");
+  assert_eq!(rewrites.len(), 1, "the page is drawn again once, with both sides");
   let html = rewrites[0]["html"].as_str().unwrap();
-  let page = words::page();
-  assert!(html.contains("<div class=\"listen\">"));
-  for code in ["ko", "en"] {
-    assert!(html.contains(&page.language(code).unwrap().listen));
-    assert!(html.contains(&format!(
-      "<audio controls preload=\"metadata\" data-language=\"{code}\" src=\"data:audio/ogg;base64,"
-    )));
-  }
+  assert!(
+    !html.contains("<audio") && !html.contains("data:audio") && !html.contains("class=\"listen\""),
+    "the page draws no player: the sounds are attachments the archive's reader plays"
+  );
   let rendered = ground.app.store.item(item.id).unwrap();
   assert_eq!(rendered.narrations, ["ko", "en"]);
   assert_eq!(ground.app.store.page_state(item.id).unwrap().retry_at, None);
   let order = orders(&ground)[0]["said"]["order"].as_str().unwrap().to_string();
-  assert!(!order.contains(&page.language("ko").unwrap().listen), "the notice says nothing of it");
+  assert!(
+    !order.contains("narration-") && !order.contains(SCRIPT),
+    "the notice says nothing of it"
+  );
 }
 
 #[tokio::test]
@@ -391,7 +390,7 @@ async fn a_narration_that_cannot_be_made_leaves_the_page_filed_and_is_asked_once
   assert_eq!(ground.run_documents().len(), 1, "the page is filed");
   let rewrites = ground.rewrites(501);
   assert_eq!(rewrites.len(), 1, "drawn again with its Korean side");
-  assert!(!rewrites[0]["html"].as_str().unwrap().contains("class=\"listen\""));
+  assert!(!rewrites[0]["html"].as_str().unwrap().contains("<audio"));
   assert!(ground.world.lock().unwrap().attachments.is_empty());
   let filed = ground.app.store.item(item.id).unwrap();
   assert_eq!(
@@ -409,17 +408,18 @@ async fn a_narration_that_cannot_be_made_leaves_the_page_filed_and_is_asked_once
   ground.world.lock().unwrap().voice_failing = false;
   settle(&ground).await;
 
-  let rewrites = ground.rewrites(501);
-  assert_eq!(rewrites.len(), 2, "drawn again with its sounds");
-  assert!(rewrites[1]["html"].as_str().unwrap().contains("class=\"listen\""));
-  assert_eq!(rewrites[1]["title"], format!("{KO}Report 501").as_str(), "the Korean side kept");
+  assert_eq!(ground.rewrites(501).len(), 1, "a sound attached leaves the page as it is");
+  let attached: Vec<String> =
+    ground.world.lock().unwrap().attachments.iter().map(|a| a.name.clone()).collect();
+  assert_eq!(attached, ["narration-ko.ogg", "narration-en.ogg"]);
   assert_eq!(ground.app.store.item(item.id).unwrap().narrations, ["ko", "en"]);
   let state = ground.app.store.page_state(item.id).unwrap();
   assert_eq!((state.narration_tries, state.translation_tries, state.retry_at), (2, 1, None));
   assert_eq!(orders(&ground).len(), 1, "nobody is told of a narration");
 
   settle(&ground).await;
-  assert_eq!(ground.rewrites(501).len(), 2, "nothing more is asked");
+  assert_eq!(ground.rewrites(501).len(), 1, "nothing more is asked");
+  assert_eq!(ground.world.lock().unwrap().attachments.len(), 2, "no sound is made again");
 }
 
 #[tokio::test]

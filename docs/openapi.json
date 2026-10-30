@@ -1961,7 +1961,7 @@
   "info": {
     "description": "The research unit: a daemon that keeps a queue of things to research by category, reads the sources the owner registers, has each item researched by its own runner in its category's shape, and tells the category's recipients. It files no job and launches nothing.",
     "title": "bmo-research",
-    "version": "0.1.0-rev.9"
+    "version": "0.1.0-rev.10"
   },
   "openapi": "3.1.0",
   "paths": {

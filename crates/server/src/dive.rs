@@ -16,7 +16,7 @@ use tokio::task::JoinHandle;
 use crate::App;
 use crate::bench;
 use crate::document::{self, Drawn};
-use crate::page::{self, Side, Sound};
+use crate::page::{self, Side};
 use crate::reading::{self, Exposure};
 use crate::runner::{self, Filing, PageAsk, Refused};
 use crate::store::{Filed, now_ms};
@@ -347,22 +347,19 @@ pub fn sound_name(code: &str) -> String {
   format!("narration-{code}.ogg")
 }
 
-/// One narration's sound: the one its page already keeps, else the script spoken — in Korean translated to be
-/// spoken first — and attached, the Korean as the sound heard at the document's head.
+/// One narration's sound attached beside its page, which the archive's reader plays: the one the document
+/// already keeps, else the script spoken — in Korean translated to be spoken first — and attached, the Korean
+/// as the sound heard at the document's head.
 async fn narration(
   app: &App,
   lead: &Item,
   document_id: i64,
   code: &str,
   script: &str,
-) -> Result<Sound, String> {
+) -> Result<(), String> {
   let name = sound_name(code);
-  if let Some((bytes, media_type)) = app.peers.attached(document_id, &name).await? {
-    return Ok(Sound {
-      code: code.to_string(),
-      media_type,
-      bytes,
-    });
+  if app.peers.attached(document_id, &name).await? {
+    return Ok(());
   }
   let text = match code {
     "en" => script.to_string(),
@@ -370,21 +367,15 @@ async fn narration(
   };
   let (bytes, media_type) = app.peers.speak(&text).await?;
   let role = (code == LANGUAGES[0]).then_some("head");
-  app.peers.attach(document_id, &name, &media_type, role, &bytes).await?;
-  Ok(Sound {
-    code: code.to_string(),
-    media_type,
-    bytes,
-  })
+  app.peers.attach(document_id, &name, &media_type, role, &bytes).await
 }
 
-/// The page drawn again with the sides and the sounds it holds, Korean first, and set in the archive.
+/// The page drawn again with the sides it holds, Korean first, and set in the archive.
 async fn redraw(
   app: &App,
   document_id: i64,
   source: &Source,
   rendering: Option<&Rendering>,
-  sounds: &[Sound],
 ) -> Result<(), String> {
   let english = document::page_body(&source.drawn, &source.title);
   let mut sides = Vec::new();
@@ -402,7 +393,7 @@ async fn redraw(
     description: source.drawn.description.as_deref(),
     body: &english,
   });
-  let html = page::compose(&sides, sounds);
+  let html = page::compose(&sides);
   let mut labels = source.labels.clone();
   labels["languages"] = sides.iter().map(|side| side.code).collect::<Vec<_>>().join(",").into();
   app
@@ -417,9 +408,9 @@ async fn redraw(
 }
 
 /// An item's page finished as far as it can be now: its Korean side asked where it lacks one and its tries
-/// allow, each narration it lacks asked where its tries allow, the page drawn again where anything was had,
-/// and what is still lacking set at the retry wait. Answers how the Korean side stands, and whether it was
-/// had on this call.
+/// allow, each narration it lacks asked and attached where its tries allow, the page drawn again where its
+/// Korean side was had, and what is still lacking set at the retry wait. Answers how the Korean side stands,
+/// and whether it was had on this call.
 async fn finish(app: &App, lead: &Item, filed: &Filed, source: &Source) -> (Korean, bool) {
   let document_id = filed.document_id;
   let state = match app.store.page_state(lead.id) {
@@ -464,40 +455,35 @@ async fn finish(app: &App, lead: &Item, filed: &Filed, source: &Source) -> (Kore
       Err(why) => eprintln!("bmo-research: item {}'s Korean side is pending: {why}", lead.id),
     }
   }
-  let mut sounds = Vec::new();
+  let mut sounds: Vec<String> = state.narrations.clone();
   let mut heard = false;
   for code in LANGUAGES {
-    let had = state.narrations.iter().any(|kept| kept == code);
     let asked = ask_narration && lacking.contains(&code);
-    let Some(script) = script.as_deref().filter(|_| had || asked) else {
+    let Some(script) = script.as_deref().filter(|_| asked) else {
       continue;
     };
     match narration(app, lead, document_id, code, script).await {
-      Ok(sound) => {
-        heard |= !had;
-        sounds.push(sound);
-      }
-      Err(why) if had => {
-        eprintln!("bmo-research: item {}'s {code} narration was not read back: {why}", lead.id)
+      Ok(()) => {
+        heard = true;
+        sounds.push(code.to_owned());
       }
       Err(why) => eprintln!("bmo-research: item {}'s {code} narration was not made: {why}", lead.id),
     }
   }
-  if fresh || heard {
-    match redraw(app, document_id, source, rendering.as_ref(), &sounds).await {
+  if heard {
+    let _ = app.store.keep_narrations(document_id, &sounds);
+  }
+  if fresh {
+    match redraw(app, document_id, source, rendering.as_ref()).await {
       Ok(()) => {
-        if fresh && let Some(korean) = &rendering {
+        if let Some(korean) = &rendering {
           let _ = app.store.keep_rendering(document_id, korean);
         }
-        let narrations: Vec<String> = sounds.iter().map(|sound| sound.code.clone()).collect();
-        let _ = app.store.keep_narrations(document_id, &narrations);
       }
       Err(why) => {
         eprintln!("bmo-research: item {}'s page was not drawn again: {why}", lead.id);
-        if fresh {
-          rendering = None;
-          fresh = false;
-        }
+        rendering = None;
+        fresh = false;
       }
     }
   }
