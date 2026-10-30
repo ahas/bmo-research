@@ -1,3 +1,4 @@
 {
+  "crates/server/src/document.rs": 1,
   "tests/literals.rs": 2
 }

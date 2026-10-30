@@ -1,10 +1,12 @@
 # Working in bmo-research
 
-This repository holds the platform's research unit: the daemon that keeps a queue of things to research,
-finds new ones on the sources the owner registers, has each one researched on agency's runner in its
-category's shape, and tells the category's recipients, rooms and agents; it files no job and launches nothing. It holds the `bmo-research`
-command, the tool the tool host places under the namespace `research`, and the documents that state how
-all of it works.
+This repository holds the platform's research unit: the research runner, which composes a search's
+instructions, runs it on a seat and thrown-away sessions agency supplies, asks its rounds, opens its branches
+and files its document (`docs/runner.md`); and the daemon that keeps a queue of things to research, finds new
+ones on the sources the owner registers, has each one researched by that runner in its category's shape, and
+tells the category's recipients, rooms and agents; it files no job and launches nothing. It holds the
+`bmo-research` command, the tools the tool host places under the namespace `research`, and the documents that
+state how all of it works.
 
 ## Principles
 
@@ -29,7 +31,7 @@ all of it works.
 - **Documents state what is true now:** no change history, no quoted source, no file-and-line pins, and
   no caller's name in a document of the boundary.
 - **English only** in code, comments, strings, tests and documents, and in commit messages. Korean stands
-  under `prompts/` alone: the question templates a research run is asked with, the words of a report line
+  under `prompts/` alone: the section names a Korean question's document is written under, the words of a report line
   and the words a filed document is read by. `tests/literals.rs` fails on Hangul anywhere else.
 - **No personal data:** no name of the owner or of a host, no mail address, home path, token or private
   network address. A value that differs by installation is a setting; a path is written from `$HOME` or
@@ -48,7 +50,7 @@ all of it works.
 - `crates/server`: the daemon and the `bmo-research` binary (`serve`, `health`, `openapi`, `migrate` and the
   `research` nouns).
 - `tools/research`: the tool the tool host places, one executable answering every entry of the namespace.
-- `prompts/`: the Korean templates and words.
+- `prompts/`: the search and browse instructions, the rulebooks, the question templates and the words.
 - `docs/`, `deploy/`, `tests/`, and `testbed.toml` at the root.
 
 ## Checks
