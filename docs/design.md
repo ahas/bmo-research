@@ -212,10 +212,29 @@ take; so its own area stays the research and the measurement, however many categ
 - **The owner's private room hears every category** unless its recipients are changed; the chat agent
   says the notice in its own voice, and the owner's word comes back through the chat agent.
 
+## Language
+
+- **Every research is asked and answered in English.** The question templates under `prompts/` are English, so
+  the search runner writes its document in English, as its rules say a result follows the question's
+  language; the rulebooks, the brain rows a run writes and every record of the unit are English as the
+  platform's are.
+- **What reaches the owner is Korean, rendered by the platform's translator.** Once a run's document is
+  filed, the daemon has its body translated through agency's translation route on the `translate` road —
+  the registry's translation model first — part by part, each part with a note that gives the translator
+  its context: that the text is a research report about the named thing, that model and product names,
+  figures, units, code, links and the fixed section names stay as written, and that the Korean is the
+  register of the owner's documents. The Korean rendering is filed as a document of its own beside the
+  English one, labelled as its translation, and the notice carries the Korean document's link, the English
+  one named after it. A notice's own line is Korean from the start (`prompts/report.toml`).
+- **A translation that cannot be had** (no road carries the translate line, a part refused as too long after
+  cutting) leaves the notice with the English link and a line saying the Korean rendering is pending; the
+  daemon tries again on its retry wait and sends the Korean link when it has it.
+
 ## Reports and rooms
 
-- **A report line** is the share link and one line in the owner's language saying what the thing is and
-  the verdict in a few words, and for a `fit` item the question. Nothing else goes into the room: the
+- **A report line** is the Korean document's share link and one line in Korean saying what the thing is
+  and the verdict in a few words, and for a `fit` item the question; the English document's link stands
+  after it. Nothing else goes into the room: the
   document holds the grounds.
 - **The recipients** are a registration per category (「The notifier」): the owner's private room first,
   read from the receiver at the daemon's start where a category's list is empty; a room or an agent is
