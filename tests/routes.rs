@@ -1,0 +1,314 @@
+//! The routes `docs/api.md` states, walked over a served daemon: the token, the wire format's failures, and
+//! each resource's members and refusals.
+
+mod support;
+
+use bmo_research_client::*;
+use reqwest::StatusCode;
+use serde_json::json;
+
+async fn served() -> (support::Ground, String, ResearchClient) {
+  let ground = support::ground(|_| {}).await;
+  let base = support::serve(research_server::routes::router(ground.app.clone())).await;
+  let client = ResearchClient::new(&base).with_token("test-token");
+  (ground, base, client)
+}
+
+async fn raw(
+  base: &str,
+  method: reqwest::Method,
+  path: &str,
+  body: Option<serde_json::Value>,
+) -> (StatusCode, serde_json::Value) {
+  let mut request = reqwest::Client::new()
+    .request(method, format!("{base}{path}"))
+    .bearer_auth("test-token");
+  if let Some(body) = body {
+    request = request.json(&body);
+  }
+  let answer = request.send().await.unwrap();
+  let status = answer.status();
+  (status, answer.json().await.unwrap_or_default())
+}
+
+#[tokio::test]
+async fn a_request_without_the_token_is_refused_and_an_unknown_route_is_no_route() {
+  let (_ground, base, client) = served().await;
+  let err = ResearchClient::new(&base).health().await.unwrap_err();
+  assert!(err.starts_with("401 unauthorized"), "{err}");
+  assert!(client.health().await.unwrap().ready);
+  let (status, body) = raw(&base, reqwest::Method::GET, "/nowhere", None).await;
+  assert_eq!((status, body["code"].as_str()), (StatusCode::NOT_FOUND, Some("no-route")));
+}
+
+#[tokio::test]
+async fn categories_are_listed_added_with_the_owner_s_room_changed_and_taken_away() {
+  let (_ground, base, client) = served().await;
+  assert_eq!(client.categories().await.unwrap().items.len(), 3);
+  let new = NewCategory {
+    name: "health".into(),
+    purpose: "Medical news.".into(),
+    shape: CategoryShape::ManualOrInvestigation,
+    cap: Some(2),
+    cadence_minutes: None,
+    gather_minutes: None,
+    provider: Some("claude-code".into()),
+    model: None,
+  };
+  let made = client.add_category(&new).await.unwrap();
+  assert_eq!((made.cap, made.provider.as_deref()), (2, Some("claude-code")));
+  let recipients = client.recipients("health").await.unwrap().items;
+  assert_eq!(recipients.len(), 1);
+  assert_eq!((recipients[0].room_id, recipients[0].origin.as_str()), (Some(7), "owner"));
+  assert!(client.add_category(&new).await.unwrap_err().starts_with("409 conflict"));
+  let mut bad = new.clone();
+  bad.name = "Health!".into();
+  assert!(client.add_category(&bad).await.unwrap_err().starts_with("400 bad-request"));
+  let (status, _) =
+    raw(&base, reqwest::Method::PATCH, "/categories/health", Some(json!({"gatherMinutes": 60}))).await;
+  assert_eq!(status, StatusCode::BAD_REQUEST, "only a brief gathers");
+  let changed = client
+    .change_category(
+      "health",
+      &CategoryChange {
+        provider: Some(String::new()),
+        cap: Some(4),
+        ..CategoryChange::default()
+      },
+    )
+    .await
+    .unwrap();
+  assert_eq!((changed.cap, changed.provider), (4, None));
+  client.remove_category("health").await.unwrap();
+  assert!(client.category("health").await.unwrap_err().starts_with("404 not-found"));
+}
+
+#[tokio::test]
+async fn the_state_stops_one_category_or_every_one() {
+  let (_ground, _base, client) = served().await;
+  let state = client
+    .set_state(&StateChange {
+      state: Running::Stopped,
+      category_name: Some("economy".into()),
+    })
+    .await
+    .unwrap();
+  assert_eq!(state.state, Running::Running);
+  assert!(state.changed_at.is_some());
+  assert!(
+    state
+      .categories
+      .iter()
+      .any(|c| c.category_name == "economy" && c.state == Running::Stopped)
+  );
+  let err = client
+    .set_state(&StateChange {
+      state: Running::Stopped,
+      category_name: Some("nothing".into()),
+    })
+    .await
+    .unwrap_err();
+  assert!(err.starts_with("404 not-found"), "{err}");
+  let all = client
+    .set_state(&StateChange {
+      state: Running::Stopped,
+      category_name: None,
+    })
+    .await
+    .unwrap();
+  assert_eq!(all.state, Running::Stopped);
+}
+
+#[tokio::test]
+async fn sources_are_registered_with_their_kind_s_address_and_refused_when_malformed() {
+  let (_ground, base, client) = served().await;
+  let hub = client
+    .add_source(&NewSource {
+      category_name: "it".into(),
+      kind: "huggingface-trending".into(),
+      ..NewSource::default()
+    })
+    .await
+    .unwrap();
+  assert_eq!((hub.address.as_str(), hub.limit), ("https://huggingface.co/api/models", 30));
+  for (body, status) in [
+    (json!({"categoryName": "it", "kind": "page"}), StatusCode::BAD_REQUEST),
+    (json!({"categoryName": "it", "kind": "arxiv"}), StatusCode::BAD_REQUEST),
+    (json!({"categoryName": "it", "kind": "rss"}), StatusCode::BAD_REQUEST),
+    (
+      json!({"categoryName": "it", "kind": "rss", "address": "https://example.org/f", "limit": 0}),
+      StatusCode::BAD_REQUEST,
+    ),
+    (
+      json!({"categoryName": "nothing", "kind": "rss", "address": "https://example.org/f"}),
+      StatusCode::NOT_FOUND,
+    ),
+    (json!({"kind": "rss"}), StatusCode::BAD_REQUEST),
+  ] {
+    let (answered, failure) = raw(&base, reqwest::Method::POST, "/sources", Some(body.clone())).await;
+    assert_eq!(answered, status, "{body}");
+    assert!(failure["code"].is_string() && failure["error"].is_string());
+  }
+  let changed = client
+    .change_source(
+      hub.id,
+      &SourceChange {
+        filter: Some(Filter {
+          require: vec!["gguf".into()],
+          exclude: vec![],
+        }),
+        every_minutes: Some(120),
+        ..SourceChange::default()
+      },
+    )
+    .await
+    .unwrap();
+  assert_eq!((changed.filter.require.len(), changed.every_minutes), (1, Some(120)));
+  assert_eq!(client.sources(Some("it"), None, 50).await.unwrap().items.len(), 1);
+  assert!(client.sources(Some("security"), None, 50).await.unwrap().items.is_empty());
+  client.remove_source(hub.id).await.unwrap();
+  assert!(client.source(hub.id).await.unwrap_err().starts_with("404"));
+  let (status, _) = raw(&base, reqwest::Method::GET, "/sources/abc", None).await;
+  assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn the_queue_takes_asks_dismissals_takings_and_front_moves() {
+  let (_ground, base, client) = served().await;
+  let ask = |name: &str, category: Option<&str>, shape: Option<Shape>| Ask {
+    name: name.into(),
+    address: format!("https://example.org/{name}"),
+    category_name: category.map(String::from),
+    shape,
+  };
+  let one = client.ask(&ask("one", None, None)).await.unwrap();
+  assert_eq!((one.category_name.as_str(), one.shape, one.asked), ("it", Shape::Manual, true));
+  let two = client.ask(&ask("two", None, Some(Shape::Investigation))).await.unwrap();
+  assert_eq!(two.shape, Shape::Investigation);
+  assert!(client.ask(&ask("one", None, None)).await.unwrap_err().starts_with("409 conflict"));
+  assert!(
+    client
+      .ask(&ask("three", None, Some(Shape::Advisory)))
+      .await
+      .unwrap_err()
+      .starts_with("400")
+  );
+  assert!(
+    client
+      .ask(&ask("three", Some("security"), Some(Shape::Manual)))
+      .await
+      .unwrap_err()
+      .starts_with("400")
+  );
+  assert!(client.ask(&ask("three", Some("nothing"), None)).await.unwrap_err().starts_with("404"));
+  let advisory = client.ask(&ask("three", Some("security"), None)).await.unwrap();
+  assert_eq!(advisory.shape, Shape::Advisory);
+
+  let moved = client
+    .change_item(
+      two.id,
+      &ItemChange {
+        front: Some(true),
+        ..ItemChange::default()
+      },
+    )
+    .await
+    .unwrap();
+  let waiting = client.queue(Some("it"), &[ItemState::Waiting], None, 50).await.unwrap().items;
+  assert_eq!(waiting[0].id, moved.id);
+  let page = client.queue(None, &[], Some(waiting[0].id), 1).await.unwrap();
+  assert_eq!((page.items.len(), page.more), (1, true));
+
+  let (status, _) = raw(
+    &base,
+    reqwest::Method::PATCH,
+    &format!("/queue/{}", one.id),
+    Some(json!({"state": "taken"})),
+  )
+  .await;
+  assert_eq!(status, StatusCode::BAD_REQUEST, "taken names its job item");
+  let err = client
+    .change_item(
+      one.id,
+      &ItemChange {
+        state: Some(ItemState::Taken),
+        job_item_id: Some(9),
+        front: None,
+      },
+    )
+    .await
+    .unwrap_err();
+  assert!(err.starts_with("409 conflict"), "a waiting item is not taken: {err}");
+  let (status, _) = raw(
+    &base,
+    reqwest::Method::PATCH,
+    &format!("/queue/{}", one.id),
+    Some(json!({"state": "running"})),
+  )
+  .await;
+  assert_eq!(status, StatusCode::CONFLICT);
+  let (status, _) =
+    raw(&base, reqwest::Method::PATCH, &format!("/queue/{}", one.id), Some(json!({}))).await;
+  assert_eq!(status, StatusCode::BAD_REQUEST);
+  let dismissed = client
+    .change_item(
+      one.id,
+      &ItemChange {
+        state: Some(ItemState::Dismissed),
+        ..ItemChange::default()
+      },
+    )
+    .await
+    .unwrap();
+  assert_eq!(dismissed.state, ItemState::Dismissed);
+  let (status, _) = raw(&base, reqwest::Method::GET, "/queue?state=sleeping", None).await;
+  assert_eq!(status, StatusCode::BAD_REQUEST);
+  assert!(client.item(999).await.unwrap_err().starts_with("404"));
+}
+
+#[tokio::test]
+async fn recipients_stack_runs_and_facts_answer_their_shapes() {
+  let (_ground, base, client) = served().await;
+  let agent = client
+    .add_recipient(
+      "economy",
+      &NewRecipient {
+        kind: RecipientKind::Agent,
+        room_id: None,
+        agent_name: Some("trader".into()),
+      },
+    )
+    .await
+    .unwrap();
+  assert_eq!(agent.kind, RecipientKind::Agent);
+  let (status, _) = raw(
+    &base,
+    reqwest::Method::POST,
+    "/categories/economy/recipients",
+    Some(json!({"kind": "room", "agentName": "x"})),
+  )
+  .await;
+  assert_eq!(status, StatusCode::BAD_REQUEST);
+  client.remove_recipient("economy", agent.id).await.unwrap();
+  assert!(client.remove_recipient("economy", agent.id).await.unwrap_err().starts_with("404"));
+
+  let (status, _) =
+    raw(&base, reqwest::Method::POST, "/stack", Some(json!({"component": "libexample"}))).await;
+  assert_eq!(status, StatusCode::BAD_REQUEST, "a row names a place or a repository");
+  let row = client
+    .add_stack_row(&NewStackRow {
+      component: "libexample".into(),
+      version: Some("1.4.1".into()),
+      repository: Some("services/alpha".into()),
+      worker: Some("worker-a".into()),
+      place: None,
+    })
+    .await
+    .unwrap();
+  assert_eq!(client.stack().await.unwrap().items, std::slice::from_ref(&row));
+  client.remove_stack_row(row.id).await.unwrap();
+
+  assert!(client.runs(None, None, None, 10).await.unwrap().items.is_empty());
+  assert!(client.run(5).await.unwrap_err().starts_with("404"));
+  assert!(client.facts(None, None, 10).await.unwrap().items.is_empty());
+}

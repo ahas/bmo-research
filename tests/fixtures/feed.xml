@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Example Security List</title>
+    <link>https://security.example.org/</link>
+    <description>Advisories</description>
+    <item>
+      <title>Example-SA-2026-01: buffer overflow in libexample</title>
+      <link>https://security.example.org/advisories/2026-01</link>
+      <description>A buffer overflow in libexample before 1.4.2.</description>
+      <pubDate>Wed, 28 Oct 2026 09:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <title>Example-SA-2026-02: denial of service in otherlib</title>
+      <link>https://security.example.org/advisories/2026-02</link>
+      <description>A crafted request stalls otherlib.</description>
+      <pubDate>Thu, 29 Oct 2026 09:00:00 GMT</pubDate>
+    </item>
+  </channel>
+</rss>

@@ -76,8 +76,8 @@ sources ──scan──▶ candidates ──new?──▶ queue (cap) ──slo
    share link and one line saying what the thing is, nothing else — never the grounds, never the
    sources. The first room is the owner's private room, read from the receiver at start; rooms are added
    and removed through the routes and the tools.
-6. **The word.** A report whose document says the thing fits the lab (the manual's 「우리 랩에서 구동하려면」
-   names a card it fits) is marked `fit`, and its notice says so and asks for the owner's word. The notice
+6. **The word.** A report whose document says the thing fits the lab (the manual's section on running it in
+   the lab, under the heading `prompts/document.toml` names, names a card it fits) is marked `fit`, and its notice says so and asks for the owner's word. The notice
    carries what the chat agent needs to act on that word: the report's link, the thing's name and the
    reproduction plan's place in the document. The owner answers in the room; the chat agent files the
    verification item as it files any work, with the report's link in the brief, and tells the daemon the

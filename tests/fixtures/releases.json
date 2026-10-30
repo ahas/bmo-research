@@ -1,0 +1,4 @@
+[
+  {"tag_name": "v2.1.0", "name": "Faster decoding", "html_url": "https://github.com/example-org/example-engine/releases/tag/v2.1.0", "published_at": "2026-10-20T12:00:00Z", "body": "Decoding is 40% faster on long contexts.", "draft": false, "prerelease": false},
+  {"tag_name": "v2.2.0-draft", "name": "Unreleased", "html_url": "https://github.com/example-org/example-engine/releases/tag/v2.2.0-draft", "published_at": null, "body": "", "draft": true, "prerelease": false}
+]

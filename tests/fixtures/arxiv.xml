@@ -1,0 +1,30 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<feed xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/" xmlns:arxiv="http://arxiv.org/schemas/atom" xmlns="http://www.w3.org/2005/Atom">
+  <id>https://arxiv.org/api/example</id>
+  <title>arXiv Query: search_query=all:quantization</title>
+  <updated>2026-10-30T10:05:44Z</updated>
+  <opensearch:totalResults>2</opensearch:totalResults>
+  <entry>
+    <id>http://arxiv.org/abs/2610.00001v2</id>
+    <title>Two-Bit Weights
+      Without Loss</title>
+    <updated>2026-10-29T17:41:59Z</updated>
+    <link href="https://arxiv.org/abs/2610.00001v2" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2610.00001v2" rel="related" type="application/pdf" title="pdf"/>
+    <summary>We show a quantization scheme that keeps accuracy at two bits per weight.</summary>
+    <category term="cs.LG" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-10-28T09:00:00Z</published>
+    <author><name>Example Author</name></author>
+    <author><name>Second Author</name></author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2610.00002v1</id>
+    <title>A Survey of Things</title>
+    <updated>2026-10-27T10:00:00Z</updated>
+    <link href="https://arxiv.org/abs/2610.00002v1" rel="alternate" type="text/html"/>
+    <summary>A survey.</summary>
+    <category term="cs.CL" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-10-27T10:00:00Z</published>
+    <author><name>Third Author</name></author>
+  </entry>
+</feed>
