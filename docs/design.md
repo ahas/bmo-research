@@ -96,8 +96,8 @@ shape, its cap, its cadence, its road, and its report rooms. Three stand at the 
 | Category | Purpose | What a deep dive produces | What follows |
 |---|---|---|---|
 | `it` | new AI technology, as Bongbos's lab researches it | the manual or the investigation (agency's `research.md`): the maker's own material, the lab's fit, the reproduction plan | a `fit` item is reported for the owner's word; approved, a verification job under the bench lock, and a service registered with the arbiter |
-| `security` | vulnerability news that bears on the platform's own stack | an advisory investigation: what the flaw is, the affected versions, whether and where the platform runs them (the stack inventory below), the vendor's fix and the patch steps | an item that touches the platform is reported with the question; approved, a patch job on the repository or host it names |
-| `economy` | the economic news and indicators the owner's later portfolio and trading system will read | a brief, not a deep dive: the items of the day in one document with the figures they carry, the sources, and the facts kept for the economy store | nothing to approve; the brief is reported, and the facts stand in the store for the trading system to read later |
+| `security` | vulnerability news that bears on the platform's own stack | an advisory investigation: what the flaw is, the affected versions, whether and where the platform runs them (the stack inventory below), the vendor's fix and the patch steps | each repository's worker is notified of its own part; the patch is the worker's work |
+| `economy` | the economic news and indicators the owner's later portfolio and trading system will read | a brief, not a deep dive: the items of the day in one document with the figures they carry, the sources, and the facts kept for the economy store | the brief is notified to the owner's room now and to the trading agent later; the facts stand in the store for it to read |
 
 - **The shape is the category's, not the source's.** `it` asks the research run for a manual or an
   investigation; `security` asks for the advisory shape; `economy` gathers a day's items into one run that
@@ -182,14 +182,40 @@ there, and with it the model the daemon's own research runs go out on. So:
   registered model's engine serving one slot makes a conversation's turn wait, as agency's companion
   rules say; the bench adds nothing to that beyond its length, which the report line says.
 
+## The notifier
+
+The research unit's border is the notice. Each category names who hears its reports — the recipients —
+and what each recipient does with them is that recipient's own: the supervisor adopts, a worker patches, a
+trading agent reads. The unit never adopts, never patches, never trades, and never files the work those
+take; so its own area stays the research and the measurement, however many categories it gains.
+
+| Category | Recipients to start with | What the recipient does with the notice |
+|---|---|---|
+| `it` | the supervisor, the chat agent, in the owner's private room | reads the manual, puts the question to the owner, files the verification on his word, and carries the adoption |
+| `security` | the worker of each repository the advisory touches, and the owner's private room | the worker is told the flaw, the exposure and the patch steps for its own repository, and raises or takes the patch as its own work; the room hears which hosts and repositories were touched |
+| `economy` | the owner's private room; later the trading agent, added as a recipient when it exists | reads the brief and the facts; the trading agent folds them into its own state |
+
+- **A recipient is a room or an agent,** a registration on the category (`/categories`, `research/rooms`
+  and `research/recipients`): a room is told through the receiver's instruction route, which hands the
+  notice to the room's answerer; an agent that answers no room — a worker — is told by a turn into its
+  session through agency's session route, the notice as the turn's words. A worker's turn is a notice,
+  never an order to deploy: what it does with it is the worker's rules'.
+- **A security notice names its repository.** The stack inventory maps each component to the repository
+  or host that runs it and the worker that keeps it; the advisory investigation's exposure table carries
+  that column, and the daemon sends each touched repository's worker its own part. A component with no
+  worker goes to the owner's room alone.
+- **The owner's private room hears every category** unless its recipients are changed; the chat agent
+  says the notice in its own voice, and the owner's word comes back through the chat agent.
+
 ## Reports and rooms
 
 - **A report line** is the share link and one line in the owner's language saying what the thing is and
   the verdict in a few words, and for a `fit` item the question. Nothing else goes into the room: the
   document holds the grounds.
-- **The rooms** are a registration: the owner's private room first, read from the receiver at the daemon's
-  start where the list is empty; a room is added and removed through `/rooms` and the tools. Every room
-  gets every report line; a room that refuses is said once in the log.
+- **The recipients** are a registration per category (「The notifier」): the owner's private room first,
+  read from the receiver at the daemon's start where a category's list is empty; a room or an agent is
+  added and removed through the routes and the tools. Every recipient of the category gets every notice of
+  it; one that refuses is said once in the log.
 - **A message goes through the receiver's instruction route** as a `notice` under the kind
   `research-report:<item>`, which the room's answerer says in its own voice; the link stands as given.
 
