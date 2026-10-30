@@ -1,10 +1,10 @@
 //! A deep dive's page (`docs/runner.md`, 「The page」): every language its document holds drawn into one HTML
 //! page on the archive's design, Korean first, a switch between them where it holds two, and the listen band
-//! playing the narration of the language shown. The markdown is written as HTML by `pulldown-cmark`, and any
-//! raw HTML a result wrote stands as text.
+//! playing the narration of the language shown. The markdown is written as HTML by `pulldown-cmark`, any raw
+//! HTML a result wrote stands as text, and a fenced `mermaid` block is a diagram the page draws with Mermaid.
 
 use base64::Engine;
-use pulldown_cmark::{Event, Options, Parser, html};
+use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd, html};
 
 use crate::words;
 
@@ -44,6 +44,19 @@ for(var j=0;j<sounds.length;j++){if(sounds[j].getAttribute(\"data-language\")!==
 for(var k=0;k<buttons.length;k++){buttons[k].addEventListener(\"click\",function(event){\
 show(event.currentTarget.getAttribute(\"data-show\"));});}})();";
 
+// Mermaid, the exact version the archive's own reader draws with, loaded over https by a page holding a
+// diagram.
+const MERMAID: &str = "https://cdn.jsdelivr.net/npm/mermaid@12.0.0/dist/mermaid.min.js";
+
+// Mermaid started on the page's load: strict, in the theme of the reader's scheme, and a diagram that does not
+// parse left as its text.
+const MERMAID_SCRIPT: &str = "if(window.mermaid){var dark=window.matchMedia&&\
+window.matchMedia(\"(prefers-color-scheme: dark)\").matches;mermaid.initialize({startOnLoad:true,\
+securityLevel:\"strict\",suppressErrorRendering:true,theme:dark?\"dark\":\"neutral\"});}";
+
+// The class a diagram's block carries, which Mermaid draws.
+const DIAGRAM: &str = "<pre class=\"mermaid\">";
+
 /// A text made safe to stand in HTML, as an element's text or an attribute's value.
 pub fn escaped(text: &str) -> String {
   let mut out = String::with_capacity(text.len());
@@ -51,15 +64,32 @@ pub fn escaped(text: &str) -> String {
   out
 }
 
-/// A markdown body written as HTML, any raw HTML it holds shown as text.
+/// Whether a fenced block's info string names Mermaid.
+fn is_diagram(kind: &CodeBlockKind<'_>) -> bool {
+  matches!(kind, CodeBlockKind::Fenced(info) if info.split_whitespace().next() == Some("mermaid"))
+}
+
+/// A markdown body written as HTML, any raw HTML it holds shown as text and each fenced `mermaid` block a
+/// diagram's block, its text escaped.
 pub fn body_html(markdown: &str) -> String {
   let options = Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS;
-  let events = Parser::new_ext(markdown, options).map(|event| match event {
-    Event::Html(text) | Event::InlineHtml(text) => Event::Text(text),
-    other => other,
-  });
+  let mut events = Vec::new();
+  let mut diagram: Option<String> = None;
+  for event in Parser::new_ext(markdown, options) {
+    match (event, diagram.as_mut()) {
+      (Event::Start(Tag::CodeBlock(kind)), None) if is_diagram(&kind) => diagram = Some(String::new()),
+      (Event::Text(text), Some(open)) => open.push_str(&text),
+      (Event::End(TagEnd::CodeBlock), Some(_)) => {
+        let text = diagram.take().unwrap_or_default();
+        events.push(Event::Html(format!("{DIAGRAM}{}</pre>\n", escaped(&text)).into()));
+      }
+      (_, Some(_)) => {}
+      (Event::Html(text) | Event::InlineHtml(text), None) => events.push(Event::Text(text)),
+      (other, None) => events.push(other),
+    }
+  }
   let mut out = String::new();
-  html::push_html(&mut out, events);
+  html::push_html(&mut out, events.into_iter());
   out
 }
 
@@ -173,11 +203,17 @@ pub fn compose(sides: &[Side<'_>], sounds: &[Sound]) -> String {
     }
     page.push_str("</div>\n");
   }
+  let mut diagrams = false;
   for side in sides {
-    page.push_str(&format!("<article{}>\n{}</article>\n", mark(side.code), body_html(side.body)));
+    let body = body_html(side.body);
+    diagrams |= body.contains(DIAGRAM);
+    page.push_str(&format!("<article{}>\n{body}</article>\n", mark(side.code)));
   }
   if two {
     page.push_str(&format!("<script>{SWITCH_SCRIPT}</script>\n"));
+  }
+  if diagrams {
+    page.push_str(&format!("<script src=\"{MERMAID}\"></script>\n<script>{MERMAID_SCRIPT}</script>\n"));
   }
   page.push_str("</body>\n</html>\n");
   page

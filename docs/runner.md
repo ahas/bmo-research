@@ -197,6 +197,11 @@ daemon finishes, held first to the shape the deep dive asked for.
   a data address, since a page loads nothing but what it carries or reaches over https. Where both a Korean
   and an English sound stand, the switch picks the player of its language; where one stands, it plays in
   both.
+- **Diagrams** are a body's fenced `mermaid` blocks, each written as a `pre` of the class `mermaid` with its
+  text escaped, and drawn by the page itself: Mermaid, at the exact version the archive's reader draws with,
+  loaded once over https and started on the page's load, strict, in the dark theme under a dark colour scheme
+  and the neutral one otherwise. Both sides' diagrams stand in the page, so the switch draws nothing again. A
+  diagram that does not parse stays as its text. A page with no diagram loads nothing.
 - **A page with one language** has no switch and no hidden side.
 ## The room
 
