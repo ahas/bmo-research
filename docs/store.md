@@ -29,6 +29,8 @@ milliseconds; lists are JSON arrays.
 | `kind` | Its kind (`docs/sources.md`) |
 | `address` | Where it is read |
 | `query` | The query its kind takes, or null |
+| `pattern` | A `page` source's link pattern, or null for another kind |
+| `strategy` | How a `page` source's listing is read, `direct` or `browser`, or null for another kind |
 | `require`, `exclude` | The filter's words, JSON lists |
 | `every_minutes` | Its own cadence, or null for its category's |
 | `item_limit` | How many items one reading asks for |

@@ -28,7 +28,7 @@ pub async fn scan(app: &App) -> Result<(), String> {
 /// One source read: a failure said once in the log and counted, each new candidate kept as seen, and what the
 /// reading left written on the source.
 pub async fn read_source(app: &App, category: &Category, source: &Source) {
-  let candidates = match crate::sources::fetch(&app.http, source).await {
+  let candidates = match crate::sources::fetch(app, source).await {
     Ok(c) => c,
     Err(why) => {
       if source.failure_count == 0 {

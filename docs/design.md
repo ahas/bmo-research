@@ -29,7 +29,9 @@ word. It is the home of the research feature; agency supplies it sessions and se
   - the tool host, for the web namespace's listing a search's instructions carry and for the web tools'
     search engines' state;
   - explorer, for the web, through the tool host's `web` namespace in the runs it asks for; the daemon's
-    own scan reads sources with its own HTTP client, since a feed is not a page an agent reads;
+    own scan reads a feed or an API with its own HTTP client, since a feed is not a page an agent reads, and
+    a `page` source's listing through the tool host's `web/web_fetch`, so explorer's pacing and Chrome
+    stand round it;
   - artifact, to file a run's document, draw a deep dive's page again and keep its narration beside it
     (`POST /documents`, `PATCH /documents/{id}`, `POST /documents/{id}/attachments`, `POST /shares`);
   - the voice unit, to speak a deep dive's narration (`POST /syntheses`);
@@ -130,7 +132,7 @@ A source is a registration: a category, a kind, an address and, where the kind t
 | `arxiv` | the arXiv API with a query, newest first | papers: id, title, authors, submitted, abstract |
 | `github-releases` | a repository's releases API | releases: tag, name, published |
 | `rss` | a feed | entries: title, link, published |
-| `page` | one page read through explorer's `web_fetch` where a maker's blog has no feed | links the page lists, by a selector |
+| `page` | a listing page read through explorer's `web_fetch` where a maker's blog has no feed, directly or in Chrome | the links the page lists that match the source's pattern: text, address |
 
 - A source carries `every_minutes` where it is read more or less often than the daemon's cadence, and a
   `filter`: words an item must carry and words that rule it out, so a trending page's chat fine-tunes do

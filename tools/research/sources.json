@@ -32,13 +32,18 @@
         "huggingface-search",
         "arxiv",
         "github-releases",
-        "rss"
+        "rss",
+        "page"
       ],
       "type": "string"
     },
     "limit": {
       "minimum": 1,
       "type": "integer"
+    },
+    "pattern": {
+      "description": "For a page source: which links are posts, a path prefix such as /news/ or a regular expression over the whole address.",
+      "type": "string"
     },
     "query": {
       "type": "string"
@@ -53,6 +58,14 @@
     "source": {
       "description": "The source to remove.",
       "type": "integer"
+    },
+    "strategy": {
+      "description": "For a page source: direct, or browser for a listing a script draws.",
+      "enum": [
+        "direct",
+        "browser"
+      ],
+      "type": "string"
     }
   },
   "type": "object"

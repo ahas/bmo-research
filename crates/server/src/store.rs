@@ -21,7 +21,8 @@ use crate::translation::Rendering;
 /// runs, their log, what they hold of agency and the owner's research settings; the fourth keeps what a deep
 /// dive's one page holds — its languages, its narrations and its Korean side — and what it still lacks, a
 /// document filed before it holding English alone and lacking nothing it can be given; the fifth keeps what
-/// the readings left on each source: how many were made, and what the last that succeeded turned up and kept.
+/// the readings left on each source: how many were made, and what the last that succeeded turned up and kept;
+/// the sixth holds a `page` source's link pattern and strategy.
 const MIGRATIONS: &[&str] = &[
   "
   create table categories (
@@ -115,6 +116,10 @@ const MIGRATIONS: &[&str] = &[
   alter table sources add column last_yield integer;
   alter table sources add column last_taken integer;
 ",
+  "
+  alter table sources add column pattern text;
+  alter table sources add column strategy text;
+",
 ];
 
 /// The schema version this binary holds.
@@ -138,7 +143,7 @@ const ITEM_COLUMNS: &str =
 
 const SOURCE_COLUMNS: &str =
   "id, category, kind, address, query, require, exclude, every_minutes, item_limit,
-  failure_count, last_error, read_at, created_at, changed_at, scan_count, last_yield, last_taken";
+  failure_count, last_error, read_at, created_at, changed_at, scan_count, last_yield, last_taken, pattern, strategy";
 
 const RUN_COLUMNS: &str =
   "id, category, item_id, item_ids, try, run_id, state, outcome, error, started_at, ended_at";
@@ -555,7 +560,7 @@ impl Store {
     let conn = self.lock();
     conn.execute(
       "insert into sources (category, kind, address, query, require, exclude, every_minutes, item_limit,
-         created_at, changed_at) values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9)",
+         created_at, changed_at, pattern, strategy) values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9, ?10, ?11)",
       params![
         new.category_name,
         new.kind,
@@ -565,7 +570,9 @@ impl Store {
         words_json(&filter.exclude),
         new.every_minutes,
         limit,
-        now
+        now,
+        new.pattern,
+        new.strategy
       ],
     )?;
     let id = conn.last_insert_rowid();
@@ -614,6 +621,12 @@ impl Store {
     if let Some(query) = &change.query {
       source.query = Some(query.clone());
     }
+    if let Some(pattern) = &change.pattern {
+      source.pattern = Some(pattern.clone());
+    }
+    if let Some(strategy) = &change.strategy {
+      source.strategy = Some(strategy.clone());
+    }
     if let Some(filter) = &change.filter {
       source.filter = filter.clone();
     }
@@ -625,7 +638,7 @@ impl Store {
     }
     self.lock().execute(
       "update sources set address = ?2, query = ?3, require = ?4, exclude = ?5, every_minutes = ?6,
-         item_limit = ?7, changed_at = ?8 where id = ?1",
+         item_limit = ?7, changed_at = ?8, pattern = ?9, strategy = ?10 where id = ?1",
       params![
         id,
         source.address,
@@ -634,7 +647,9 @@ impl Store {
         words_json(&source.filter.exclude),
         source.every_minutes,
         source.limit,
-        now_ms()
+        now_ms(),
+        source.pattern,
+        source.strategy
       ],
     )?;
     self.source(id)
@@ -1729,6 +1744,8 @@ fn read_source(r: &rusqlite::Row<'_>) -> rusqlite::Result<Source> {
     kind: r.get(2)?,
     address: r.get(3)?,
     query: r.get(4)?,
+    pattern: r.get(17)?,
+    strategy: r.get(18)?,
     filter: Filter {
       require: words(5)?,
       exclude: words(6)?,

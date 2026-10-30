@@ -6,7 +6,7 @@ members = ["crates/client", "crates/server", "tools/research"]
 resolver = "3"
 
 [workspace.package]
-version = "0.1.0-rev.8"
+version = "0.1.0-rev.9"
 edition = "2024"
 license = "MIT"
 
@@ -28,6 +28,7 @@ pulldown-cmark-escape = "0.11.0"
 reqwest = { version = "0.13.5", default-features = false, features = ["json", "query", "rustls", "http2"] }
 rusqlite = { version = "0.37.0", features = ["bundled"] }
 schemars = "1.0.4"
+scraper = "0.25.0"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.138"
 tokio = { version = "1.47.0", features = ["macros", "rt-multi-thread", "net", "time", "signal", "sync"] }

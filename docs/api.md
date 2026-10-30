@@ -114,17 +114,22 @@ the one to read.
 | GET | `/sources` | The registered sources by id, narrowed by `categoryName`, paged by `after`. |
 | POST | `/sources` | Register a source; 201 with the source. |
 | GET | `/sources/{sourceId}` | One source. |
-| PATCH | `/sources/{sourceId}` | Change `address`, `query`, `filter`, `everyMinutes` or `limit`. |
+| PATCH | `/sources/{sourceId}` | Change `address`, `query`, `pattern`, `strategy`, `filter`, `everyMinutes` or `limit`. |
 | DELETE | `/sources/{sourceId}` | Take the source away; 204. What it turned up stays. |
 
 - **A source** is `id`, `categoryName`, `kind`, `address`, `query` (null where the kind takes none),
-  `filter` (`require` and `exclude`, lists of words), `everyMinutes` (null where its category's cadence
-  stands), `limit` (how many items one reading asks for), `failureCount`, `lastError`, `readAt`,
-  `scanCount`, `lastYield`, `lastTaken`, `createdAt` and `changedAt`.
+  `pattern` and `strategy` (a `page` source's link pattern and how its listing is read, `direct` or
+  `browser`; null for another kind), `filter` (`require` and `exclude`, lists of words), `everyMinutes`
+  (null where its category's cadence stands), `limit` (how many items one reading asks for),
+  `failureCount`, `lastError`, `readAt`, `scanCount`, `lastYield`, `lastTaken`, `createdAt` and `changedAt`.
 - **A new source** names `categoryName` and `kind` and, where the kind takes them, `address`, `query`,
-  `filter`, `everyMinutes` and `limit`. A category that does not stand is 404 `not-found`; a kind outside
-  `docs/sources.md`, a kind that needs a query given none, an `everyMinutes` or a `limit` below 1 is 400
-  `bad-request`. An address left out is the kind's own.
+  `pattern`, `strategy`, `filter`, `everyMinutes` and `limit`. A category that does not stand is 404
+  `not-found`; a kind outside `docs/sources.md`, a kind that needs a query given none, an `everyMinutes` or
+  a `limit` below 1 is 400 `bad-request`. An address left out is the kind's own.
+- **A `page` source** names its `address` and a `pattern` (`docs/sources.md`, 「A page」), and may name its
+  `strategy`, `direct` where it names none. A `page` source with no pattern, a pattern that is no path
+  prefix and does not read as a regular expression, a strategy other than `direct` or `browser`, or a
+  `pattern` or a `strategy` named for another kind, is 400 `bad-request`, on a change as on a new source.
 - **What its readings left** (`docs/sources.md`, 「What a reading leaves on its source」): `readAt` is the
   last reading's time, null before the first; `scanCount` counts every reading, failed or not;
   `lastYield` is how many candidates the last reading that succeeded turned up past the filter, and
@@ -557,9 +562,14 @@ of these units, and reads each one's address and token from that unit's own file
   「The tool host」): `GET /namespaces/web/tools` page by page, read for each tool's `listing`;
   `POST /tool-sessions` with a record naming the namespace `explorer` and `BMO_DATA_DIR`,
   `POST /tool-calls` under that session's token calling `explorer/search_engines`, and
-  `DELETE /tool-sessions/{token}`, the search engines' state.
+  `DELETE /tool-sessions/{token}`, the search engines' state. A `page` source's listing the same way under
+  a record naming the namespace `web`, the capability `web.read`, `BMO_DATA_DIR` and the label `research`
+  with its `strategy` (explorer's `direct-then-browser` for `direct`, `browser-first` for `browser`), whose
+  calls of `web/web_fetch` hand `url`, `raw` true, `max_chars` and `offset` and read the page's markup on
+  slice by slice, waiting at most two minutes for each (`docs/sources.md`, 「A page」).
 - **the arbiter:** the master's `GET /cluster` at the bench watch's address, with its token where one is
   named, read for each node's cards' `turn` and `queue` and the `serviceName` each carries (「The bench」).
   The bench lock of a verification is the job's; the daemon asks no ticket.
 - **The job service is never called:** the work a report calls for is the chat agent's to file.
-- **the sources:** each source's own address, read with the daemon's HTTP client (`docs/sources.md`).
+- **the sources:** each source's own address, read with the daemon's HTTP client, a `page` source's
+  through the tool host as above (`docs/sources.md`).

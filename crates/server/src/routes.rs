@@ -15,7 +15,7 @@ use serde::de::DeserializeOwned;
 use crate::App;
 use crate::branches::Refusal as Branching;
 use crate::runner::Refused as Launch;
-use crate::sources::{SourceKind, address_key};
+use crate::sources::{LinkPattern, SourceKind, Strategy, address_key};
 use crate::store::{Refusal, item_shape};
 
 type Shared = State<Arc<App>>;
@@ -279,7 +279,7 @@ async fn list_sources(State(app): Shared, Query(q): Queries) -> Response {
 }
 
 async fn create_source(State(app): Shared, bytes: Bytes) -> Response {
-  let new: NewSource = match body(&bytes) {
+  let mut new: NewSource = match body(&bytes) {
     Ok(s) => s,
     Err(r) => return bad(r),
   };
@@ -289,6 +289,14 @@ async fn create_source(State(app): Shared, bytes: Bytes) -> Response {
   };
   if kind.takes_query() && new.query.as_deref().is_none_or(|q| q.trim().is_empty()) {
     return bad(format!("a {} source needs a query", new.kind));
+  }
+  match page_fields(kind, new.pattern.as_deref().or(Some("")), new.strategy.as_deref()) {
+    Ok((pattern, strategy)) => {
+      new.pattern = pattern;
+      new.strategy =
+        strategy.or_else(|| (kind == SourceKind::Page).then(|| Strategy::Direct.as_str().into()));
+    }
+    Err(r) => return bad(r),
   }
   if [new.every_minutes, new.limit].into_iter().flatten().any(|n| n < 1) {
     return bad("a source's numbers are 1 or more");
@@ -320,7 +328,48 @@ async fn patch_source(State(app): Shared, Path(id): Path<String>, bytes: Bytes) 
   if [change.every_minutes, change.limit].into_iter().flatten().any(|n| n < 1) {
     return bad("a source's numbers are 1 or more");
   }
+  let mut change = change;
+  if change.pattern.is_some() || change.strategy.is_some() {
+    let kind = match app.store.source(id) {
+      Ok(source) => SourceKind::parse(&source.kind),
+      Err(refusal) => return refused(refusal),
+    };
+    match kind.map(|kind| page_fields(kind, change.pattern.as_deref(), change.strategy.as_deref())) {
+      Some(Ok((pattern, strategy))) => (change.pattern, change.strategy) = (pattern, strategy),
+      Some(Err(r)) => return bad(r),
+      None => return bad("a pattern and a strategy are given to a page source alone"),
+    }
+  }
   answered(app.store.change_source(id, &change), StatusCode::OK)
+}
+
+/// A `page` source's pattern and strategy as they are kept, a pattern of none where none is named; for
+/// another kind, both refused where either is named.
+fn page_fields(
+  kind: SourceKind,
+  pattern: Option<&str>,
+  strategy: Option<&str>,
+) -> Result<(Option<String>, Option<String>), String> {
+  if kind != SourceKind::Page {
+    return match (pattern.filter(|p| !p.is_empty()), strategy) {
+      (None, None) => Ok((None, None)),
+      _ => Err(format!("a {} source takes no pattern and no strategy", kind.as_str())),
+    };
+  }
+  let pattern = match pattern {
+    Some(pattern) => Some(LinkPattern::parse(pattern)?.as_str().to_string()),
+    None => None,
+  };
+  let strategy = match strategy {
+    Some(word) => Some(
+      Strategy::parse(word.trim())
+        .ok_or_else(|| format!("{word} is no strategy; the strategies are direct and browser"))?
+        .as_str()
+        .to_string(),
+    ),
+    None => None,
+  };
+  Ok((pattern, strategy))
 }
 
 async fn delete_source(State(app): Shared, Path(id): Path<String>) -> Response {

@@ -4,6 +4,9 @@
 use bmo_research_client::{Filter, Shape, Source};
 use serde::Deserialize;
 
+use crate::App;
+use crate::tool_host::ToolHost;
+
 /// What a source's items are, which says the shape a `manual-or-investigation` category asks them in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ItemKind {
@@ -85,15 +88,17 @@ pub enum SourceKind {
   Arxiv,
   GithubReleases,
   Rss,
+  Page,
 }
 
 impl SourceKind {
-  pub const ALL: [SourceKind; 5] = [
+  pub const ALL: [SourceKind; 6] = [
     SourceKind::HuggingfaceTrending,
     SourceKind::HuggingfaceSearch,
     SourceKind::Arxiv,
     SourceKind::GithubReleases,
     SourceKind::Rss,
+    SourceKind::Page,
   ];
 
   pub fn as_str(self) -> &'static str {
@@ -103,6 +108,7 @@ impl SourceKind {
       SourceKind::Arxiv => "arxiv",
       SourceKind::GithubReleases => "github-releases",
       SourceKind::Rss => "rss",
+      SourceKind::Page => "page",
     }
   }
 
@@ -118,7 +124,7 @@ impl SourceKind {
       }
       SourceKind::Arxiv => Some("https://export.arxiv.org/api/query"),
       SourceKind::GithubReleases => Some("https://api.github.com"),
-      SourceKind::Rss => None,
+      SourceKind::Rss | SourceKind::Page => None,
     }
   }
 
@@ -131,16 +137,17 @@ impl SourceKind {
       SourceKind::HuggingfaceTrending | SourceKind::HuggingfaceSearch => ItemKind::Model,
       SourceKind::Arxiv => ItemKind::Paper,
       SourceKind::GithubReleases => ItemKind::Release,
-      SourceKind::Rss => ItemKind::Entry,
+      SourceKind::Rss | SourceKind::Page => ItemKind::Entry,
     }
   }
 
-  /// The request a reading of the source makes.
-  pub fn request(self, http: &reqwest::Client, source: &Source) -> reqwest::RequestBuilder {
+  /// The request a reading of the source makes with the daemon's own client; none for a `page`, whose
+  /// listing is read through explorer.
+  pub fn request(self, http: &reqwest::Client, source: &Source) -> Option<reqwest::RequestBuilder> {
     let address = source.address.trim_end_matches('/');
     let query = source.query.clone().unwrap_or_default();
     let limit = source.limit.to_string();
-    match self {
+    Some(match self {
       SourceKind::HuggingfaceTrending => {
         http.get(address).query(&[("sort", "trendingScore"), ("limit", limit.as_str())])
       }
@@ -161,7 +168,8 @@ impl SourceKind {
         .header("accept", "application/vnd.github+json")
         .query(&[("per_page", limit.as_str())]),
       SourceKind::Rss => http.get(address),
-    }
+      SourceKind::Page => return None,
+    })
   }
 
   /// The candidates an answer's body holds.
@@ -171,15 +179,186 @@ impl SourceKind {
       SourceKind::Arxiv => read_arxiv(body),
       SourceKind::GithubReleases => read_github_releases(body, source.query.as_deref().unwrap_or_default()),
       SourceKind::Rss => read_feed(body),
+      SourceKind::Page => {
+        let pattern = LinkPattern::parse(source.pattern.as_deref().unwrap_or_default())?;
+        read_listing(&String::from_utf8_lossy(body), &source.address, &pattern, source.limit)
+      }
     }
   }
 }
 
+/// Which links of a `page` source's listing are posts: a path prefix on the listing's own host, or a regular
+/// expression searched in the whole address.
+#[derive(Debug, Clone)]
+pub enum LinkPattern {
+  Prefix(String),
+  Expression(regex::Regex),
+}
+
+impl LinkPattern {
+  /// A pattern beginning with `/` is a path prefix; any other is a regular expression.
+  pub fn parse(pattern: &str) -> Result<LinkPattern, String> {
+    let pattern = pattern.trim();
+    if pattern.is_empty() {
+      return Err("a page source needs a pattern".into());
+    }
+    if pattern.starts_with('/') {
+      return Ok(LinkPattern::Prefix(pattern.to_string()));
+    }
+    regex::Regex::new(pattern).map(LinkPattern::Expression).map_err(|e| {
+      format!("the pattern {pattern} is no path prefix and does not read as a regular expression: {e}")
+    })
+  }
+
+  pub fn as_str(&self) -> &str {
+    match self {
+      LinkPattern::Prefix(prefix) => prefix,
+      LinkPattern::Expression(expression) => expression.as_str(),
+    }
+  }
+
+  /// Whether a link of the listing at `listing` is a post: on its host, under the prefix and past it; or
+  /// where the expression is found in it.
+  pub fn matches(&self, link: &url::Url, listing: &url::Url) -> bool {
+    match self {
+      LinkPattern::Prefix(prefix) => {
+        link.host_str() == listing.host_str()
+          && link.path().len() > prefix.len()
+          && link.path().starts_with(prefix)
+      }
+      LinkPattern::Expression(expression) => expression.is_match(link.as_str()),
+    }
+  }
+}
+
+/// How explorer reads a `page` source's listing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Strategy {
+  /// The direct client, and the real Chrome only after a block or an empty shell.
+  Direct,
+  /// The real Chrome from the start, for a listing whose links a script draws.
+  Browser,
+}
+
+impl Strategy {
+  pub fn as_str(self) -> &'static str {
+    match self {
+      Strategy::Direct => "direct",
+      Strategy::Browser => "browser",
+    }
+  }
+
+  pub fn parse(word: &str) -> Option<Strategy> {
+    [Strategy::Direct, Strategy::Browser].into_iter().find(|s| s.as_str() == word)
+  }
+
+  /// The strategy as explorer's session record names it.
+  pub fn explorer(self) -> &'static str {
+    match self {
+      Strategy::Direct => "direct-then-browser",
+      Strategy::Browser => "browser-first",
+    }
+  }
+}
+
+/// The most characters of a link's text a candidate's name keeps.
+const NAME_CHARS: usize = 200;
+
+/// A listing's markup, read at the address `at`: the first `limit` posts its links name, in the page's order,
+/// each an entry candidate made by the page's title. A listing with no link the pattern matches is a failure.
+pub fn read_listing(
+  markup: &str,
+  at: &str,
+  pattern: &LinkPattern,
+  limit: i64,
+) -> Result<Vec<Candidate>, String> {
+  let base = url::Url::parse(at.trim()).map_err(|e| format!("{at} is no address: {e}"))?;
+  let document = scraper::Html::parse_document(markup);
+  let anchors = scraper::Selector::parse("a[href]").expect("the selector reads");
+  let title = scraper::Selector::parse("title").expect("the selector reads");
+  let maker = document
+    .select(&title)
+    .next()
+    .map(|t| folded(&t.text().collect::<Vec<_>>().join(" ")))
+    .filter(|t| !t.is_empty())
+    .or_else(|| base.host_str().map(str::to_string));
+  let listing = address_key(base.as_str());
+  let mut posts: Vec<(url::Url, Vec<String>)> = Vec::new();
+  for anchor in document.select(&anchors) {
+    let Ok(mut link) = base.join(anchor.value().attr("href").unwrap_or_default().trim()) else {
+      continue;
+    };
+    if !matches!(link.scheme(), "http" | "https") {
+      continue;
+    }
+    link.set_fragment(None);
+    if address_key(link.as_str()) == listing || !pattern.matches(&link, &base) {
+      continue;
+    }
+    let mut text = folded(&anchor.text().collect::<Vec<_>>().join(" "));
+    if text.is_empty() {
+      text = ["aria-label", "title"]
+        .into_iter()
+        .find_map(|name| anchor.value().attr(name).map(folded).filter(|t| !t.is_empty()))
+        .unwrap_or_default();
+    }
+    let key = address_key(link.as_str());
+    if let Some((_, texts)) = posts.iter_mut().find(|(known, _)| address_key(known.as_str()) == key) {
+      texts.push(text);
+    } else if (posts.len() as i64) < limit.max(1) {
+      posts.push((link, vec![text]));
+    }
+  }
+  if posts.is_empty() {
+    return Err(format!("{at}: no link on the page matches the pattern {}", pattern.as_str()));
+  }
+  Ok(
+    posts
+      .into_iter()
+      .map(|(link, texts)| {
+        let address = link.to_string();
+        let name = texts
+          .iter()
+          .find(|t| !t.is_empty())
+          .map(|t| t.chars().take(NAME_CHARS).collect::<String>().trim_end().to_string())
+          .unwrap_or_else(|| address.clone());
+        Candidate {
+          words: format!("{} {address}", texts.join(" ")),
+          name,
+          maker: maker.clone(),
+          address: Some(address),
+          published_at: None,
+          kind: ItemKind::Entry,
+        }
+      })
+      .collect(),
+  )
+}
+
 /// A reading of one source: its candidates, every one the filter lets through.
-pub async fn fetch(http: &reqwest::Client, source: &Source) -> Result<Vec<Candidate>, String> {
+pub async fn fetch(app: &App, source: &Source) -> Result<Vec<Candidate>, String> {
   let kind = SourceKind::parse(&source.kind).ok_or_else(|| format!("{} is no source kind", source.kind))?;
-  let answer = kind
-    .request(http, source)
+  let candidates = match kind.request(&app.http, source) {
+    Some(request) => kind.read(&ask(request, source).await?, source)?,
+    None => read_page(app, source).await?,
+  };
+  Ok(candidates.into_iter().filter(|c| c.passes(&source.filter)).collect())
+}
+
+/// A `page` source's listing read through explorer, its links read against the address the reading ended at.
+async fn read_page(app: &App, source: &Source) -> Result<Vec<Candidate>, String> {
+  let pattern = LinkPattern::parse(source.pattern.as_deref().unwrap_or_default())?;
+  let strategy = source.strategy.as_deref().and_then(Strategy::parse).unwrap_or(Strategy::Direct);
+  let (at, markup) = ToolHost::new(&app.settings)
+    .read_page(&source.address, strategy.explorer())
+    .await
+    .map_err(|why| format!("explorer could not read {}: {why}", source.address))?;
+  read_listing(&markup, &at, &pattern, source.limit)
+}
+
+/// One request of the daemon's own client answered with a success: its body.
+async fn ask(request: reqwest::RequestBuilder, source: &Source) -> Result<Vec<u8>, String> {
+  let answer = request
     .timeout(std::time::Duration::from_secs(60))
     .send()
     .await
@@ -189,8 +368,7 @@ pub async fn fetch(http: &reqwest::Client, source: &Source) -> Result<Vec<Candid
     return Err(format!("{} answered {}", source.address, status.as_u16()));
   }
   let body = answer.bytes().await.map_err(|e| format!("{}: {e}", source.address))?;
-  let candidates = kind.read(&body, source)?;
-  Ok(candidates.into_iter().filter(|c| c.passes(&source.filter)).collect())
+  Ok(body.to_vec())
 }
 
 fn epoch_ms(text: &str) -> Option<i64> {

@@ -432,6 +432,8 @@ async fn sources(client: &ResearchClient, arguments: &Value, is_owner: bool) -> 
           kind: need_text(arguments, "kind")?,
           address: text(arguments, "address"),
           query: text(arguments, "query"),
+          pattern: text(arguments, "pattern"),
+          strategy: text(arguments, "strategy"),
           filter,
           every_minutes: arguments["everyMinutes"].as_i64(),
           limit: arguments["limit"].as_i64(),

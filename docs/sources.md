@@ -1,10 +1,11 @@
 # Sources
 
 A source is a registration (`docs/api.md`, 「sources」): the category it belongs to, a kind, the address it
-is read at, a query where the kind takes one, a filter, its own cadence where it has one, and how many
-items one reading asks for. The daemon reads it with its own HTTP client, under the `User-Agent` the
-settings name, at most once every `every_minutes` (its category's `cadenceMinutes` where it names none),
-and only while its category runs. Any kind serves any category: a security list's feed is an `rss`
+is read at, a query where the kind takes one, a link pattern and a strategy where the kind is `page`, a
+filter, its own cadence where it has one, and how many items one reading asks for. The daemon reads it at
+most once every `every_minutes` (its category's `cadenceMinutes` where it names none), and only while its
+category runs: a `page` source through explorer (「A page」), every other kind with its own HTTP client,
+under the `User-Agent` the settings name. Any kind serves any category: a security list's feed is an `rss`
 source of `security`, an economic release's feed one of `economy`.
 
 ## The kinds
@@ -16,6 +17,7 @@ source of `security`, an economic release's feed one of `economy`.
 | `arxiv` | `https://export.arxiv.org/api/query` | an arXiv `search_query` | the address with `search_query`, `sortBy=submittedDate`, `sortOrder=descending` and `max_results` | `paper` |
 | `github-releases` | `https://api.github.com` | the repository, `owner/name` | `<address>/repos/<query>/releases` with `per_page` | `release` |
 | `rss` | none, required | none | the address: an RSS or an Atom feed | `entry` |
+| `page` | none, required | none | the address through explorer: a listing page with no feed | `entry` |
 
 Each item becomes a candidate: a name, the maker, the address of the maker's own page, the date it
 appeared, and the words the filter reads.
@@ -32,8 +34,34 @@ appeared, and the words the filter reads.
 - **`rss`:** an entry of the feed, read by `feed-rs`. The name is its title; the maker the feed's title;
   the address its first link; the date its published time, else its updated time; the words the title and
   the summary.
-- **`page`,** a maker's page with no feed read through explorer's `web_fetch`, is no kind the daemon reads
-  yet; a source of that kind is refused.
+- **`page`:** a link of the listing page that matches the source's pattern (「A page」). The name is the
+  link's text, its whitespace folded and cut at 200 characters; the maker the page's title, else its
+  host; the address the link, absolute; no date; the words the text of every link to that address and
+  the address.
+
+## A page
+
+A `page` source reads a maker's listing — a news or blog index with no feed — and takes the posts it
+links to.
+
+- **Its fields:** `address`, the listing page; `pattern`, which links are posts; and `strategy`, how
+  explorer reads the page, `direct` where it names none.
+- **The pattern** is a path prefix where it begins with `/`: a link matches where it stands on the
+  listing's own host and its path begins with the prefix and goes on past it, so `/news/` takes
+  `/news/a-post` and not `/news/` itself. Any other pattern is a regular expression, searched in the
+  link's whole absolute address. A link to the listing itself never matches.
+- **The page is read through explorer,** never by the daemon's own client, so explorer's pacing, address
+  checks and Chrome stand round every reading: the tool host's `web/web_fetch` asked for the page's markup
+  as served, read on slice by slice to its end, at most 16 slices of 100,000 characters (`docs/api.md`,
+  「Calls this unit makes」).
+- **The two strategies** are explorer's: `direct`, its direct client, and its real Chrome only after a
+  block or an empty shell; `browser`, its real Chrome from the start, for a listing whose links a script
+  draws.
+- **The links** are the page's anchors with an `href`, each resolved against the address the reading
+  ended at, its fragment dropped; a link that is no `http` or `https` address is passed over. A post
+  linked more than once is one candidate, its name the first non-empty text among its links, a link's
+  `aria-label` or `title` standing for a text it lacks, and the address where no link has one. The first
+  `limit` posts, in the page's order, are the reading's candidates, and the filter is applied to them.
 
 ## The filter
 
@@ -69,6 +97,7 @@ Every reading, whether it succeeds or fails, sets the source's `readAt` to its t
 ## Failures
 
 - **A reading that fails** — the address does not answer, answers a status that is no success, or answers
-  a body its kind does not read — is said once in the log, counted on the source's `failureCount`, kept as
-  its `lastError`, and read again at its next turn. A reading that succeeds sets the count back to 0 and
-  `lastError` to null.
+  a body its kind does not read; for a `page`, explorer fails the page, or the page holds no link the
+  pattern matches, each said apart — is said once in the log, counted on the source's `failureCount`,
+  kept as its `lastError`, and read again at its next turn. A reading that succeeds sets the count back
+  to 0 and `lastError` to null.

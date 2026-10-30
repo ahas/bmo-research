@@ -321,6 +321,10 @@ pub struct Source {
   pub kind: String,
   pub address: String,
   pub query: Option<String>,
+  /// a `page` source's link pattern, null for another kind
+  pub pattern: Option<String>,
+  /// how a `page` source's listing is read, `direct` or `browser`; null for another kind
+  pub strategy: Option<String>,
   pub filter: Filter,
   pub every_minutes: Option<i64>,
   pub limit: i64,
@@ -350,6 +354,12 @@ pub struct NewSource {
   pub address: Option<String>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub query: Option<String>,
+  /// which links of a `page` source's listing are posts: a path prefix, else a regular expression
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub pattern: Option<String>,
+  /// how a `page` source's listing is read: `direct` or `browser`
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub strategy: Option<String>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub filter: Option<Filter>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -366,6 +376,12 @@ pub struct SourceChange {
   pub address: Option<String>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub query: Option<String>,
+  /// which links of a `page` source's listing are posts: a path prefix, else a regular expression
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub pattern: Option<String>,
+  /// how a `page` source's listing is read: `direct` or `browser`
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub strategy: Option<String>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub filter: Option<Filter>,
   #[serde(default, skip_serializing_if = "Option::is_none")]

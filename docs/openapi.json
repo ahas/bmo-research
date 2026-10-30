@@ -897,7 +897,21 @@
               "null"
             ]
           },
+          "pattern": {
+            "description": "which links of a `page` source's listing are posts: a path prefix, else a regular expression",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "query": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "strategy": {
+            "description": "how a `page` source's listing is read: `direct` or `browser`",
             "type": [
               "string",
               "null"
@@ -1755,6 +1769,13 @@
             "format": "int64",
             "type": "integer"
           },
+          "pattern": {
+            "description": "a `page` source's link pattern, null for another kind",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "query": {
             "type": [
               "string",
@@ -1773,6 +1794,13 @@
             "description": "readings made, failed or not",
             "format": "int64",
             "type": "integer"
+          },
+          "strategy": {
+            "description": "how a `page` source's listing is read, `direct` or `browser`; null for another kind",
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
@@ -1781,6 +1809,8 @@
           "kind",
           "address",
           "query",
+          "pattern",
+          "strategy",
           "filter",
           "everyMinutes",
           "limit",
@@ -1828,7 +1858,21 @@
               "null"
             ]
           },
+          "pattern": {
+            "description": "which links of a `page` source's listing are posts: a path prefix, else a regular expression",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "query": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "strategy": {
+            "description": "how a `page` source's listing is read: `direct` or `browser`",
             "type": [
               "string",
               "null"
@@ -1917,7 +1961,7 @@
   "info": {
     "description": "The research unit: a daemon that keeps a queue of things to research by category, reads the sources the owner registers, has each item researched by its own runner in its category's shape, and tells the category's recipients. It files no job and launches nothing.",
     "title": "bmo-research",
-    "version": "0.1.0-rev.8"
+    "version": "0.1.0-rev.9"
   },
   "openapi": "3.1.0",
   "paths": {

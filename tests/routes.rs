@@ -120,6 +120,82 @@ async fn the_state_stops_one_category_or_every_one() {
 }
 
 #[tokio::test]
+async fn a_page_source_is_registered_with_its_pattern_and_strategy_and_refused_when_malformed() {
+  let (_ground, base, client) = served().await;
+  let page = client
+    .add_source(&NewSource {
+      category_name: "it".into(),
+      kind: "page".into(),
+      address: Some("https://example-lab.org/news".into()),
+      pattern: Some(" /news/ ".into()),
+      ..NewSource::default()
+    })
+    .await
+    .unwrap();
+  assert_eq!(
+    (page.pattern.as_deref(), page.strategy.as_deref(), page.query.as_deref()),
+    (Some("/news/"), Some("direct"), None)
+  );
+  for (body, status) in [
+    (
+      json!({"categoryName": "it", "kind": "page", "pattern": "/news/"}),
+      StatusCode::BAD_REQUEST,
+    ),
+    (
+      json!({"categoryName": "it", "kind": "page", "address": "https://example.org/n"}),
+      StatusCode::BAD_REQUEST,
+    ),
+    (
+      json!({"categoryName": "it", "kind": "page", "address": "https://example.org/n", "pattern": "news/("}),
+      StatusCode::BAD_REQUEST,
+    ),
+    (
+      json!({"categoryName": "it", "kind": "page", "address": "https://example.org/n", "pattern": "/n/", "strategy": "direct-only"}),
+      StatusCode::BAD_REQUEST,
+    ),
+    (
+      json!({"categoryName": "it", "kind": "rss", "address": "https://example.org/f", "pattern": "/n/"}),
+      StatusCode::BAD_REQUEST,
+    ),
+  ] {
+    let (answered, failure) = raw(&base, reqwest::Method::POST, "/sources", Some(body.clone())).await;
+    assert_eq!(answered, status, "{body}");
+    assert!(failure["code"].is_string() && failure["error"].is_string());
+  }
+  let changed = client
+    .change_source(
+      page.id,
+      &SourceChange {
+        pattern: Some(r"example-lab\.org/news/[a-z-]+$".into()),
+        strategy: Some("browser".into()),
+        ..SourceChange::default()
+      },
+    )
+    .await
+    .unwrap();
+  assert_eq!(
+    (changed.pattern.as_deref(), changed.strategy.as_deref()),
+    (Some(r"example-lab\.org/news/[a-z-]+$"), Some("browser"))
+  );
+  let path = format!("/sources/{}", page.id);
+  let (status, _) = raw(&base, reqwest::Method::PATCH, &path, Some(json!({"strategy": "chrome"}))).await;
+  assert_eq!(status, StatusCode::BAD_REQUEST);
+  let feed = client
+    .add_source(&NewSource {
+      category_name: "it".into(),
+      kind: "rss".into(),
+      address: Some("https://example.org/feed.xml".into()),
+      ..NewSource::default()
+    })
+    .await
+    .unwrap();
+  assert_eq!((feed.pattern, feed.strategy), (None, None));
+  let path = format!("/sources/{}", feed.id);
+  let (status, _) = raw(&base, reqwest::Method::PATCH, &path, Some(json!({"pattern": "/news/"}))).await;
+  assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
 async fn sources_are_registered_with_their_kind_s_address_and_refused_when_malformed() {
   let (_ground, base, client) = served().await;
   let hub = client

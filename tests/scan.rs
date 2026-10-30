@@ -1,6 +1,7 @@
 //! The scan against stand-in sources and a stand-in archive (`docs/sources.md`): each kind asked as it
 //! states, the filter and the archive applied, each category's part filled to its cap, a source read no more
-//! often than its cadence, a failing source counted, and what each reading leaves on its source.
+//! often than its cadence, a failing source counted, what each reading leaves on its source, and a listing
+//! page read through a stand-in explorer.
 
 mod support;
 
@@ -192,4 +193,111 @@ async fn a_reading_writes_what_it_turned_up_and_a_failed_one_keeps_the_earlier_y
   assert!(failed.last_error.as_deref().is_some_and(|why| why.contains("404")), "{failed:?}");
   assert!(failed.read_at >= again.read_at);
   assert_eq!((failed.last_yield, failed.last_taken), (Some(2), Some(0)), "the earlier yield is kept");
+}
+
+/// A `page` source of the listing at `address`, matching `pattern`.
+fn listing(address: &str, pattern: &str, strategy: Option<&str>) -> NewSource {
+  NewSource {
+    category_name: "it".into(),
+    kind: "page".into(),
+    address: Some(address.into()),
+    pattern: Some(pattern.into()),
+    strategy: strategy.map(String::from),
+    ..NewSource::default()
+  }
+}
+
+#[tokio::test]
+async fn a_listing_is_read_through_explorer_slice_by_slice_and_its_posts_queued() {
+  let ground = support::ground(|_| {}).await;
+  let address = "https://example-lab.org/news";
+  {
+    let mut world = ground.world.lock().unwrap();
+    world.pages.insert(address.into(), support::fixture("listing.html"));
+    world.slice_chars = Some(300);
+    world.archived.push("Faster serving for long contexts".into());
+  }
+  let store = &ground.app.store;
+  let mut page = listing(address, "/news/", Some("browser"));
+  page.filter = Some(Filter {
+    require: vec![],
+    exclude: vec!["roleplay".into()],
+  });
+  let id = store.add_source(&page, address, 30).unwrap().id;
+
+  scan(&ground.app).await.unwrap();
+
+  let sessions = ground.asked_path("tool-host", "POST", "/tool-sessions");
+  assert_eq!(sessions.len(), 1, "one record holds the whole reading");
+  let record = &sessions[0].body;
+  assert_eq!(record["namespaces"], serde_json::json!(["web"]));
+  assert_eq!(record["capabilities"], serde_json::json!(["web.read"]));
+  assert_eq!(record["labels"]["research"]["strategy"], "browser-first");
+  let calls = ground.asked_path("tool-host", "POST", "/tool-calls");
+  let total = support::fixture("listing.html").chars().count();
+  assert_eq!(calls.len(), total.div_ceil(300), "the page is read on to its end");
+  assert!(calls.iter().all(|c| c.body["name"] == "web_fetch" && c.body["input"]["raw"] == true));
+  let offsets: Vec<u64> = calls.iter().map(|c| c.body["input"]["offset"].as_u64().unwrap()).collect();
+  assert_eq!(offsets, (0..calls.len() as u64).map(|n| n * 300).collect::<Vec<_>>());
+  assert_eq!(
+    ground.asked_path("tool-host", "DELETE", "/tool-sessions/").len(),
+    1,
+    "the record is taken back"
+  );
+  assert!(ground.asked("source").is_empty(), "the daemon's own client never reads the page");
+
+  let mut names: Vec<String> = store
+    .queue(Some("it"), &[], None, 50)
+    .unwrap()
+    .items
+    .into_iter()
+    .map(|i| i.name)
+    .collect();
+  names.sort();
+  assert_eq!(names, ["A link relative to the listing", "Introducing Example-Model 8"]);
+  let read = store.source(id).unwrap();
+  assert_eq!(
+    (read.scan_count, read.last_yield, read.last_taken, read.last_error.as_deref()),
+    (1, Some(3), Some(2), None)
+  );
+  assert_eq!(read.strategy.as_deref(), Some("browser"));
+}
+
+#[tokio::test]
+async fn a_listing_that_fails_or_matches_nothing_says_which() {
+  let ground = support::ground(|_| {}).await;
+  let address = "https://example-lab.org/news";
+  ground
+    .world
+    .lock()
+    .unwrap()
+    .pages
+    .insert(address.into(), support::fixture("listing.html"));
+  let store = &ground.app.store;
+  let missing = listing("https://example-lab.org/gone", "/news/", None);
+  let gone = store.add_source(&missing, "https://example-lab.org/gone", 30).unwrap().id;
+  let unmatched = listing(address, "/blog/", None);
+  let nothing = store.add_source(&unmatched, address, 30).unwrap().id;
+
+  scan(&ground.app).await.unwrap();
+
+  let failed = store.source(gone).unwrap();
+  let why = failed.last_error.unwrap_or_default();
+  assert!(
+    why.contains("explorer could not read https://example-lab.org/gone") && why.contains("404"),
+    "{why}"
+  );
+  assert_eq!((failed.failure_count, failed.scan_count, failed.last_yield), (1, 1, None));
+  let empty = store.source(nothing).unwrap();
+  let why = empty.last_error.unwrap_or_default();
+  assert!(why.contains("no link on the page matches the pattern /blog/"), "{why}");
+  assert_eq!(empty.failure_count, 1);
+  let records = ground.asked_path("tool-host", "POST", "/tool-sessions");
+  assert!(
+    records
+      .iter()
+      .all(|r| r.body["labels"]["research"]["strategy"] == "direct-then-browser"),
+    "a source naming no strategy is read directly"
+  );
+  assert!(store.queue(Some("it"), &[], None, 50).unwrap().items.is_empty());
 }
