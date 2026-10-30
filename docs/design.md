@@ -60,7 +60,9 @@ sources ──scan──▶ candidates ──new?──▶ queue (cap) ──slo
    lower-cased), no archive document carries its name in its title or labels (`GET /documents?q=`), and
    the owner has not dismissed it. A new candidate is kept as seen the moment it is read, so it is judged
    once.
-3. **The queue.** New candidates wait in the queue by the order they were found; one the owner asked for
+3. **The queue.** The queue is the researcher's own, a table of its store that says what is researched
+   next; it is no part of the job service's queue, which holds work for the workers and which the research
+   unit never writes. New candidates wait in the queue by the order they were found; one the owner asked for
    by name stands first. Each category's part of the queue holds at most its `cap` items waiting or running; a scan that finds more
    keeps them as seen but unqueued, and the next scan that finds the queue short takes the oldest
    unqueued first. The queue never idles while something is unqueued.
