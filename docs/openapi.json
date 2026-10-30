@@ -242,7 +242,7 @@
         "type": "object"
       },
       "DaemonState": {
-        "description": "The daemon's state: stopped where every category is stopped, and each category's.",
+        "description": "The daemon's state: stopped where every category is stopped, each category's, and what holds the queue.",
         "properties": {
           "categories": {
             "items": {
@@ -258,6 +258,12 @@
               "null"
             ]
           },
+          "holds": {
+            "items": {
+              "$ref": "#/components/schemas/Hold"
+            },
+            "type": "array"
+          },
           "state": {
             "$ref": "#/components/schemas/Running"
           }
@@ -265,7 +271,8 @@
         "required": [
           "state",
           "changedAt",
-          "categories"
+          "categories",
+          "holds"
         ],
         "type": "object"
       },
@@ -395,6 +402,57 @@
           "version"
         ],
         "type": "object"
+      },
+      "Hold": {
+        "description": "A watched model that keeps runs from starting now (`docs/api.md`, 「The bench」).",
+        "properties": {
+          "categoryNames": {
+            "description": "the categories whose road is the model",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "nodeName": {
+            "description": "the node the bench stands on; null while the queue waits on the model's health",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason": {
+            "$ref": "#/components/schemas/HoldReason"
+          },
+          "registration": {
+            "type": "string"
+          },
+          "reported": {
+            "description": "whether the owner's room was told the model stays down",
+            "type": "boolean"
+          },
+          "since": {
+            "description": "epoch milliseconds; when the bench was first seen, or the wait began",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "registration",
+          "reason",
+          "nodeName",
+          "since",
+          "reported",
+          "categoryNames"
+        ],
+        "type": "object"
+      },
+      "HoldReason": {
+        "description": "Why a watched model holds the queue: a bench's ticket stands on one of its nodes, or the queue waits on\nits health.",
+        "enum": [
+          "bench",
+          "restore"
+        ],
+        "type": "string"
       },
       "Item": {
         "description": "One thing in the queue.",
@@ -1283,7 +1341,7 @@
   "info": {
     "description": "The research unit: a daemon that keeps a queue of things to research by category, reads the sources the owner registers, has each item researched on agency's runner in its category's shape, and tells the category's recipients. It files no job and launches nothing.",
     "title": "bmo-research",
-    "version": "0.1.0-rev.1"
+    "version": "0.1.0-rev.2"
   },
   "openapi": "3.1.0",
   "paths": {

@@ -65,7 +65,13 @@ the one to read.
 
 - **The state** answers `state` (`stopped` where every category is stopped, `running` otherwise),
   `changedAt` (the latest change of any category's state, null where none was changed) and `categories`,
-  each `categoryName`, `state`, `waitingCount`, `runningCount` and `cap`.
+  each `categoryName`, `state`, `waitingCount`, `runningCount` and `cap`, and `holds`, what keeps runs
+  from starting now (「The bench」), each `registration`, `reason` (`bench` while a bench's ticket stands on
+  one of its nodes, `restore` while the queue waits on its health), `nodeName` (the node the bench stands
+  on; null while restoring), `since` (when the bench was first seen, or the wait began), `reported`
+  (whether the owner's room was told the model stays down) and `categoryNames` (the categories whose road
+  it is); empty where nothing holds.
+- **A held category starts no run;** its sources are read and its part of the queue fills as ever.
 - **A stopped category starts no run** and its sources are not read; a run under way is waited on to its
   end and reported as any other. `running` starts it again. A category's state outlives a restart; a
   category starts running. A `categoryName` no category holds is 404 `not-found`.
@@ -243,10 +249,31 @@ the one to read.
 - **A brief** gathers, once its category's `gatherMinutes` have passed since its last run was asked, every
   waiting item of the category, at most its `cap`, into one run; a gathering whose retry is due is asked
   at once.
+- **A try the bench cut is not counted** (「The bench」); every other failed try is.
 - **A daemon that starts** takes up every run it left `running`: one with a run id is polled again, one
   without puts its items back `waiting`.
 - **A filed document is rendered in Korean** before it is told (「The Korean rendering」): its items are
   filed `reported` or `fit` first, then the rendering is asked, then the recipients are told.
+
+### The bench
+
+- **What is watched** is the settings' `bench_watch` (`docs/settings.md`): the provider, each registration
+  on it and the nodes it stands on, the occupant a bench stands under, and the arbiter master's address.
+- **Read on every pass of the loop and at every failed try:** the master's cluster picture, each watched
+  node's cards looked at for a ticket of the bench's occupant, its turn or one waiting in its queue.
+- **While one stands,** every category whose road is the watch's provider and that registration is held
+  (`holds`, reason `bench`) and starts no try.
+- **Once it is gone,** the hold waits on the registration's health: agency's `GET /models/{registration}`
+  answering `healthy` true, read on every pass (reason `restore`). Healthy, the hold ends and the queue
+  goes on. Not healthy `restore_wait_minutes` after the wait began, the owner's private room is told once
+  (「The notices」, `restore`); the hold stands until the health comes back.
+- **A failed try of a watched road** is the bench's where, read again as it fails, a bench's ticket stands
+  on one of the road's nodes, one was seen there since the try was asked, or the registration does not
+  answer its health; a health failure with no bench holds the queue as a restore does. Such a try ends in
+  its state with its `error` saying the model was benched or does not answer, and its items wait again at
+  once with the try not counted.
+- **A master that cannot be read** leaves each hold as it stood and is said in the log, once while the
+  failure stays the same.
 
 ### The questions
 
@@ -347,6 +374,9 @@ search runner applies it, and the run writes its document in English, the questi
   share link and the plan's place. Workers read English, so the part names no Korean rendering. The
   category's recipients are told the whole; a repository no stack row names a worker for is heard by them
   alone.
+- **A model that stays down after a bench** is told to the owner's private room alone, once per wait, with
+  `restore`, the registration, its nodes and the minutes waited set in, under the kind
+  `research-restore:<registration>`.
 - **A recipient that refuses** is said in the log and kept as a report row in the state `refused`; the
   others are told all the same.
 
@@ -359,7 +389,7 @@ daemon's settings name, read under the data root the session record's `BMO_DATA_
 | Entry | Arguments | Calls | Capability |
 |---|---|---|---|
 | `research/ask` | `name`, `address`, `category?`, `shape?` | `POST /queue` | `research.ask` |
-| `research/queue` | `category?`, `state?` | `GET /queue` | `research.ask` |
+| `research/queue` | `category?`, `state?` | `GET /queue`, and `GET /state` for its `holds`, said first | `research.ask` |
 | `research/taken` | `item`, `job` | `PATCH /queue/{itemId}` | `research.owner` |
 | `research/dismiss` | `item` | `PATCH /queue/{itemId}` | `research.owner` |
 | `research/categories` | `action` (`list`, `add`, `remove`, `change`) and the category's fields | `GET`, `POST`, `PATCH`, `DELETE /categories` | `research.ask`; `add`, `remove` and `change` also `research.owner` |
@@ -390,6 +420,7 @@ of these units, and reads each one's address and token from that unit's own file
 
 - **agency:** `POST /research-runs` with `key`, `query`, `provider` and `model`, and no `roomId`; answered
   202 with `runId`, or 503 where no road carries it. `GET /runs/{runId}`, read for `state` and `outcome`.
+  `GET /models/{registration}?provider=<provider>`, a watched registration read for `healthy`.
   `POST /sessions/{agentName}@worker/turns` with `prompt`, a notice to an agent. `POST /translation-runs`
   with `purpose`, `language`, `text` and `note`, one part of a Korean rendering; answered 200 with `text`,
   413 `too-large` or 503 `no-login-open`.
@@ -398,8 +429,10 @@ of these units, and reads each one's address and token from that unit's own file
   first carrying no `translationOf` label; `GET /documents/{documentId}/content`, its text;
   `GET /shares?documentId=<documentId>` and `POST /shares` with `documentId`, its live link;
   `POST /documents`, a Korean rendering.
-- **the receiver:** `GET /owner`, the owner's private room; `POST /instructions`, a report line.
-- **the arbiter:** no route of it is called. The bench lock of a verification is the job's, and the
-  daemon's pause while a bench holds a node its model stands on is not built (`docs/design.md`, 「Phases」).
+- **the receiver:** `GET /owner`, the owner's private room; `POST /instructions`, a report line or the
+  notice that a model stays down.
+- **the arbiter:** the master's `GET /cluster` at the bench watch's address, with its token where one is
+  named, read for each node's cards' `turn` and `queue` and the `serviceName` each carries (「The bench」).
+  The bench lock of a verification is the job's; the daemon asks no ticket.
 - **The job service is never called:** the work a report calls for is the chat agent's to file.
 - **the sources:** each source's own address, read with the daemon's HTTP client (`docs/sources.md`).

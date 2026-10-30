@@ -242,6 +242,9 @@ async fn command(verb: Verb) -> Result<(), String> {
           c.cap
         );
       }
+      for hold in state.holds {
+        println!("  held: {}", hold.line());
+      }
       Ok(())
     }
     Verb::Stop { category } => change_state(&client, Running::Stopped, category).await,

@@ -74,6 +74,34 @@ struct Share {
   url: String,
 }
 
+/// The parts of the arbiter master's cluster picture the bench watch reads: each node's cards, each card's
+/// turn and the tickets waiting in its queue, by the service each stands for.
+#[derive(Deserialize)]
+struct Cluster {
+  nodes: Vec<ClusterNode>,
+}
+
+#[derive(Deserialize)]
+struct ClusterNode {
+  name: String,
+  #[serde(default)]
+  cards: Vec<ClusterCard>,
+}
+
+#[derive(Deserialize)]
+struct ClusterCard {
+  #[serde(default)]
+  turn: Option<Ticket>,
+  #[serde(default)]
+  queue: Vec<Ticket>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Ticket {
+  service_name: String,
+}
+
 /// How a research run's ledger row stands.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunState {
@@ -120,6 +148,20 @@ impl Peers {
       name: "the receiver",
       address,
       token: vars.get("RECEIVER_TOKEN").cloned(),
+    })
+  }
+
+  /// The arbiter's master at the bench watch's address, with the token its file holds where one is named.
+  pub fn arbiter(&self) -> Result<Peer, String> {
+    let watch = &self.settings.bench_watch;
+    let token = match watch.token.trim() {
+      "" => None,
+      name => Some(token_file(&self.settings.env_file(name))?),
+    };
+    Ok(Peer {
+      name: "the arbiter",
+      address: watch.address.clone(),
+      token,
     })
   }
 
@@ -182,6 +224,46 @@ impl Peers {
       state: answer["state"].as_str().unwrap_or_default().to_string(),
       outcome: answer["outcome"].as_str().map(str::to_string),
     })
+  }
+
+  /// Each node's occupants holding a ticket now, granted or waiting, as the arbiter master's cluster
+  /// picture shows them, by node.
+  pub async fn tickets(&self) -> Result<BTreeMap<String, Vec<String>>, String> {
+    let arbiter = self.arbiter()?;
+    let answer = self
+      .call(&arbiter, self.request(&arbiter, reqwest::Method::GET, "/cluster"), "GET /cluster")
+      .await?;
+    let cluster: Cluster =
+      serde_json::from_value(answer).map_err(|e| format!("the arbiter's cluster did not read: {e}"))?;
+    Ok(
+      cluster
+        .nodes
+        .into_iter()
+        .map(|node| {
+          let services = node
+            .cards
+            .into_iter()
+            .flat_map(|card| card.turn.into_iter().chain(card.queue))
+            .map(|ticket| ticket.service_name)
+            .collect();
+          (node.name, services)
+        })
+        .collect(),
+    )
+  }
+
+  /// Whether a registration of agency's registry answers its health now.
+  pub async fn healthy(&self, provider: &str, registration: &str) -> Result<bool, String> {
+    let agency = self.agency()?;
+    let path = format!("/models/{registration}");
+    let answer = self
+      .call(
+        &agency,
+        self.request(&agency, reqwest::Method::GET, &path).query(&[("provider", provider)]),
+        &format!("GET {path}"),
+      )
+      .await?;
+    Ok(answer["healthy"].as_bool().unwrap_or(false))
   }
 
   /// A notice told to an agent by a turn into its worker session. A turn still working after the wait is
@@ -349,11 +431,11 @@ impl Peers {
     answer["room"].as_i64().ok_or_else(|| "the receiver's owner names no room".to_string())
   }
 
-  /// A notice queued for a room's answerer: the instruction's id.
+  /// A notice queued for a room's answerer under its kind: the instruction's id.
   pub async fn instruct(
     &self,
     room: i64,
-    item_id: i64,
+    kind: &str,
     notice: &str,
     summary: &str,
   ) -> Result<Option<i64>, String> {
@@ -361,7 +443,7 @@ impl Peers {
     let body = json!({
       "room": room,
       "sort": "notice",
-      "kind": format!("research-report:{item_id}"),
+      "kind": kind,
       "said": { "order": notice },
       "summary": summary,
     });

@@ -30,6 +30,7 @@ pub struct ReportWords {
   pub bench: String,
   pub worker: String,
   pub failed: String,
+  pub restore: String,
 }
 
 /// The words a filed document is read by, by shape, one set per language in the order they are tried.

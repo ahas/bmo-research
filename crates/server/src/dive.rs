@@ -1,7 +1,8 @@
 //! The deep dive and its notices (`docs/api.md`, 「The deep dive」, 「The Korean rendering」 and 「The
-//! notices」): the next run picked among the running categories, asked of agency, read until it closes, its
-//! document read and its items filed, the document rendered in Korean, and every recipient told; a pending
-//! rendering asked again on the retry wait and its follow-up told.
+//! notices」): the next run picked among the running categories whose road no bench holds, asked of agency,
+//! read until it closes, its document read and its items filed, the document rendered in Korean, and every
+//! recipient told; a pending rendering asked again on the retry wait and its follow-up told; a try the
+//! bench cut put back uncounted.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -10,6 +11,7 @@ use bmo_research_client::{Category, CategoryShape, Item, RecipientKind, Running,
 use tokio::task::JoinHandle;
 
 use crate::App;
+use crate::bench;
 use crate::reading::{self, Exposure};
 use crate::store::{Filed, now_ms};
 use crate::translation::{self, English, Rendering};
@@ -47,7 +49,7 @@ pub fn take_up(app: &Arc<App>) {
   for run in runs {
     match run.run_id {
       None => {
-        let _ = app.store.requeue(run.id);
+        let _ = app.store.requeue(run.id, "failed", None, "the daemon stopped before the run was asked");
       }
       Some(run_id) => {
         let app = app.clone();
@@ -73,10 +75,11 @@ pub async fn give_owner_room(app: &App) {
   }
 }
 
-/// One pass of the loop: a scan, every pending Korean rendering whose retry is due asked again, then as
-/// many tries started as `concurrency` leaves room for. Answers the tasks started, each carried to its end
-/// on a task of its own.
+/// One pass of the loop: the bench watch read, a scan, every pending Korean rendering whose retry is due
+/// asked again, then as many tries started as `concurrency` leaves room for. Answers the tasks started,
+/// each carried to its end on a task of its own.
 pub async fn tick(app: &Arc<App>) -> Vec<JoinHandle<()>> {
+  bench::look(app).await;
   if let Err(why) = crate::scan::scan(app).await {
     eprintln!("bmo-research: the scan: {why}");
   }
@@ -103,13 +106,18 @@ pub async fn tick(app: &Arc<App>) -> Vec<JoinHandle<()>> {
   started
 }
 
-/// The next try to ask: in each running category, its next waiting item, or a brief's whole gathering once
-/// it is due; among them, the highest priority, then the category whose last try was asked longest ago.
+/// The next try to ask: in each running category whose road no bench holds, its next waiting item, or a
+/// brief's whole gathering once it is due; among them, the highest priority, then the category whose last
+/// try was asked longest ago.
 fn next(app: &App) -> Option<(Category, Vec<Item>)> {
   let now = now_ms();
   let mut best: Option<(i64, Option<i64>, Category, Vec<Item>)> = None;
   for category in app.store.categories().ok()? {
     if category.state == Running::Stopped {
+      continue;
+    }
+    let (provider, model) = road(app, &category);
+    if bench::held(app, &provider, &model) {
       continue;
     }
     let last = app.store.last_try_at(&category.name).ok()?;
@@ -139,6 +147,14 @@ fn next(app: &App) -> Option<(Category, Vec<Item>)> {
     }
   }
   best.map(|(_, _, category, items)| (category, items))
+}
+
+/// The provider and the model a category's tries go out on: its own, else the settings' road.
+pub fn road(app: &App, category: &Category) -> (String, String) {
+  (
+    category.provider.clone().unwrap_or_else(|| app.settings.road.provider.clone()),
+    category.model.clone().unwrap_or_else(|| app.settings.road.model.clone()),
+  )
 }
 
 /// The question a try is asked: one item's shape with its name and address, an advisory's with the stack,
@@ -191,8 +207,7 @@ pub async fn carry(app: Arc<App>, run: i64, asked: Option<i64>) {
   let run_id = match asked {
     Some(id) => id,
     None => {
-      let provider = category.provider.clone().unwrap_or_else(|| app.settings.road.provider.clone());
-      let model = category.model.clone().unwrap_or_else(|| app.settings.road.model.clone());
+      let (provider, model) = road(&app, &category);
       match app.peers.ask_run(&question(&app, &items), &provider, &model).await {
         Ok(id) => {
           let _ = app.store.keep_run_id(run, id);
@@ -355,9 +370,15 @@ async fn render_again(app: Arc<App>, item: Item) {
   }
 }
 
-/// A failed try: its items wait again after `retry_minutes`, or after the last retry are failed and every
-/// recipient is told once.
+/// A failed try: the bench's is not counted and its items wait again at once; any other's wait again after
+/// `retry_minutes`, or after the last retry are failed and every recipient is told once.
 async fn fail(app: &App, run: i64, lead: &Item, state: &str, outcome: Option<&str>, why: &str) {
+  if let Some(model) = benched(app, run, lead).await {
+    let error = format!("{why}; {model} was benched or does not answer, so the try is not counted");
+    eprintln!("bmo-research: item {}: {error}", lead.id);
+    let _ = app.store.requeue(run, state, outcome, &error);
+    return;
+  }
   let _ = app.store.end_run(run, state, outcome, Some(why));
   let tries = app.store.item(lead.id).map(|i| i.tries).unwrap_or(lead.tries);
   let last = tries > app.settings.retries;
@@ -371,6 +392,14 @@ async fn fail(app: &App, run: i64, lead: &Item, state: &str, outcome: Option<&st
       notify(app, &category, lead, &notice, "failed").await;
     }
   }
+}
+
+/// The watched model a failed try's road stands on, where the bench cut the try; none otherwise.
+async fn benched(app: &App, run: i64, lead: &Item) -> Option<String> {
+  let category = app.store.category(&lead.category_name).ok()?;
+  let started_at = app.store.run(run).ok()?.started_at;
+  let (provider, model) = road(app, &category);
+  bench::evicted(app, &provider, &model, started_at).await.then_some(model)
 }
 
 /// The notice a filed item's recipients hear: the line of the Korean rendering and the English document's
@@ -497,9 +526,13 @@ async fn notify(app: &App, category: &Category, lead: &Item, notice: &str, kind:
   let summary = format!("research {kind}: {}", lead.name);
   for recipient in recipients {
     let (who, said) = match (recipient.kind, recipient.room_id, recipient.agent_name.as_deref()) {
-      (RecipientKind::Room, Some(room), _) => {
-        (format!("room:{room}"), app.peers.instruct(room, lead.id, notice, &summary).await)
-      }
+      (RecipientKind::Room, Some(room), _) => (
+        format!("room:{room}"),
+        app
+          .peers
+          .instruct(room, &format!("research-report:{}", lead.id), notice, &summary)
+          .await,
+      ),
       (RecipientKind::Agent, _, Some(agent)) => {
         (format!("agent:{agent}"), app.peers.turn(agent, notice).await.map(|()| None))
       }

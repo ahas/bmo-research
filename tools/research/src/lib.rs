@@ -193,10 +193,17 @@ pub async fn call(
         .map(|w| ItemState::parse(w.trim()).ok_or_else(|| format!("{w} is no item state")))
         .collect::<Result<_, _>>()?;
       let page = client.queue(text(arguments, "category").as_deref(), &states, None, 50).await?;
+      let mut lines: Vec<String> = client
+        .state()
+        .await?
+        .holds
+        .iter()
+        .map(|hold| format!("Held: {}.", hold.line()))
+        .collect();
       if page.items.is_empty() {
-        return Ok("The queue holds nothing of that.".into());
+        lines.push("The queue holds nothing of that.".into());
       }
-      let lines: Vec<String> = page.items.iter().map(item_line).collect();
+      lines.extend(page.items.iter().map(item_line));
       Ok(lines.join("\n"))
     }
     "taken" => {

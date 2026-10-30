@@ -65,7 +65,58 @@ pub struct CategoryState {
   pub cap: i64,
 }
 
-/// The daemon's state: stopped where every category is stopped, and each category's.
+/// Why a watched model holds the queue: a bench's ticket stands on one of its nodes, or the queue waits on
+/// its health.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum HoldReason {
+  Bench,
+  Restore,
+}
+
+impl HoldReason {
+  pub fn as_str(self) -> &'static str {
+    match self {
+      HoldReason::Bench => "bench",
+      HoldReason::Restore => "restore",
+    }
+  }
+}
+
+/// A watched model that keeps runs from starting now (`docs/api.md`, 「The bench」).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Hold {
+  pub registration: String,
+  pub reason: HoldReason,
+  /// the node the bench stands on; null while the queue waits on the model's health
+  pub node_name: Option<String>,
+  /// epoch milliseconds; when the bench was first seen, or the wait began
+  pub since: i64,
+  /// whether the owner's room was told the model stays down
+  pub reported: bool,
+  /// the categories whose road is the model
+  pub category_names: Vec<String>,
+}
+
+impl Hold {
+  /// The hold in one English line: what holds which model, and the categories that wait on it.
+  pub fn line(&self) -> String {
+    let what = match (self.reason, &self.node_name) {
+      (HoldReason::Bench, Some(node)) => format!("a bench holds {} on {node}", self.registration),
+      _ => format!("the queue waits on {}'s health", self.registration),
+    };
+    let waiting = if self.category_names.is_empty() {
+      "no category waits".to_string()
+    } else {
+      format!("{} wait", self.category_names.join(", "))
+    };
+    let told = if self.reported { "; the owner's room was told it stays down" } else { "" };
+    format!("{what}; {waiting}{told}")
+  }
+}
+
+/// The daemon's state: stopped where every category is stopped, each category's, and what holds the queue.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct DaemonState {
@@ -73,6 +124,7 @@ pub struct DaemonState {
   /// epoch milliseconds; the latest change of any category's state, null where none was changed
   pub changed_at: Option<i64>,
   pub categories: Vec<CategoryState>,
+  pub holds: Vec<Hold>,
 }
 
 /// A change of the daemon's state, for every category or for the one named.

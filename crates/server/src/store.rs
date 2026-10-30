@@ -326,6 +326,7 @@ impl Store {
       state: if stopped { Running::Stopped } else { Running::Running },
       changed_at: categories.iter().filter_map(|c| c.state_at).max(),
       categories: states,
+      holds: Vec::new(),
     })
   }
 
@@ -918,17 +919,18 @@ impl Store {
       .map_err(|e| e.to_string())
   }
 
-  /// A try a stopped daemon never asked: ended, and its items put back to wait without counting it.
-  pub fn requeue(&self, run: i64) -> Result<(), String> {
+  /// A try that is not counted — one a stopped daemon never asked, or one the bench cut: ended in the state
+  /// given, and its items put back to wait at once with the try taken off their count.
+  pub fn requeue(&self, run: i64, state: &str, outcome: Option<&str>, error: &str) -> Result<(), String> {
     let items = self.run(run).map_err(|e| e.to_string())?.item_ids;
-    self.end_run(run, "failed", None, Some("the daemon stopped before the run was asked"))?;
+    self.end_run(run, state, outcome, Some(error))?;
     let conn = self.lock();
     for id in items {
       conn
         .execute(
-          "update queue set state = 'waiting', tries = max(tries - 1, 0), changed_at = ?2
-           where id = ?1 and state = 'running'",
-          params![id, now_ms()],
+          "update queue set state = 'waiting', tries = max(tries - 1, 0), retry_at = null, error = ?3,
+             changed_at = ?2 where id = ?1 and state = 'running'",
+          params![id, now_ms(), error],
         )
         .map_err(|e| e.to_string())?;
     }

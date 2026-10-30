@@ -4,7 +4,8 @@
 # `english`, {link} is the English document's share link; {name} and {tries} are the item's name and the
 # tries it took; {touches} is what an advisory names as touched; {plan} is the heading of the document's
 # plan section; {nodes} the model nodes a manual's fit names; {repository} and {rows} a touched repository
-# and its rows of the exposure table.
+# and its rows of the exposure table. In `restore`, {model} is a watched registration, {nodes} the nodes it
+# stands on and {minutes} how long the queue has waited on its health.
 
 line = "{title} — {summary} {link}"
 english = "영문 원본: {link}"
@@ -22,3 +23,4 @@ The report: {link}
 The patch steps stand in its section "{plan}".
 This is a notice, not an order: what you do with it is your own rules' to decide."""
 failed = "{name} 조사를 {tries}번 시도했지만 끝내지 못했습니다."
+restore = "조사에 쓰는 {model} 모델({nodes})이 {minutes}분이 지나도록 돌아오지 않아, 조사 대기열이 멈춘 채 기다리고 있습니다."

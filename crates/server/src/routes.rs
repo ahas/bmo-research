@@ -132,7 +132,10 @@ async fn health() -> Response {
 
 async fn get_state(State(app): Shared) -> Response {
   match app.store.daemon_state() {
-    Ok(state) => Json(state).into_response(),
+    Ok(mut state) => {
+      state.holds = crate::bench::holds(&app);
+      Json(state).into_response()
+    }
     Err(why) => failed(why),
   }
 }

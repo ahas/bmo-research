@@ -176,13 +176,22 @@ there, and with it the model the daemon's own research runs go out on. So:
   agent files the item for it. A bench that takes one of the three coder nodes evicts one instance and
   leaves two serving; a bench on n3 evicts `flash-next` itself, which the arbiter restores when the ticket
   is given back, and the daemon's own runs wait meanwhile.
-- **The daemon pauses its own runs while a bench holds a node its model stands on.** It reads the
-  arbiter's card state before each run and while one runs; a bench ticket standing on kakia's node holds
-  the queue, and a run cut by the eviction is retried after the bench is gone, not counted against its
-  three tries.
+- **The daemon pauses its own runs while a bench holds a node its model stands on.** Which registrations
+  its runs stand on and on which nodes is the bench watch, a setting (`docs/settings.md`). It reads the
+  arbiter master's picture of every node's card on each pass of its loop, so before each run and while one
+  runs, and again whenever a try fails; a ticket of the `bench` occupant standing on a watched node,
+  granted or waiting, holds every category whose road is that registration.
+- **A run cut by the eviction is retried after the bench is gone, not counted against its three tries.**
+  A try of a watched road that fails while the bench stands, after a bench stood on its nodes since the try
+  was asked, or while the registration does not answer its health, is the eviction's: its items wait again
+  with the try uncounted, and the queue holds until the model is back. The words of the refusal are not
+  read; the arbiter's card and the registration's health are the evidence.
 - **lab-arena comes back as the arbiter restores it,** by its own adapter (`yield_by = "process"`: the process
   is ended and started again), and the gateway's registration answers health again. The daemon waits on
-  that health before the queue goes on, and reports once if it stays down past `restore_wait_minutes`.
+  that health, agency's reading of the registration, before the queue goes on, and tells the owner's
+  private room once if it stays down past `restore_wait_minutes`.
+- **Why nothing runs is shown:** the state route answers each hold, the bench and its node or the wait on
+  the model's health, and the categories it holds, so the queue tool and the console can say it.
 - **kakia's own turns (the chat companion and its worker) are agency's to hold** during the eviction: a
   registered model's engine serving one slot makes a conversation's turn wait, as agency's companion
   rules say; the bench adds nothing to that beyond its length, which the report line says.
@@ -246,10 +255,11 @@ take; so its own area stays the research and the measurement, however many categ
 ## Settings and store
 
 - **Settings** (`docs/settings.md`): the listen address, the data folder, the cadence, the cap, the
-  concurrency, the model road, the retry and restore waits, the assignees for benches by node, and the
-  addresses and token files of agency, explorer's tool host, the artifact service, the receiver, the job
-  service and the arbiter of each node. Every address and token file is read from the data root's `env/`
-  files the other units already keep, named in the settings, never copied.
+  concurrency, the model road, the retry and restore waits, the assignees for benches by node, the bench
+  watch, and the addresses and token files of agency, explorer's tool host, the artifact service, the
+  receiver, the job service and the arbiter's master, whose picture shows every node's card. Every address
+  and token file is read from the data root's `env/` files the other units already keep, named in the
+  settings, never copied.
 - **The store** (`docs/store.md`): SQLite under the data root's `research/` folder: `categories`,
   `sources`, `seen`, `queue`, `runs`, `reports`, `rooms`, `facts` (the economy category's figures),
   `stack` (the security category's inventory). Schema versioned and migrated at start.
@@ -258,10 +268,11 @@ take; so its own area stays the research and the measurement, however many categ
 
 `docs/api.md` is the contract: `/health`, `/categories`, `/sources`, `/queue` and `/queue/{item}` (ask,
 dismiss, taken, reorder), `/runs`, `/rooms`, `/facts`, `/stack`, `/state` (running or stopped, whole or by
-category, with `PATCH` to stop and resume). The tools the tool host places under the namespace `research`
-are the chat agent's doors to the same: `research/ask`, `research/queue`, `research/taken`,
-`research/dismiss`, `research/categories`, `research/sources`, `research/rooms`, `research/stop`,
-`research/resume`; the owner-only ones hold a capability the chat line alone is given.
+category, with `PATCH` to stop and resume, and what holds the queue while a bench stands). The tools the
+tool host places under the namespace `research` are the chat agent's doors to the same: `research/ask`,
+`research/queue`, `research/taken`, `research/dismiss`, `research/categories`, `research/sources`,
+`research/rooms`, `research/stop`, `research/resume`; the owner-only ones hold a capability the chat line
+alone is given.
 
 ## Phases
 

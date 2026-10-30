@@ -1,5 +1,5 @@
 //! What the tests share: a scratch data root, the daemon's app over it, and stand-ins for agency, the artifact
-//! service, the receiver and the sources, each keeping every request it was asked.
+//! service, the receiver, the arbiter's master and the sources, each keeping every request it was asked.
 
 #![allow(dead_code)]
 
@@ -65,6 +65,11 @@ pub struct World {
   /// The documents filed with `POST /documents`, as the archive answers them.
   pub posted: Vec<Value>,
   pub next_document: i64,
+  /// The tickets standing on each node's card, by the service each stands for: the first holds the turn,
+  /// the rest wait in its queue.
+  pub tickets: BTreeMap<String, Vec<String>>,
+  /// Whether every registration answers its health.
+  pub healthy: bool,
 }
 
 pub type Shared = Arc<Mutex<World>>;
@@ -74,6 +79,7 @@ pub fn world() -> Shared {
     next_run: 100,
     owner_room: 7,
     next_document: 900,
+    healthy: true,
     ..World::default()
   }))
 }
@@ -169,9 +175,23 @@ async fn agency_translation(State(w): State<Shared>, method: Method, uri: Uri, b
     .into_response()
 }
 
+async fn agency_model(
+  State(w): State<Shared>,
+  Path(name): Path<String>,
+  method: Method,
+  uri: Uri,
+  body: Bytes,
+) -> Response {
+  keep(&w, "agency", &method, &uri, &body);
+  let healthy = w.lock().unwrap().healthy;
+  axum::Json(json!({"key": format!("registered::{name}"), "name": name, "healthy": healthy}))
+    .into_response()
+}
+
 pub fn agency(world: Shared) -> Router {
   Router::new()
     .route("/research-runs", post(agency_research_run))
+    .route("/models/{name}", get(agency_model))
     .route("/translation-runs", post(agency_translation))
     .route("/runs/{run}", get(agency_run))
     .route("/sessions/{session}/turns", post(agency_turn))
@@ -275,6 +295,32 @@ pub fn receiver(world: Shared) -> Router {
     .with_state(world)
 }
 
+async fn arbiter_cluster(State(w): State<Shared>, method: Method, uri: Uri, body: Bytes) -> Response {
+  keep(&w, "arbiter", &method, &uri, &body);
+  let world = w.lock().unwrap();
+  let nodes: Vec<Value> = ["n3", "n4", "n5", "n6"]
+    .into_iter()
+    .map(|node| {
+      let standing = world.tickets.get(node).cloned().unwrap_or_default();
+      let turn = standing
+        .first()
+        .map(|service| json!({"serviceName": service, "ticketId": 1, "waitedMs": 0}));
+      let queue: Vec<Value> = standing
+        .iter()
+        .skip(1)
+        .map(|service| json!({"ticketId": 2, "serviceName": service, "waitedMs": 0}))
+        .collect();
+      json!({"name": node, "role": "kakia+lab-arena", "cards": [{"index": 0, "turn": turn, "queue": queue}]})
+    })
+    .collect();
+  axum::Json(json!({"master": {}, "groups": [], "nodes": nodes, "tiers": []})).into_response()
+}
+
+/// A stand-in for the arbiter's master: its cluster picture, each node's tickets as the world holds them.
+pub fn arbiter(world: Shared) -> Router {
+  Router::new().route("/cluster", get(arbiter_cluster)).with_state(world)
+}
+
 /// A fixture's text, from `tests/fixtures/`.
 pub fn fixture(name: &str) -> String {
   std::fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(name))
@@ -346,6 +392,7 @@ pub async fn ground(change: impl FnOnce(&mut Settings)) -> Ground {
   let agency = serve(agency(world.clone())).await;
   let artifact = serve(artifact(world.clone())).await;
   let receiver = serve(receiver(world.clone())).await;
+  let arbiter = serve(arbiter(world.clone())).await;
   let sources = serve(sources(world.clone())).await;
   let root = scratch();
   let port = agency.rsplit(':').next().unwrap();
@@ -363,6 +410,7 @@ pub async fn ground(change: impl FnOnce(&mut Settings)) -> Ground {
   let mut settings = Settings::read("").unwrap();
   settings.data_root = root.clone();
   settings.artifact.address = artifact;
+  settings.bench_watch.address = arbiter;
   settings.poll_seconds = 0;
   settings.turn_wait_seconds = 5;
   change(&mut settings);
