@@ -571,14 +571,28 @@ pub fn turn_body(prompt: &str, turn: &Turn<'_>) -> Value {
   })
 }
 
-/// What a turn wrote: its answer, or its text blocks where it names no answer.
+// The lines a block opens a result's head with.
+const HEAD_LINES: [&str; 2] = ["ANSWERED:", "TITLE:"];
+
+/// What a turn wrote, whole (`docs/runner.md`, 「What a turn wrote」): where its text blocks hold more than its
+/// answer, which may be its last block alone, the blocks joined in order from the last one opening a result's
+/// head, or every block where none opens one; its answer otherwise, and its blocks where it names no answer.
 pub fn written(turn: &Value) -> String {
+  let blocks: Vec<&str> = turn["text"]
+    .as_array()
+    .map(|blocks| blocks.iter().filter_map(Value::as_str).filter(|b| !b.trim().is_empty()).collect())
+    .unwrap_or_default();
+  let opens_head = |block: &&str| {
+    block
+      .lines()
+      .any(|line| HEAD_LINES.iter().any(|head| line.trim_start().starts_with(head)))
+  };
+  let from = blocks.iter().rposition(opens_head).unwrap_or(0);
+  let joined = blocks[from..].join("\n");
   match turn["answer"].as_str().filter(|answer| !answer.trim().is_empty()) {
+    Some(answer) if joined.trim().len() > answer.trim().len() && joined.contains(answer.trim()) => joined,
     Some(answer) => answer.to_owned(),
-    None => turn["text"]
-      .as_array()
-      .map(|blocks| blocks.iter().filter_map(Value::as_str).collect::<Vec<_>>().join("\n"))
-      .unwrap_or_default(),
+    None => joined,
   }
 }
 
@@ -616,11 +630,10 @@ pub enum Filing {
 }
 
 /// What a deep dive asks of its run's page: the section headings its shape holds, in every language a result
-/// may be written in, and the title it falls back on.
+/// may be written in.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PageAsk {
   pub sections: Vec<String>,
-  pub title: String,
 }
 
 /// A run under way: what it was composed of and what it holds.
@@ -790,7 +803,10 @@ async fn go(app: Arc<App>, going: Going) {
       let first = first_answer(&app, &going, &seat).await;
       let rounds_follow = words::runner().rounds.contains_key(&going.ask.key);
       let first = match first {
-        Ok(answer) if !rounds_follow => Ok(narrated(&app, &going, &going.session, &seat, answer).await),
+        Ok(answer) if !rounds_follow => {
+          let answer = whole(&app, &going, &going.session, &seat, answer).await;
+          Ok(narrated(&app, &going, &going.session, &seat, answer).await)
+        }
         other => other,
       };
       end_session(&app, run, &going.session, until).await;
@@ -904,7 +920,8 @@ pub fn round_prompt(question: &str, task: &str, last: &str) -> String {
 
 /// The key's rounds after the first answer, in a session of their own, past the ceiling the final one asked
 /// at once or the last answer kept; a round that does not answer leaves the last answer standing. A deep
-/// dive's narration is asked of the same session before it is ended. Answers the run's result.
+/// dive's whole document and its narration are asked of the same session before it is ended. Answers the
+/// run's result.
 async fn rounds(app: &App, going: &Going, seat: &Seat, first: String) -> String {
   let run = going.run;
   let runner = words::runner();
@@ -974,6 +991,7 @@ async fn rounds(app: &App, going: &Going, seat: &Seat, first: String) -> String 
     }
     asking += 1;
   }
+  let last = whole(app, going, &session, seat, last).await;
   let last = narrated(app, going, &session, seat, last).await;
   end_session(app, run, &session, now_ms() + going.bound_ms + SEND_SLACK.as_millis() as i64).await;
   last
@@ -1034,6 +1052,51 @@ async fn narrated(app: &App, going: &Going, session: &str, seat: &Seat, result: 
   whole
 }
 
+/// Why a deep dive's result is short of the shape its page asks (`docs/runner.md`, 「The deep dive's page」),
+/// the answer's heading read in the question's language; none where it is whole.
+fn short_of_shape(ask: &ResearchRunAsk, page: &PageAsk, result: &str) -> Option<String> {
+  let words = words::search_document(document::language_of(&ask.query));
+  document::short_of(&document::draw(result, words), &page.sections, &words.answer)
+}
+
+/// The prompt a deep dive's result short of its shape is asked again with: the whole-document question with
+/// what it lacks set in, the task as the run was given it, and the answer the run wrote last.
+pub fn whole_prompt(missing: &str, task: &str, last: &str) -> String {
+  let question = words::fill(&words::runner().whole.question, &[("missing", missing)]);
+  round_prompt(&question, task, last)
+}
+
+/// A deep dive's result whole (`docs/runner.md`, 「The deep dive's page」): where it is short of its shape,
+/// `session` is asked one more turn for the whole document, and that turn's text is the result judged. A run
+/// told to a room, a whole result, or a turn that writes nothing leaves the result as it stands.
+async fn whole(app: &App, going: &Going, session: &str, seat: &Seat, result: String) -> String {
+  let run = going.run;
+  let Filing::Page(page) = &going.filing else {
+    return result;
+  };
+  let Some(short) = short_of_shape(&going.ask, page, &result) else {
+    return result;
+  };
+  note(
+    app,
+    run,
+    "whole",
+    &format!("The result is not whole, so it is asked again whole: {short}."),
+  );
+  let prompt = whole_prompt(&short, &going.prompt, &result);
+  let name = format!("research-{run}-whole");
+  match turn(app, going, session, seat, &name, &prompt).await {
+    Ok(text) => {
+      note(app, run, "whole", "The whole document was asked again and came back.");
+      text
+    }
+    Err(why) => {
+      note(app, run, "whole", &format!("The whole document did not come: {why}"));
+      result
+    }
+  }
+}
+
 /// A deep dive's result held to its shape and filed as its page: the outcome, the error and the document.
 async fn file_page(
   app: &App,
@@ -1042,13 +1105,13 @@ async fn file_page(
   text: &str,
 ) -> (&'static str, Option<String>, Option<RunDocument>) {
   let (run, ask) = (going.run, &going.ask);
-  let drawn = document::draw(text, words::search_document(document::language_of(&ask.query)));
-  if let Some(short) = document::short_of(&drawn, &page.sections) {
+  if let Some(short) = short_of_shape(ask, page, text) {
     let why = format!("the result was not filed: {short}");
     note(app, run, "filed", &format!("The result was not filed, since {short}."));
     return ("failed", Some(why), None);
   }
-  let title = document::page_title(&drawn, &page.title);
+  let drawn = document::draw(text, words::search_document(document::language_of(&ask.query)));
+  let title = drawn.title.clone().unwrap_or_default();
   let filing = document::page_filing(&drawn, run, &ask.key, &ask.query, &title);
   match document::file_page(app, &drawn, &filing).await {
     Ok(filed) => {

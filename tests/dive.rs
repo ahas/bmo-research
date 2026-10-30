@@ -1,21 +1,22 @@
 //! The deep dive against stand-in agency, artifact, receiver, voice and tool host servers (`docs/api.md`, 「The
 //! deep dive」, 「The page」 and 「The notices」): the bodies each unit is asked with, the retries, the failure
-//! told once, a result short of its shape never filed, the one page with both languages and its switch, the
-//! narration's sounds, the pending Korean side drawn into the same page and its follow-up, an advisory's
-//! parts to the workers of its repositories, and a brief's gathering with its facts. The filed documents are
-//! composed from the English words `prompts/document.toml` holds, so this file holds none of them.
-
+//! told once, a result short of its shape asked again whole and never filed short, a final answer in two
+//! text blocks filed whole, the one page with both languages and its switch, the narration's sounds, a
+//! missing one logged and retried and a long script cut to what the voice speaks, the pending Korean side
+//! drawn into the same page and its follow-up, an advisory's parts to the workers of its repositories, and a
+//! brief's gathering with its facts. The filed documents are composed from the English words
+//! `prompts/document.toml` holds, so this file holds none of them.
 mod support;
 
 use bmo_research_client::{ItemState, NewStackRow, RecipientKind, ResearchRunState, Running, Shape};
-use research_server::dive::{give_owner_room, take_up, tick};
+use research_server::dive::{VOICE_MOST_CHARACTERS, give_owner_room, speakable, take_up, tick};
 use research_server::document::{draw, page_body};
 use research_server::runner::narration_script;
 use research_server::store::{NewResearchRun, now_ms};
 use research_server::translation::{cut, narration_note, note};
 use research_server::words;
 use serde_json::Value;
-use support::{Filed, Ground, KO, spoken, translated};
+use support::{Filed, Ground, KO, result_text, spoken, translated};
 
 async fn settle(ground: &Ground) {
   for handle in tick(&ground.app).await {
@@ -46,7 +47,12 @@ fn answer_heading() -> String {
 
 /// The page's English body as the run drew it, for a document filed by `file`.
 fn english_body(id: i64, content: &str) -> String {
-  let result = format!("TITLE: Report {id}\nTOPIC: It is a thing. It does more.\n\n{content}");
+  let result = result_text(&Filed {
+    id,
+    title: format!("Report {id}"),
+    description: "It is a thing. It does more.".into(),
+    content: content.to_string(),
+  });
   let drawn = draw(&result, words::search_document("en"));
   page_body(&drawn, &format!("Report {id}"))
 }
@@ -445,6 +451,92 @@ async fn a_narration_failing_twice_is_no_longer_asked() {
 }
 
 #[tokio::test]
+async fn a_missing_english_sound_is_logged_and_retried_on_the_retry_wait() {
+  let ground = support::ground(|s| s.retry_minutes = 0).await;
+  give_owner_room(&ground.app).await;
+  let item = ground
+    .app
+    .store
+    .ask("it", "example.org/thing", "Thing-7B", "https://example.org/thing", Shape::Manual)
+    .unwrap();
+  file(&ground, 1, 501, narrated(manual_document()));
+  ground.world.lock().unwrap().voice_failing_on = Some(SCRIPT.to_string());
+
+  settle(&ground).await;
+
+  let attached: Vec<String> =
+    ground.world.lock().unwrap().attachments.iter().map(|a| a.name.clone()).collect();
+  assert_eq!(attached, ["narration-ko.ogg"], "the Korean sound alone");
+  assert_eq!(ground.app.store.item(item.id).unwrap().narrations, ["ko"]);
+  let state = ground.app.store.page_state(item.id).unwrap();
+  assert_eq!(state.narration_tries, 1);
+  assert!(state.retry_at.is_some(), "the English sound is asked once more");
+  let logged: Vec<String> = ground
+    .app
+    .store
+    .research_log(1)
+    .unwrap()
+    .into_iter()
+    .filter(|line| line.kind == "narration")
+    .map(|line| line.text)
+    .collect();
+  let failed = logged.iter().find(|text| text.contains("en narration was not made"));
+  let said = failed.unwrap_or_else(|| panic!("the run's log says why: {logged:?}"));
+  let size = SCRIPT.chars().count().to_string();
+  assert!(said.contains(&size), "the synthesis is named with its text's length: {said}");
+
+  ground.world.lock().unwrap().voice_failing_on = None;
+  settle(&ground).await;
+
+  let attached: Vec<String> =
+    ground.world.lock().unwrap().attachments.iter().map(|a| a.name.clone()).collect();
+  assert_eq!(attached, ["narration-ko.ogg", "narration-en.ogg"]);
+  assert_eq!(ground.app.store.item(item.id).unwrap().narrations, ["ko", "en"]);
+  assert_eq!(ground.spoken().iter().filter(|text| text.as_str() == SCRIPT).count(), 2);
+  let state = ground.app.store.page_state(item.id).unwrap();
+  assert_eq!((state.narration_tries, state.retry_at), (2, None));
+}
+
+#[tokio::test]
+async fn a_script_longer_than_the_voice_speaks_is_spoken_to_its_last_whole_sentence_and_logged() {
+  let ground = support::ground(|_| {}).await;
+  give_owner_room(&ground.app).await;
+  ground
+    .app
+    .store
+    .ask("it", "example.org/thing", "Thing-7B", "https://example.org/thing", Shape::Manual)
+    .unwrap();
+  let script = prose(VOICE_MOST_CHARACTERS + 300);
+  file(&ground, 1, 501, format!("{}\nLISTEN:\n{script}\n", manual_document()));
+
+  settle(&ground).await;
+
+  let spoken = ground.spoken();
+  assert_eq!(spoken.len(), 2, "both languages are spoken");
+  for text in &spoken {
+    assert!(
+      text.chars().count() <= VOICE_MOST_CHARACTERS,
+      "within the voice: {}",
+      text.chars().count()
+    );
+    assert!(text.ends_with('.'), "cut at a sentence's end");
+  }
+  let english = spoken.iter().find(|text| !text.starts_with(KO)).unwrap();
+  assert!(script.starts_with(english.as_str()));
+  assert_eq!(ground.world.lock().unwrap().attachments.len(), 2);
+  let logged = ground.app.store.research_log(1).unwrap();
+  assert!(
+    logged
+      .iter()
+      .any(|line| line.kind == "narration" && line.text.contains("more than the voice speaks")),
+    "the run's log says the script was cut"
+  );
+  assert_eq!(speakable("One. Two.", 5), "One.");
+  assert_eq!(speakable("Onetwothree four", 5), "Onetw", "no sentence and no word fits");
+  assert_eq!(speakable(" Short. ", 40), "Short.");
+}
+
+#[tokio::test]
 async fn a_result_holding_none_of_its_shape_s_sections_is_not_filed_or_told_and_the_try_waits() {
   let ground = support::ground(|_| {}).await;
   give_owner_room(&ground.app).await;
@@ -469,50 +561,111 @@ async fn a_result_holding_none_of_its_shape_s_sections_is_not_filed_or_told_and_
   assert!(orders(&ground).is_empty(), "no notice goes out");
 }
 
+/// The tail of a manual: its plan's continuation alone, with no head and no answer.
+fn tail_only() -> String {
+  let w = &words::document().manual[0];
+  format!("SECTION: {} (continued)\nStage 2, the quality path.\n", w.plan_heading)
+}
+
 #[tokio::test]
-async fn a_page_with_no_title_line_is_titled_by_its_heading_else_by_the_item_s_name_and_shape() {
+async fn a_final_answer_in_two_text_blocks_is_filed_whole() {
   let ground = support::ground(|_| {}).await;
   give_owner_room(&ground.app).await;
-  let store = &ground.app.store;
-  let headed = store
+  let item = ground
+    .app
+    .store
     .ask("it", "example.org/thing", "Thing-7B", "https://example.org/thing", Shape::Manual)
     .unwrap();
-  let untitled = |id: i64, content: String| Filed {
-    id,
-    title: String::new(),
-    description: "It is a thing.".into(),
-    content,
-  };
-  ground.world.lock().unwrap().filed.insert(1, untitled(501, manual_document()));
-  settle(&ground).await;
-  let filed = ground.run_documents();
-  assert_eq!(filed[0]["title"], "Thing-7B");
-  let html = filed[0]["html"].as_str().unwrap();
-  assert_eq!(html.matches(">Thing-7B</h1>").count(), 1, "the heading saying the title stands once");
-  assert_eq!(store.item(headed.id).unwrap().title.as_deref(), Some("Thing-7B"));
+  file(&ground, 1, 501, narrated(manual_document()));
+  ground.world.lock().unwrap().two_blocks = true;
 
-  let bare = store
-    .ask("it", "example.org/other", "Other-1B", "https://example.org/other", Shape::Manual)
-    .unwrap();
-  let w = &words::document().manual[0];
-  let content = format!(
-    "## 7. {}\n\n- {} None\n\n## 9. {}\n\n- re-measure\n",
-    w.heading, w.label, w.plan_heading
-  );
-  ground.world.lock().unwrap().filed.insert(2, untitled(502, content));
   settle(&ground).await;
+
+  assert!(ground.turns_named("research-1-whole").is_empty(), "nothing is asked again");
   let filed = ground.run_documents();
-  let fallback = words::page().title("en", Shape::Manual, "Other-1B");
-  assert_eq!(filed[1]["title"], fallback.as_str());
-  assert!(fallback.contains("Other-1B") && fallback != "Other-1B");
-  let rewrites = ground.rewrites(502);
-  let korean = translated(&format!("# {fallback}"));
-  assert_eq!(
-    rewrites[0]["title"],
-    korean.trim_start_matches("# "),
-    "the Korean title is the translated heading"
+  assert_eq!(filed.len(), 1, "the page is filed");
+  assert_eq!(filed[0]["title"], "Report 501");
+  let html = filed[0]["html"].as_str().unwrap();
+  let w = &words::document().manual[0];
+  for held in [w.heading.as_str(), w.plan_heading.as_str(), support::VERDICT] {
+    assert!(html.contains(held), "the first block stands with the second: {held}");
+  }
+  let written = ground.app.store.research_run(1).unwrap().written.unwrap();
+  assert!(written.starts_with("ANSWERED:"), "the run keeps the whole: {written}");
+  assert_eq!(ground.app.store.item(item.id).unwrap().title.as_deref(), Some("Report 501"));
+}
+
+#[tokio::test]
+async fn a_result_holding_only_its_tail_is_asked_again_whole_and_filed_when_it_answers_whole() {
+  let ground = support::ground(|_| {}).await;
+  give_owner_room(&ground.app).await;
+  let item = ground
+    .app
+    .store
+    .ask("it", "example.org/thing", "Thing-7B", "https://example.org/thing", Shape::Manual)
+    .unwrap();
+  file(&ground, 1, 501, narrated(manual_document()));
+  let whole = result_text(&ground.world.lock().unwrap().filed[&1]);
+  {
+    let mut world = ground.world.lock().unwrap();
+    world.raw.insert(1, tail_only());
+    world.whole = Some(whole);
+  }
+
+  settle(&ground).await;
+
+  let asked = ground.turns_named("research-1-whole");
+  assert_eq!(asked.len(), 1, "the whole document is asked once");
+  let prompt = asked[0]["prompt"].as_str().unwrap();
+  let question = &words::runner().whole.question;
+  let opening = &question[..question.find("{missing}").unwrap()];
+  assert!(prompt.starts_with(opening), "{prompt}");
+  assert!(
+    prompt.contains("ANSWERED: line") && prompt.contains("TITLE: line"),
+    "what it lacks: {prompt}"
   );
-  assert!(!store.item(bare.id).unwrap().title.unwrap().contains("Write a manual"));
+  assert!(
+    prompt.contains(&tail_only().trim().to_string()),
+    "the answer written last is handed: {prompt}"
+  );
+  let filed = ground.run_documents();
+  assert_eq!(filed.len(), 1, "the whole answer is filed");
+  assert_eq!(filed[0]["title"], "Report 501");
+  let html = filed[0]["html"].as_str().unwrap();
+  assert!(!html.contains("(continued)"), "the tail is not what is filed");
+  assert!(html.contains(&words::document().manual[0].heading));
+  assert_eq!(ground.app.store.item(item.id).unwrap().state, ItemState::Fit);
+  let logged = ground.app.store.research_log(1).unwrap();
+  assert!(logged.iter().any(|line| line.kind == "whole"), "the log says it was asked again");
+}
+
+#[tokio::test]
+async fn a_result_still_short_after_its_whole_ask_is_not_filed_and_names_what_it_lacks() {
+  let ground = support::ground(|_| {}).await;
+  give_owner_room(&ground.app).await;
+  let item = ground
+    .app
+    .store
+    .ask("it", "example.org/thing", "Thing-7B", "https://example.org/thing", Shape::Manual)
+    .unwrap();
+  file(&ground, 1, 501, narrated(manual_document()));
+  ground.world.lock().unwrap().raw.insert(1, tail_only());
+
+  settle(&ground).await;
+
+  assert_eq!(ground.turns_named("research-1-whole").len(), 1, "the whole document is asked once");
+  assert!(ground.run_documents().is_empty(), "nothing is filed");
+  let run = ground.app.store.research_run(1).unwrap();
+  assert_eq!((run.outcome.as_deref(), run.document_id), (Some("failed"), None));
+  let error = run.error.unwrap();
+  let answer = &words::search_document("en").answer;
+  for lacking in ["ANSWERED:", "TITLE:", answer.as_str(), "(continued)"] {
+    assert!(error.contains(lacking), "the error names {lacking}: {error}");
+  }
+  let waiting = ground.app.store.item(item.id).unwrap();
+  assert_eq!(waiting.state, ItemState::Waiting);
+  assert!(waiting.error.unwrap().contains("ANSWERED:"));
+  assert!(orders(&ground).is_empty(), "no notice goes out");
 }
 
 #[tokio::test]
@@ -783,8 +936,9 @@ async fn an_advisory_tells_each_touched_repository_s_worker_its_part_and_the_rec
     .ask("security", "example.org/sa-1", "SA-1", "https://example.org/sa-1", Shape::Advisory)
     .unwrap();
   let w = &words::document().advisory[0];
+  let flaw = &words::document().sections.advisory[0];
   let document = format!(
-    "# SA-1\n\n| {} | {} | {} | {} | {} |\n|---|---|---|---|---|\n| libexample | 1.4.1 | services/alpha | node-a | {} |\n| libexample | 1.4.1 | services/beta | | {} |\n\n## {}\n\n1. upgrade\n",
+    "# SA-1\n\n## {flaw}\n\nIt overflows.\n\n| {} | {} | {} | {} | {} |\n|---|---|---|---|---|\n| libexample | 1.4.1 | services/alpha | node-a | {} |\n| libexample | 1.4.1 | services/beta | | {} |\n\n## {}\n\n1. upgrade\n",
     w.component, w.version, w.repository, w.host, w.touched, w.yes, w.yes, w.plan_heading
   );
   file(&ground, 1, 77, document);

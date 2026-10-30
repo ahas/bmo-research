@@ -82,15 +82,18 @@ of a run is this unit's.
 7. **The first turn:** the request, as one turn of the session (`POST /sessions/{id}/turns`) carrying the work
    parts — the provider, the model, the seat's mapping (model, effort, tier), a fresh resume, an empty folder,
    the name `research-<run>`, the title, the room or 0, the key as the work key, no words heard and no
-   variables — waited on until it ends. The session is then ended (`DELETE /sessions/{id}`).
+   variables — waited on until it ends; what it wrote is its whole text (「What a turn wrote」). The session is
+   then ended (`DELETE /sessions/{id}`).
 8. **The rounds:** the key's rounds are asked of a second session of their own, started the same way with the
    round's record (the run's with `branches` 0 and no `branchesAt` or `branchesToken`) and the capabilities
    less `web.branches` and `web.rulebooks`, one turn each, named `research-<run>-<round>`, each prompt the round's
    question, the task as the run was given it and the answer written last (「The rounds」). The last answer is the
-   run's result. The rounds' session is ended after the last, and after the narration where one is asked.
-9. **The narration, for a deep dive:** a deep dive's result that carries no `LISTEN:` script is asked for one
-   before the session that wrote it is ended: the rounds' session, else the first where the key has no
-   rounds (「The narration」).
+   run's result. The rounds' session is ended after the last, and after the whole document and the narration
+   where they are asked.
+9. **The whole document and the narration, for a deep dive:** before the session that wrote it is ended — the
+   rounds' session, else the first where the key has no rounds — a deep dive's result short of its shape is
+   asked once more for the whole document (「The deep dive's page」), and a result that carries no `LISTEN:`
+   script is asked for one (「The narration」).
 10. **The end:** the seat is given back (`finished`, its outcome `answered` or `failed: <why>`), the result is
    drawn into its document and filed (「The document」; a deep dive's held to its shape first, 「The deep dive's
    page」), the run is closed in the ledger with its outcome, the document and its link, and its room is told
@@ -107,6 +110,16 @@ of a run is this unit's.
 - **The ceiling:** `ceiling_seconds` bounds the rounds from the first answer. Past it, the key's `past_ceiling`
   says what follows: `final` asks the final question at once, `last` keeps the answer already written.
 - **A round that does not answer** leaves the answer written last standing as the result.
+
+## What a turn wrote
+
+- **A turn's text is the whole of what it wrote.** Agency answers a turn with its `answer` and its `text`,
+  every text block the turn wrote, in order; the `answer` may be the last block alone, so a result written in
+  more than one block is never read from it. Where the blocks hold more than the `answer`, what the turn wrote
+  is the blocks joined in order, from the last block that opens a result's head — one holding an `ANSWERED:` or
+  a `TITLE:` line — to the end, or every block where none opens one; no block after the head is ever left
+  out. Where the blocks hold no more than the `answer`, the `answer` is what it wrote, and the blocks joined
+  where it names none.
 
 ## Branches
 
@@ -157,7 +170,8 @@ of a run is this unit's.
   question's language, with no heading, list or structure line.
 - **That turn's text is the script,** a `LISTEN:` line it wrote itself dropped, set after the result under a
   `LISTEN:` line of its own; the result with it is the run's result and what the ledger keeps as `written`.
-  Only then is the result held to its shape and filed.
+  It is asked after the whole document (「The deep dive's page」), so the script is set after the result that is
+  filed; only then is the result held to its shape and filed.
 - **A narration turn that writes nothing,** or fails, leaves the result as it stands, and the document has no
   sound. Where the rounds' session never started, the first answer stands without one. A run told to a room
   is asked no narration.
@@ -168,14 +182,25 @@ A run the daemon asks for its own deep dive is filed differently from a run told
 daemon finishes, held first to the shape the deep dive asked for.
 
 - **The shape is checked before anything is filed.** The deep dive names the section headings its item's shape
-  holds, in every language a result may be written in (`prompts/document.toml`, `[sections]`). A result whose
-  body is empty, or holds none of those headings under any heading of its own (matched without regard to
-  case, a heading's numbering aside), is not filed: the run closes `failed`, its error naming what was
-  missing — the body, or the headings looked for — and the deep dive's try fails with that error, so the item
-  waits for its retry and the queue shows why. No document stands for it and no notice goes out.
-- **The title** is the `TITLE:` line, else the body's first top-level heading, else the title the deep dive
-  names: the item's name with its shape's word (`prompts/page.toml`, `[titles]`). A body that opens with a
-  heading saying the title loses that heading, since the page's head says it.
+  holds, in every language a result may be written in (`prompts/document.toml`, `[sections]`). A result is
+  whole, and may be filed, only where it carries all of these:
+  - the head lines the task requires of every result: the `ANSWERED:` line and the `TITLE:` line;
+  - a body that opens with the answer: its first heading the answer's, in the words of the question's language
+    (`prompts/search/document.toml`), so a body opening with a section's continuation is never whole;
+  - at least half of the shape's section headings in one of the languages they are listed in, a heading
+    written in Hangul being Korean and any other English, each held by a heading of the body (matched without
+    regard to case, a heading's numbering aside).
+- **A result short of its shape is asked for once more,** before its session is ended: one more turn of the
+  session that wrote it, named `research-<run>-whole`, its prompt the whole-document question
+  (`prompts/runner.toml`, `[whole]`) with what was missing set in, the task as the run was given it and the
+  answer written last. That turn's text is the result, and it is the one judged; a turn that writes nothing
+  leaves the result as it stood. Where the rounds' session never started, the first answer is judged as it is.
+- **A result still short of its shape is not filed:** the run closes `failed`, its error naming each thing
+  missing — an empty body, a head line, the answer at the body's open, or the headings looked for — and the deep
+  dive's try fails with that error, so the item waits for its retry and the queue shows why. No document
+  stands for it and no notice goes out.
+- **The title** is the `TITLE:` line. A body that opens with a heading saying the title loses that heading,
+  since the page's head says it.
 - **It is filed as a page,** `kind` `page`, its `html` the page drawn in English alone (「The page」), its head
   and labels as a room's document's are, with the label `languages` `en`; its pictures are kept beside it as a
   room's document's are, and the page draws every picture from its address.

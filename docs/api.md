@@ -270,7 +270,8 @@ the one to read.
   `error` (why it failed), `branches` (how many it opened) and `turns` (the names of the agency turns it went
   out under, its first answer's and each round's, by which its tool calls are read in agency's log).
 - **Its log** answers `items`, each `id`, `runId`, `at`, `kind` (`asked`, `seated`, `answer`, `round`,
-  `branch`, `filed`, `told` or `ended`) and `text`, the run's own notes from the ask to its end.
+  `branch`, `whole`, `narration`, `filed`, `told` or `ended`) and `text`, the run's own notes from the ask to
+  its end, and for a deep dive's run every narration sound the page was given or not, and why.
 - **A branch** is asked with the token the run's record names, `run` (the run's id) and `angle`, and answered
   200 once it ends with `index` (counted from 1 per run), `state` (`completed`, `stopped` at research close,
   or `failed`), `notes` (what the branch wrote, empty where nothing) and `reason` (why, on `failed`; null
@@ -308,8 +309,10 @@ the one to read.
   questions」) and no room, keeps the run's id on its items and its run row, and reads the run's row every
   `poll_seconds` until its `state` is `closed`. A run the deep dive asks tells no room itself.
 - **The run is held to its shape:** the try hands the runner the section headings its item's shape holds
-  (`prompts/document.toml`, `[sections]`) and the title it falls back on, and the runner files the result as a
-  page only where its body holds one of them (`docs/runner.md`, 「The deep dive's page」).
+  (`prompts/document.toml`, `[sections]`), and the runner files the result as a page only where it is whole:
+  its head lines, its body opening with the answer and at least half of those headings in one language, the
+  run's session asked once more for the whole document where they are short (`docs/runner.md`, 「The deep
+  dive's page」).
 - **A run that closed** with the outcome `cut` is a failed try. Any other outcome ends the try once the run's
   row names the document it filed; a closed run with no document is a failed try, its error the run's, which
   names what the result was missing where its shape held it back.
@@ -427,14 +430,16 @@ search runner applies it, and the run writes its document in English, the questi
 - **The narration** is the result's `LISTEN:` script. The English sound speaks it as written; the Korean sound
   speaks it translated as one text with the `narration_note`, the item's name set in: that it is a spoken
   narration, to be translated in short sentences, its figures written as they are read aloud and model and
-  product names kept. Each is spoken by the voice unit (「Calls this unit makes」) in the settings' voice and
-  attached to the document with `POST /documents/{id}/attachments`: the Korean sound as `narration-ko.ogg`
+  product names kept. Each is spoken by the voice unit (「Calls this unit makes」) in the settings' voice, a
+  text of at most the 4,000 characters the voice unit speaks: a longer one is spoken up to the last sentence
+  that ends within them, and the run's log says so. Each is attached to the document with `POST /documents/{id}/attachments`: the Korean sound as `narration-ko.ogg`
   with `role` `head`, the English as `narration-en.ogg` with no role. The sounds are the document's
   attachments and nothing of the page: the archive's reader plays them above it, and the page draws no
   player. A sound already attached is not made again, and a sound made leaves the page as it is.
 - **A narration that cannot be made** — no script, no voice, a translation refused, a synthesis failed —
-  leaves the document without that sound and the notice says nothing of it; a missing sound is asked once more,
-  on the retry wait.
+  leaves the document without that sound and the notice says nothing of it; why is written into the run's log
+  under `narration`, the synthesis named with the length of the text it was asked to speak, and a missing
+  sound is asked once more, on the retry wait, beside the Korean side where that is pending too.
 - **What is pending is asked again** on the retry wait, `retry_minutes` after its last try, while its item
   stands `reported`, `fit` or `taken`: the Korean side until `retries` retries are spent, after which the
   English page stands alone, and a missing sound once. The tries are counted apart from the run's tries.

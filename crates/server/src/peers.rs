@@ -334,7 +334,10 @@ impl Peers {
         .await?;
       match read["state"].as_str() {
         Some("done") => break,
-        Some("failed") => return Err(format!("the voice unit's synthesis {id} failed")),
+        Some("failed") => {
+          let size = text.chars().count();
+          return Err(format!("the voice unit's synthesis {id} of {size} characters failed"));
+        }
         _ if std::time::Instant::now() >= until => {
           return Err(format!("the voice unit's synthesis {id} was not spoken in time"));
         }

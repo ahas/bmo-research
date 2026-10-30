@@ -646,7 +646,7 @@ pub struct ResearchLogLine {
   pub run_id: i64,
   /// epoch milliseconds
   pub at: i64,
-  /// `asked`, `seated`, `answer`, `round`, `branch`, `filed`, `told` or `ended`
+  /// `asked`, `seated`, `answer`, `round`, `branch`, `whole`, `narration`, `filed`, `told` or `ended`
   pub kind: String,
   pub text: String,
 }

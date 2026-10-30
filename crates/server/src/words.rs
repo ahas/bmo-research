@@ -340,6 +340,7 @@ pub struct RunnerWords {
   pub questions: BTreeMap<String, String>,
   pub rounds: BTreeMap<String, Rounds>,
   pub narration: NarrationAsk,
+  pub whole: WholeAsk,
 }
 
 /// What a deep dive's session is asked for a narration its result lacks: the question, and the rulebook and
@@ -350,6 +351,14 @@ pub struct NarrationAsk {
   pub question: String,
   pub rulebook: String,
   pub section: String,
+}
+
+/// What a deep dive's session is asked where its result is short of its shape: the question, with `{missing}`
+/// set to what the result lacks.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WholeAsk {
+  pub question: String,
 }
 
 /// The name of the round whose answer is a run's result.

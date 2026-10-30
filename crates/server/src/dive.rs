@@ -12,6 +12,7 @@ use bmo_research_client::{
 };
 use serde_json::{Value, json};
 use tokio::task::JoinHandle;
+use unicode_segmentation::UnicodeSegmentation;
 
 use crate::App;
 use crate::bench;
@@ -25,6 +26,9 @@ use crate::words::{self, fill};
 
 /// How often a missing narration is asked: once, and once more on the retry wait.
 const NARRATION_TRIES: i64 = 2;
+
+/// The most characters the voice unit speaks in one text; it refuses a longer one.
+pub const VOICE_MOST_CHARACTERS: usize = 4_000;
 
 /// The languages a page may hold, in the order it shows them.
 const LANGUAGES: [&str; 2] = ["ko", "en"];
@@ -255,7 +259,6 @@ pub async fn carry(app: Arc<App>, run: i64, asked: Option<i64>) {
       };
       let filing = Filing::Page(PageAsk {
         sections: words::document().sections.of(lead.shape).to_vec(),
-        title: words::page().title("en", lead.shape, &lead.name),
       });
       match runner::launch(app.clone(), ask, filing).await {
         Ok(launched) => {
@@ -337,7 +340,7 @@ pub async fn carry(app: Arc<App>, run: i64, asked: Option<i64>) {
     }
   }
   if told {
-    let (korean, _) = finish(&app, &lead, &filed, &source).await;
+    let (korean, _) = finish(&app, run_id, &lead, &filed, &source).await;
     tell(&app, &category, &lead, &filed, &korean, &exposure).await;
   }
 }
@@ -347,11 +350,43 @@ pub fn sound_name(code: &str) -> String {
   format!("narration-{code}.ogg")
 }
 
+/// A text as the voice unit can speak it: whole where it holds at most `most` characters, else up to the last
+/// sentence that ends within them, the last word where no sentence does, or its first `most` characters.
+pub fn speakable(text: &str, most: usize) -> &str {
+  let text = text.trim();
+  if text.chars().count() <= most {
+    return text;
+  }
+  let within = |pieces: &mut dyn Iterator<Item = (usize, &str)>| {
+    let mut end = 0;
+    let mut count = 0;
+    for (at, piece) in pieces {
+      count += piece.chars().count();
+      if count > most {
+        break;
+      }
+      end = at + piece.len();
+    }
+    end
+  };
+  let end = match within(&mut text.split_sentence_bound_indices()) {
+    0 => within(&mut text.split_word_bound_indices()),
+    end => end,
+  };
+  let end = match end {
+    0 => within(&mut text.char_indices().map(|(at, c)| (at, &text[at..at + c.len_utf8()]))),
+    end => end,
+  };
+  text[..end].trim_end()
+}
+
 /// One narration's sound attached beside its page, which the archive's reader plays: the one the document
-/// already keeps, else the script spoken — in Korean translated to be spoken first — and attached, the Korean
-/// as the sound heard at the document's head.
+/// already keeps, else the script spoken — in Korean translated to be spoken first, and either cut to what
+/// the voice unit speaks, the run's log saying so — and attached, the Korean as the sound heard at the
+/// document's head.
 async fn narration(
   app: &App,
+  run: i64,
   lead: &Item,
   document_id: i64,
   code: &str,
@@ -365,7 +400,16 @@ async fn narration(
     "en" => script.to_string(),
     _ => translation::narration(app, &lead.name, script).await?,
   };
-  let (bytes, media_type) = app.peers.speak(&text).await?;
+  let spoken = speakable(&text, VOICE_MOST_CHARACTERS);
+  let (whole, kept) = (text.trim().chars().count(), spoken.chars().count());
+  if kept < whole {
+    let said = format!(
+      "The {code} narration holds {whole} characters, more than the voice speaks, so the first {kept} are \
+       spoken."
+    );
+    let _ = app.store.log_research(run, "narration", &said);
+  }
+  let (bytes, media_type) = app.peers.speak(spoken).await?;
   let role = (code == LANGUAGES[0]).then_some("head");
   app.peers.attach(document_id, &name, &media_type, role, &bytes).await
 }
@@ -411,7 +455,7 @@ async fn redraw(
 /// allow, each narration it lacks asked and attached where its tries allow, the page drawn again where its
 /// Korean side was had, and what is still lacking set at the retry wait. Answers how the Korean side stands,
 /// and whether it was had on this call.
-async fn finish(app: &App, lead: &Item, filed: &Filed, source: &Source) -> (Korean, bool) {
+async fn finish(app: &App, run: i64, lead: &Item, filed: &Filed, source: &Source) -> (Korean, bool) {
   let document_id = filed.document_id;
   let state = match app.store.page_state(lead.id) {
     Ok(state) => state,
@@ -462,12 +506,17 @@ async fn finish(app: &App, lead: &Item, filed: &Filed, source: &Source) -> (Kore
     let Some(script) = script.as_deref().filter(|_| asked) else {
       continue;
     };
-    match narration(app, lead, document_id, code, script).await {
+    match narration(app, run, lead, document_id, code, script).await {
       Ok(()) => {
         heard = true;
         sounds.push(code.to_owned());
+        let _ = app.store.log_research(run, "narration", &format!("The {code} narration was attached."));
       }
-      Err(why) => eprintln!("bmo-research: item {}'s {code} narration was not made: {why}", lead.id),
+      Err(why) => {
+        eprintln!("bmo-research: item {}'s {code} narration was not made: {why}", lead.id);
+        let said = format!("The {code} narration was not made: {why}");
+        let _ = app.store.log_research(run, "narration", &said);
+      }
     }
   }
   if heard {
@@ -538,7 +587,7 @@ async fn render_again(app: Arc<App>, item: Item) {
     }
   };
   let filed = filed_of(&item, document_id);
-  if let (Korean::Filed(rendering), true) = finish(&app, &item, &filed, &source).await
+  if let (Korean::Filed(rendering), true) = finish(&app, run_id, &item, &filed, &source).await
     && let Ok(category) = app.store.category(&item.category_name)
   {
     notify(&app, &category, &item, &follow_up(&item, &filed, &rendering), "translated").await;

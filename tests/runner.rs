@@ -1,8 +1,8 @@
 //! The research runner against stand-in agency, artifact, receiver and tool host servers (`docs/runner.md`,
 //! `docs/api.md`, 「research runs」 and 「research settings」): a run end to end — its seat, its session's start
 //! with its record and capabilities, its first turn, its rounds, its filing and its room's instruction — a run
-//! agency refuses, the branches and their allowance, the settings' round trip, and a summary a result still
-//! writes folded into its document's answer.
+//! agency refuses, the branches and their allowance, the settings' round trip, a summary a result still
+//! writes folded into its document's answer, and a turn's text read whole.
 
 mod support;
 
@@ -11,6 +11,7 @@ use std::time::Duration;
 use bmo_research_client::*;
 use reqwest::StatusCode;
 use research_server::document::draw;
+use research_server::runner::written;
 use research_server::store::{NewResearchRun, now_ms};
 use research_server::words;
 use serde_json::{Value, json};
@@ -522,4 +523,24 @@ fn a_summary_a_result_still_writes_is_folded_into_the_answer() {
     "with no verdict the summary is the answer: {}",
     drawn.body
   );
+}
+
+#[test]
+fn a_turn_s_text_is_every_block_from_the_head_its_answer_where_the_blocks_hold_no_more() {
+  let head = "ANSWERED: yes :: it\nTITLE: A thing\n\nVERDICT:\nIt works.\n\nSECTION: Plan\nStage 1.";
+  let tail = "SECTION: Plan (continued)\nStage 2.";
+  let turn = json!({"answer": tail, "text": ["I will read the card first.", head, tail]});
+  assert_eq!(written(&turn), format!("{head}\n{tail}"), "the head on, the chatter before it left out");
+  let turn = json!({"answer": tail, "text": ["The notes so far.", tail]});
+  assert_eq!(
+    written(&turn),
+    format!("The notes so far.\n{tail}"),
+    "every block where none opens a head"
+  );
+  let turn = json!({"answer": head, "text": [head]});
+  assert_eq!(written(&turn), head);
+  let turn = json!({"answer": "", "text": [head, tail]});
+  assert_eq!(written(&turn), format!("{head}\n{tail}"));
+  let turn = json!({"answer": "The answer.", "text": []});
+  assert_eq!(written(&turn), "The answer.");
 }

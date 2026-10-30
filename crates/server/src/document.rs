@@ -44,6 +44,8 @@ pub struct Picture {
 /// A result made into its document.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Drawn {
+  /// Whether the result writes its `ANSWERED:` line, the run's own check, which stands nowhere in the document.
+  pub answered: bool,
   pub title: Option<String>,
   pub description: Option<String>,
   pub learning: bool,
@@ -139,7 +141,9 @@ pub fn draw(result: &str, words: &Words) -> Drawn {
       drawn.rule = Some(value.to_owned()).filter(|value| !value.is_empty());
     } else if let Some(value) = after(trimmed, "KIND:") {
       drawn.learning = value == "learning";
-    } else if after(trimmed, "ANSWERED:").is_some() || after(trimmed, "DOCUMENT:").is_some() {
+    } else if after(trimmed, "ANSWERED:").is_some() {
+      drawn.answered = true;
+    } else if after(trimmed, "DOCUMENT:").is_some() {
     } else if trimmed == "LISTEN:" {
       mode = Mode::Narration;
     } else if trimmed == "VERDICT:" || trimmed == "SUMMARY:" {
@@ -436,19 +440,40 @@ pub async fn file(app: &App, drawn: &Drawn, filing: &Value) -> Result<RunDocumen
   })
 }
 
-/// Why a deep dive's result is not filed: a body that is empty, or one holding none of the section headings
-/// its shape holds; none where it may be filed.
-pub fn short_of(drawn: &Drawn, sections: &[String]) -> Option<String> {
+/// Why a deep dive's result is not whole (`docs/runner.md`, 「The deep dive's page」), each thing it lacks: an
+/// empty body, the `ANSWERED:` or the `TITLE:` line, a body opening with `answer`, the heading of the answer
+/// in the question's language, or half the section headings its shape holds in one language; none where it
+/// may be filed.
+pub fn short_of(drawn: &Drawn, sections: &[String], answer: &str) -> Option<String> {
   if drawn.body.trim().is_empty() {
     return Some("its body is empty".into());
   }
-  if !sections.is_empty() && !reading::holds_heading(&drawn.body, sections) {
-    return Some(format!(
-      "its body holds none of the section headings its shape holds: {}",
+  let mut short = Vec::new();
+  if !drawn.answered {
+    short.push("it has no ANSWERED: line".to_string());
+  }
+  if drawn.title.as_deref().is_none_or(|title| title.trim().is_empty()) {
+    short.push("it has no TITLE: line".to_string());
+  }
+  match reading::first_heading(&drawn.body) {
+    Some(first) if reading::heading_holds(&first, answer) => {}
+    Some(first) => {
+      short.push(format!("its body opens with \"{first}\", not with the answer, \"{answer}\""))
+    }
+    None => short.push(format!("its body has no heading, not even the answer, \"{answer}\"")),
+  }
+  let (korean, english): (Vec<String>, Vec<String>) =
+    sections.iter().cloned().partition(|heading| language_of(heading) == "ko");
+  let half_held = |listed: &[String]| {
+    !listed.is_empty() && reading::headings_held(&drawn.body, listed) * 2 >= listed.len()
+  };
+  if !sections.is_empty() && !half_held(&english) && !half_held(&korean) {
+    short.push(format!(
+      "its body holds fewer than half of the section headings its shape holds in any one language: {}",
       sections.join(", ")
     ));
   }
-  None
+  (!short.is_empty()).then(|| short.join("; "))
 }
 
 /// A deep dive's page's title: the `TITLE:` line, else the body's first top-level heading, else the title the

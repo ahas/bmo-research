@@ -89,6 +89,13 @@ pub struct World {
   pub cut_over: Option<usize>,
   /// The script a deep dive's narration turn writes; none writes nothing.
   pub narration: Option<String>,
+  /// What each research run's turns write as it stands, in place of its filed result.
+  pub raw: BTreeMap<i64, String>,
+  /// What a deep dive's whole-document turn writes; none writes the run's result again.
+  pub whole: Option<String>,
+  /// Whether a research turn writes its result as two text blocks, cut before its last section, its answer
+  /// holding the second alone.
+  pub two_blocks: bool,
   /// The translations out at once now, and the most that ever were.
   pub translating: u32,
   pub translating_most: u32,
@@ -106,6 +113,8 @@ pub struct World {
   pub attachments: Vec<Attached>,
   /// Whether every synthesis the voice unit is asked fails.
   pub voice_failing: bool,
+  /// A text whose synthesis fails while it is set.
+  pub voice_failing_on: Option<String>,
   /// The markup the stand-in explorer answers each page address with; an address not here answers 404.
   pub pages: BTreeMap<String, String>,
   /// How many characters one slice of a page holds, however many were asked for.
@@ -261,11 +270,25 @@ pub fn run_of(name: &str) -> Option<i64> {
   name.strip_prefix("research-")?.split('-').next()?.parse().ok()
 }
 
-/// What a research turn writes: the run's filed result, or a result of its own naming the run.
+/// The whole result a document is filed from: the head, the verdict, then the document's text.
+pub fn result_text(doc: &Filed) -> String {
+  format!(
+    "ANSWERED: yes :: the document\nTITLE: {}\nTOPIC: {}\n\nVERDICT:\n{}\n\n{}",
+    doc.title, doc.description, VERDICT, doc.content
+  )
+}
+
+/// The verdict a filed result writes.
+pub const VERDICT: &str = "It does what its maker says.";
+
+/// What a research turn writes: what it writes as it stands, the run's filed result, or a result of its own
+/// naming the run.
 fn result_of(world: &World, run: i64) -> String {
+  if let Some(raw) = world.raw.get(&run) {
+    return raw.clone();
+  }
   match world.filed.get(&run) {
-    Some(doc) if doc.title.is_empty() => format!("TOPIC: {}\n\n{}", doc.description, doc.content),
-    Some(doc) => format!("TITLE: {}\nTOPIC: {}\n\n{}", doc.title, doc.description, doc.content),
+    Some(doc) => result_text(doc),
     None => format!(
       "ANSWERED: yes :: the run\nTITLE: Research {run}\nTOPIC: What run {run} found\n\nVERDICT:\nRun {run} \
        answered.\n\nUNCONFIRMED:\n1. Nothing.\nSOURCE [1]: https://example.org/{run} :: the answer\n"
@@ -299,7 +322,17 @@ async fn research_turn(w: &Shared, name: &str) -> Response {
     )
       .into_response();
   }
-  axum::Json(json!({"outcome": "answered", "answer": result_of(&world, run)})).into_response()
+  let result = match world.whole.clone().filter(|_| name.ends_with("-whole")) {
+    Some(whole) => whole,
+    None => result_of(&world, run),
+  };
+  match result.rfind("\n## ").filter(|_| world.two_blocks) {
+    Some(cut) => {
+      let (first, second) = (&result[..cut], &result[cut + 1..]);
+      axum::Json(json!({"outcome": "answered", "answer": second, "text": [first, second]})).into_response()
+    }
+    None => axum::Json(json!({"outcome": "answered", "answer": result})).into_response(),
+  }
 }
 
 async fn agency_turn(State(w): State<Shared>, method: Method, uri: Uri, body: Bytes) -> Response {
@@ -595,8 +628,10 @@ async fn voice_synthesis(
 ) -> Response {
   keep(&w, "voice", &method, &uri, &body);
   let world = w.lock().unwrap();
-  let state = if world.voice_failing { "failed" } else { "done" };
-  axum::Json(json!({"id": id, "text": synthesis_text(&world, id), "state": state})).into_response()
+  let text = synthesis_text(&world, id);
+  let refused = world.voice_failing_on.is_some() && world.voice_failing_on == text;
+  let state = if world.voice_failing || refused { "failed" } else { "done" };
+  axum::Json(json!({"id": id, "text": text, "state": state})).into_response()
 }
 
 async fn voice_sound(

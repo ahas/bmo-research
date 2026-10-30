@@ -56,9 +56,20 @@ pub fn heading_starts(content: &str) -> Vec<usize> {
   headings(content).into_iter().map(|h| h.start).collect()
 }
 
-/// Whether any heading of the document holds any of the words, regardless of case.
-pub fn holds_heading(content: &str, words: &[String]) -> bool {
-  headings(content).iter().any(|h| words.iter().any(|word| holds(&h.text, word)))
+/// How many of the words a heading of the document holds, each counted once, regardless of case.
+pub fn headings_held(content: &str, words: &[String]) -> usize {
+  let found = headings(content);
+  words.iter().filter(|word| found.iter().any(|h| holds(&h.text, word))).count()
+}
+
+/// The text of the document's first heading, at any level.
+pub fn first_heading(content: &str) -> Option<String> {
+  headings(content).into_iter().next().map(|h| h.text)
+}
+
+/// Whether a heading's text holds the word, regardless of case.
+pub fn heading_holds(heading: &str, word: &str) -> bool {
+  holds(heading, word)
 }
 
 /// The text of the document's first top-level heading.

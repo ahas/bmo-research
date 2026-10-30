@@ -61,7 +61,8 @@ source = "출처"
 # The section headings a deep dive's result holds by its item's shape, in every language a result may be
 # written in (docs/runner.md, "The deep dive's page"): the English ones its question names, the Korean ones
 # its rulebook names, and for an investigation, whose question names none, the verdict's heading in the
-# words of prompts/search/document.toml as well. A result holding none of its shape's is not filed.
+# words of prompts/search/document.toml as well. A result holding fewer than half of its shape's in each
+# language, a heading written in Hangul being Korean and any other English, is not filed.
 [sections]
 manual = [
   "Running it in our lab",

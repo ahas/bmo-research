@@ -92,5 +92,5 @@
 - **It is written to be heard,** in the question's language: plain sentences, no persona, no list,
   table, footnote mark, address, code or structure word; only the few figures that matter, rounded
   where the exact value adds nothing; a long identifier said by its short name.
-- **About three to five minutes aloud,** some 1,500 to 2,500 characters of Korean or 400 to 700
-  words of English, and never more.
+- **About three to four minutes aloud,** some 1,500 to 2,500 characters of Korean or 400 to 600
+  words of English, and never more: the voice speaks at most 4,000 characters.
