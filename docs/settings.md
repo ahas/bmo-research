@@ -13,13 +13,12 @@ the daemon does not know is refused, naming it. A path may open with `~/`, the h
 | `token_file` | `research.token` | The file under the data root's `env/` holding the bearer token every route takes; written at the first start where it does not stand, mode 0600 |
 | `store` | `research` | The folder under the data root the store `research.db` stands in |
 | `tick_seconds` | 30 | How often the loop looks for a source due, a slot free and an item to run |
-| `concurrency` | 1 | How many runs stand under way at once, across every category |
+| `concurrency` | 4 | How many runs the daemon asks for at once, across every category; how many run is how many cards the arbiter grants them (`docs/design.md`, 「The engine a run needs」) |
 | `retries` | 3 | How many times a failed try is tried again before the item is `failed`, and a page's pending Korean side before it is no longer asked |
 | `retry_minutes` | 30 | How long a failed try, or what a page still lacks, waits before it is tried again |
-| `restore_wait_minutes` | 20 | How long the queue waits on a watched registration's health once a bench is gone before the owner's private room is told, once, that the model has not come back |
+| `restore_wait_minutes` | 20 | How long a run's demand for its engine waits before the owner's private room is told, once, that the engine has not come back; the demand goes on waiting |
 | `poll_seconds` | 30 | How long the daemon waits between two readings of a run under way |
 | `turn_wait_seconds` | 20 | How long a notice to an agent waits on its turn's answer before it is counted as handed |
-| `model_nodes` | `["n3", "n4", "n5", "n6"]` | The nodes the runs' model stands on; a manual's fit naming one tells the chat agent to have the bench carried by a worker standing elsewhere |
 | `user_agent` | `bmo-research` | The `User-Agent` the daemon reads the sources with |
 
 What differs by category — its shape, its cap, its cadence, its road and its recipients — is no setting but
@@ -42,20 +41,19 @@ How a page's body is cut for agency's translator (`docs/api.md`, 「The page」)
 | `part_chars` | 2500 | The most characters one part sent to the translator holds |
 | `parts_out` | 2 | How many parts of one document are out with the translator at once |
 
-## The bench watch: `[bench_watch]`
+## The engine watch: `[engine]`
 
-Which registered models the runs stand on, on which nodes, and where the daemon reads whether a bench holds
-one of them (`docs/design.md`, 「The n3–n6 restore path」). A category whose road is the watch's `provider`
-and one of its `models` starts no run while a bench's ticket stands on one of that model's nodes, nor after,
-until the registration answers its health.
+Which registered models the runs stand on, the arbiter service each one's engine is, and the arbiter's
+master that grants them (`docs/design.md`, 「The engine a run needs」). A category whose road is the
+watch's `provider` and one of its `models` starts no run until the master grants the run a card of that
+model's `service`. Which card answers is the master's; no setting names a node.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `address` | `http://127.0.0.1:7440` | The arbiter's master, whose cluster picture shows every node's tickets |
+| `address` | `http://127.0.0.1:7440` | The arbiter's master, which grants the demands |
 | `token` | empty | The file under the data root's `env/` whose text is the master's bearer token; empty where the master takes none |
-| `occupant` | `bench` | The occupant a bench's ticket stands under in the arbiter's rules |
 | `provider` | `registered` | The provider whose models the watch names |
-| `models` | `flash-next` on `n3` | Each watched model, a table of `registration`, its name in agency's registry, and `nodes`, the nodes it stands on; an empty list watches nothing |
+| `models` | `flash-next` served by `lab-arena` | Each watched model, a table of `registration`, its name in agency's registry, and `service`, the arbiter service its engine is; an empty list watches nothing |
 
 ## The runner: `[runner]`
 
@@ -126,16 +124,16 @@ An env file is read as `KEY=value` lines, as the unit that keeps it writes it.
 
 ```toml
 listen = "127.0.0.1:3238"
-concurrency = 1
+concurrency = 4
 
 [road]
 provider = "registered"
 model = "flash-next"
 
-[bench_watch]
+[engine]
 address = "http://127.0.0.1:7440"
 
-[[bench_watch.models]]
+[[engine.models]]
 registration = "flash-next"
-nodes = ["n3"]
+service = "lab-arena"
 ```

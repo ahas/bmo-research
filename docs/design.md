@@ -36,7 +36,8 @@ word. It is the home of the research feature; agency supplies it sessions and se
     (`POST /documents`, `PATCH /documents/{id}`, `POST /documents/{id}/attachments`, `POST /shares`);
   - the voice unit, to speak a deep dive's narration (`POST /syntheses`);
   - the receiver, to tell a room (`POST /instructions`) and to learn the owner's private room (`GET /owner`);
-  - the arbiter, to read whether a bench holds a node its model stands on (「The n3–n6 restore path」).
+  - the arbiter's master, to ask for the engine each run needs and to read why it waits (「The engine a run
+    needs」).
   The job service it never calls: a job is the chat agent's to file.
 - **Every per-deployment choice is a setting or a registration,** never code: the sources, the cap, the
   cadence, the model's road, the report rooms, the token files (`docs/settings.md`).
@@ -71,8 +72,8 @@ sources ──scan──▶ candidates ──new?──▶ queue (cap) ──slo
    by name stands first. Each category's part of the queue holds at most its `cap` items waiting or running; a scan that finds more
    keeps them as seen but unqueued, and the next scan that finds the queue short takes the oldest
    unqueued first. The queue never idles while something is unqueued.
-4. **The deep dive.** One run at a time (`concurrency`, 1 to start with): the item becomes a research run
-   on kakia's road at the exhaustive depth, asked as a manual where the thing is a model, an engine, a
+4. **The deep dive.** As many runs at once as the arbiter grants engines for, up to `concurrency`
+   (「The engine a run needs」): the item becomes a research run on kakia's road at the exhaustive depth, asked as a manual where the thing is a model, an engine, a
    dataset or a tool, and as an investigation where it is a claim or an event. The run's question is the
    item's name and its maker's address, with the shape named, so the runner's research rulebook
    applies. A run that is refused (no road carries it) or cut is retried after `retry_minutes`, three
@@ -91,7 +92,7 @@ sources ──scan──▶ candidates ──new?──▶ queue (cap) ──slo
 7. **The verification** is a job of the worker's, under the researching-and-benching skill and the bench
    lock (「The bench lock」), reported by the job itself as every job reports. Registering a service with
    the arbiter is the job's last step, on the owner's word in the item. The daemon takes no part in it
-   beyond stepping its own runs off the node the bench takes (「The n3–n6 restore path」).
+   beyond its own runs waiting while the bench holds the engine they need (「The engine a run needs」).
 
 ## Categories
 
@@ -160,8 +161,11 @@ A source is a registration: a category, a kind, an address and, where the kind t
   the arbiter, as the occupant `bench`, at tier 1: trainer stands at 0 and takes the card outright, every
   service stands at 2 and gives way to the bench, and the bench gives way to trainer. The tiers are the
   owner's rules on each node (`occupants`), which stand over a service's own declaration.
-- **The lock is a ticket under `bench`,** asked with `POST /tickets` naming the node's cards and the memory
-  the bench needs, and given back with `DELETE` when the measurement is done. The job runs with
+- **A bench runs on as many cards as the arbiter grants, at most four.** The job asks the arbiter's master
+  for the cards its measurement can use as `bench`, never naming a machine, and measures once on each card
+  it is granted, one measurement per card.
+- **The lock is a ticket under `bench`** on each granted card, asked with `POST /tickets` naming the card
+  and the memory the bench needs, and given back with `DELETE` when the measurement there is done. The job runs with
   `BMO_CARD_SERVICE=bench` so every process it starts on the node is the bench's. A ticket told to give
   way — trainer claimed the card — ends the measurement at its next boundary and the job waits for its turn
   again; a measurement cut in the middle is thrown away and run again whole.
@@ -171,37 +175,48 @@ A source is a registration: a category, a kind, an address and, where the kind t
 - **The release is proved before the report,** as the researching-and-benching skill says: the ticket
   given back, each yielded service answering its own health, and the arbiter's card showing no bench.
 
-## The n3–n6 restore path
+## The engine a run needs
 
-kakia and its workers run on lab-arena, the engine on n3 to n6; a bench on one of those nodes evicts lab-arena
-there, and with it the model the daemon's own research runs go out on. So:
-
-- **The researcher is kakia and the bench is kakia's worker with its three coders.** The daemon's runs go
-  out on `flash-next`, the supervisor's model on n3; the verification job goes to kakia's worker, which
-  writes the bench code through its three co-workers, one on each of the coder instances `flash-next-coder`
-  serves on n4, n5 and n6 behind the gateway. The notice for a `fit` item names that worker, and the chat
-  agent files the item for it. A bench that takes one of the three coder nodes evicts one instance and
-  leaves two serving; a bench on n3 evicts `flash-next` itself, which the arbiter restores when the ticket
-  is given back, and the daemon's own runs wait meanwhile.
-- **The daemon pauses its own runs while a bench holds a node its model stands on.** Which registrations
-  its runs stand on and on which nodes is the bench watch, a setting (`docs/settings.md`). It reads the
-  arbiter master's picture of every node's card on each pass of its loop, so before each run and while one
-  runs, and again whenever a try fails; a ticket of the `bench` occupant standing on a watched node,
-  granted or waiting, holds every category whose road is that registration.
-- **A run cut by the eviction is retried after the bench is gone, not counted against its three tries.**
-  A try of a watched road that fails while the bench stands, after a bench stood on its nodes since the try
-  was asked, or while the registration does not answer its health, is the eviction's: its items wait again
-  with the try uncounted, and the queue holds until the model is back. The words of the refusal are not
-  read; the arbiter's card and the registration's health are the evidence.
-- **lab-arena comes back as the arbiter restores it,** by its own adapter (`yield_by = "process"`: the process
-  is ended and started again), and the gateway's registration answers health again. The daemon waits on
-  that health, agency's reading of the registration, before the queue goes on, and tells the owner's
-  private room once if it stays down past `restore_wait_minutes`.
-- **Why nothing runs is shown:** the state route answers each hold, the bench and its node or the wait on
-  the model's health, and the categories it holds, so the queue tool and the console can say it.
-- **kakia's own turns (the chat companion and its worker) are agency's to hold** during the eviction: a
-  registered model's engine serving one slot makes a conversation's turn wait, as agency's companion
-  rules say; the bench adds nothing to that beyond its length, which the report line says.
+- **Routing is automatic.** A run names the model it goes out on, a registration of agency's; where the
+  model runs and on which card is decided by the arbiter's master and agency's registry at that moment.
+  No setting of this unit names a node, lists the nodes of a model or pins a model to one.
+- **kakia's two models are two engines sharing the lab's language-model cards:** `flash-next` on the
+  arbiter service `lab-arena`, `flash-next-coder` on `lab-arena-coder`. Every such card can hold either, and
+  which one stands on it is the arbiter's grant (bmo-lab-arena `docs/engines.md`). The daemon's runs go out
+  on `flash-next`; their branches, and the verification job's co-workers, on `flash-next-coder`.
+- **A run asks for its engine before it starts.** For a category whose road is one of the engine watch's
+  registrations (`docs/settings.md`, `[engine]`), the daemon asks the arbiter's master for one card of
+  that registration's service, as the run's own, with the run as the work it continues, and starts the run
+  once a card is granted. The run's seat and sessions are asked with the demand's id, so agency asks none
+  of its own for them and places them on the granted card. The demand is held for the whole run and given
+  back when the run ends; the daemon gives back, at its start, every demand its store holds for a run no
+  longer under way.
+- **`concurrency` is how many deep dives the daemon asks for at once,** four to start with; how many run
+  is how many cards the arbiter's one rule gives them. Each run's demand is an ordinary one, standing in the
+  line in the order it was asked like every other caller's.
+- **Nothing takes a run's engine from it but a bench or a claim.** A run holds its card until it ends; a
+  demand for the other engine waits until then, however long the run takes. A bench or a claim stops the
+  engine as the arbiter's lower tiers do; the run's turn in hand is cut, and its next turn waits for its
+  card to be granted again.
+- **A run's branch is asked within the run's demand.** A branch goes to any other card the arbiter can
+  open for the Coder engine; only where every other card is in use is the run's own card lent to it, the
+  run's engine standing down until the branch is finished, however long it takes, and coming back after
+  two engine loads (bmo-lab-arena `docs/engines.md`, 「The self-swap」). The search task prompt states this
+  as a rule (`prompts/search/task.md`).
+- **A try the arbiter cut is retried, not counted against its three tries.** A try of a watched road
+  that fails after its demand's card was taken by a bench or a claim is the eviction's: its item waits
+  again with the try uncounted. The words of the refusal are not read; the demand's answer is the
+  evidence. A run's own closing time and its retries are its own budget, and stand as they are.
+- **The owner hears of an engine that stays away:** a run's demand still waiting after
+  `restore_wait_minutes` is told to the owner's private room once; the demand goes on waiting.
+- **Why nothing runs is shown:** the state route answers each hold — the demand and its reason (the
+  engine starting, every card in use, a bench or a claim) — and the categories it holds, so the queue tool
+  and the console can say it.
+- **The verification is kakia's worker with its co-workers.** The notice for a `fit` item names that
+  worker, and the chat agent files the item for it; its co-workers run on `flash-next-coder`, and its
+  bench runs on the cards the arbiter grants it (「The bench lock」).
+- **kakia's own turns (the chat companion and its worker) are agency's to hold** while their engine is
+  away, as agency's rules for an engine the arbiter stands say; the daemon adds nothing to that.
 
 ## The notifier
 
@@ -270,7 +285,7 @@ take; so its own area stays the research and the measurement, however many categ
 ## Settings and store
 
 - **Settings** (`docs/settings.md`): the listen address, the data folder, the cadence, the cap, the
-  concurrency, the model road, the retry and restore waits, the bench watch, the runner's seat role and
+  concurrency, the model road, the retry and restore waits, the engine watch, the runner's seat role and
   capabilities, the research settings' defaults, and the addresses and token files of agency, the tool
   host's control socket, the artifact service, the receiver and the arbiter's master, whose picture shows
   every node's card. Every address and token file is read from the files the other units already keep,
@@ -284,7 +299,7 @@ take; so its own area stays the research and the measurement, however many categ
 
 `docs/api.md` is the contract: `/health`, `/categories`, `/sources`, `/queue` and `/queue/{item}` (ask,
 dismiss, taken, reorder), `/runs`, `/rooms`, `/facts`, `/stack`, `/state` (running or stopped, whole or by
-category, with `PATCH` to stop and resume, and what holds the queue while a bench stands), and the runner's
+category, with `PATCH` to stop and resume, and what holds the queue while a run's engine is not granted), and the runner's
 `/research-runs`, `/research-settings` and `/branches`. The tools the tool host places under the namespace
 `research` are the chat agent's doors to the same: `research/ask`, `research/queue`, `research/taken`,
 `research/dismiss`, `research/categories`, `research/sources`, `research/rooms`, `research/stop`,
@@ -299,3 +314,6 @@ search run is shown `research/rulebook`, the reader of the rulebooks its record 
 2. **The bench lock and the tiers:** the `bench` occupant in the arbiter's rules at tier 1, every service
    at 2, the skill's bench steps on tickets, the n3–n6 rule in the daemon, the restore wait.
 3. **The runner is this unit's** (`docs/runner.md`): agency supplies seats and thrown-away sessions alone.
+4. **The engine a run needs:** each run asks the arbiter's master for its engine and holds it for the run,
+   the engine watch in place of the bench watch, concurrency as many as the arbiter grants, and a bench on
+   as many cards as it is granted.
