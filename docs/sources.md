@@ -1,0 +1,63 @@
+# Sources
+
+A source is a registration (`docs/api.md`, 「sources」): the category it belongs to, a kind, the address it
+is read at, a query where the kind takes one, a filter, its own cadence where it has one, and how many
+items one reading asks for. The daemon reads it with its own HTTP client, under the `User-Agent` the
+settings name, at most once every `every_minutes` (its category's `cadenceMinutes` where it names none),
+and only while its category runs. Any kind serves any category: a security list's feed is an `rss`
+source of `security`, an economic release's feed one of `economy`.
+
+## The kinds
+
+| Kind | Default address | Query | Reads | Item kind |
+|---|---|---|---|---|
+| `huggingface-trending` | `https://huggingface.co/api/models` | none | the address with `sort=trendingScore` and `limit` | `model` |
+| `huggingface-search` | `https://huggingface.co/api/models` | the search words | the address with `search`, `sort=lastModified`, `direction=-1` and `limit` | `model` |
+| `arxiv` | `https://export.arxiv.org/api/query` | an arXiv `search_query` | the address with `search_query`, `sortBy=submittedDate`, `sortOrder=descending` and `max_results` | `paper` |
+| `github-releases` | `https://api.github.com` | the repository, `owner/name` | `<address>/repos/<query>/releases` with `per_page` | `release` |
+| `rss` | none, required | none | the address: an RSS or an Atom feed | `entry` |
+
+Each item becomes a candidate: a name, the maker, the address of the maker's own page, the date it
+appeared, and the words the filter reads.
+
+- **`huggingface-*`:** a model repository of the Hub's JSON list. The name is its `id`; the maker its
+  `author`, else the part of the id before the slash; the address `https://huggingface.co/<id>`; the date
+  its `createdAt`, else its `lastModified`; the words the id, the tags and the pipeline tag.
+- **`arxiv`:** an entry of the Atom feed. The name is its title, its whitespace folded; the maker its
+  first author; the address its `abs` page with the version suffix dropped; the date its `published`; the
+  words the title, the abstract and the categories.
+- **`github-releases`:** a release of the JSON list, drafts passed over. The name is the repository's name
+  and the release's tag; the maker the repository's owner; the address its `html_url`; the date its
+  `published_at`; the words the name, the tag and the release notes.
+- **`rss`:** an entry of the feed, read by `feed-rs`. The name is its title; the maker the feed's title;
+  the address its first link; the date its published time, else its updated time; the words the title and
+  the summary.
+- **`page`,** a maker's page with no feed read through explorer's `web_fetch`, is no kind the daemon reads
+  yet; a source of that kind is refused.
+
+## The filter
+
+- **`require`:** every word must stand in the candidate's words; **`exclude`:** none may. Both are matched
+  without regard to case, as parts of the text, so `gguf` holds in `Model-GGUF`. An empty list asks
+  nothing.
+- A candidate the filter rules out is not kept as seen, so a filter loosened later takes it in.
+
+## From a candidate to an item
+
+1. **Its key** is its address, its scheme and a trailing slash dropped and lower-cased, else its name
+   lower-cased.
+2. **A candidate whose key a seen row holds** is passed over: it was judged once.
+3. **The archive is asked** with the artifact service's `GET /documents?q=<name>&limit=1`. A document there
+   keeps the candidate as seen in the state `archived`. An archive that cannot be asked leaves the candidate
+   unseen, so the next reading judges it again.
+4. **Otherwise the candidate is kept as seen,** `unqueued`, the moment it is judged.
+5. **A slot that frees** — fewer than its category's `cap` items `waiting` or `running` that the scan took
+   in — is filled from that category's `unqueued` seen rows, oldest found first, each becoming a `waiting`
+   item of the shape its category takes, and in a `manual-or-investigation` category the shape its item
+   kind takes (`docs/api.md`, 「The questions」). The queue never idles while a seen row waits.
+
+## Failures
+
+- **A reading that fails** — the address does not answer, answers a status that is no success, or answers
+  a body its kind does not read — is said once in the log, counted on the source's `failureCount`, kept as
+  its `lastError`, and read again at its next turn. A reading that succeeds sets the count back to 0.

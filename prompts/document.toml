@@ -1,0 +1,29 @@
+# The words a filed document is read by, by the item's shape (docs/api.md, "The fit" and "The brief's
+# facts"). A manual's are the words the research rulebook fixes: the heading of the section on running the
+# thing in the lab, the label of its line of the cards it fits, the word that line says where none fits,
+# and the heading of the reproduction plan. An advisory's and a brief's are the ones their question
+# templates under prompts/ ask for.
+
+[manual]
+heading = "우리 랩에서 구동하려면"
+label = "들어가는 카드:"
+none = "없음"
+plan_heading = "재현 계획 초안"
+
+# An advisory's exposure table: its column words, and the word a touched row's last cell opens with.
+[advisory]
+component = "구성 요소"
+version = "버전"
+repository = "저장소"
+host = "호스트"
+touched = "닿음"
+yes = "예"
+plan_heading = "수정판과 패치 절차"
+
+# The column words of a brief's figures table.
+[brief]
+name = "지표"
+value = "값"
+unit = "단위"
+as_of = "기준일"
+source = "출처"
