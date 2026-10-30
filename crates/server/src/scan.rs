@@ -4,7 +4,7 @@
 use bmo_research_client::{Category, Running, Source};
 
 use crate::App;
-use crate::store::now_ms;
+use crate::store::{Yield, now_ms};
 
 /// One pass: the sources due of every running category read, then every running category's slots filled.
 pub async fn scan(app: &App) -> Result<(), String> {
@@ -25,7 +25,8 @@ pub async fn scan(app: &App) -> Result<(), String> {
   Ok(())
 }
 
-/// One source read: a failure said once in the log and counted, each new candidate kept as seen.
+/// One source read: a failure said once in the log and counted, each new candidate kept as seen, and what the
+/// reading left written on the source.
 pub async fn read_source(app: &App, category: &Category, source: &Source) {
   let candidates = match crate::sources::fetch(&app.http, source).await {
     Ok(c) => c,
@@ -33,9 +34,13 @@ pub async fn read_source(app: &App, category: &Category, source: &Source) {
       if source.failure_count == 0 {
         eprintln!("bmo-research: source {} ({}) failed: {why}", source.id, source.kind);
       }
-      let _ = app.store.source_read(source.id, Some(&why));
+      let _ = app.store.source_read(source.id, Err(&why));
       return;
     }
+  };
+  let mut found = Yield {
+    candidates: candidates.len() as i64,
+    taken: 0,
   };
   let mut archive_said = false;
   for candidate in candidates {
@@ -48,11 +53,10 @@ pub async fn read_source(app: &App, category: &Category, source: &Source) {
       }
     }
     match app.peers.archive_holds(&candidate.name).await {
-      Ok(held) => {
-        if let Err(why) = app.store.keep_seen(&candidate, &category.name, Some(source.id), held) {
-          eprintln!("bmo-research: the store: {why}");
-        }
-      }
+      Ok(held) => match app.store.keep_seen(&candidate, &category.name, Some(source.id), held) {
+        Ok(made) => found.taken += i64::from(made && !held),
+        Err(why) => eprintln!("bmo-research: the store: {why}"),
+      },
       Err(why) => {
         // Left unseen, so the next reading judges it again.
         if !archive_said {
@@ -62,5 +66,5 @@ pub async fn read_source(app: &App, category: &Category, source: &Source) {
       }
     }
   }
-  let _ = app.store.source_read(source.id, None);
+  let _ = app.store.source_read(source.id, Ok(found));
 }

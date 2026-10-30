@@ -20,7 +20,8 @@ use crate::translation::Rendering;
 /// the second keeps an item's Korean rendering and its pending tries; the third holds the runner's research
 /// runs, their log, what they hold of agency and the owner's research settings; the fourth keeps what a deep
 /// dive's one page holds — its languages, its narrations and its Korean side — and what it still lacks, a
-/// document filed before it holding English alone and lacking nothing it can be given.
+/// document filed before it holding English alone and lacking nothing it can be given; the fifth keeps what
+/// the readings left on each source: how many were made, and what the last that succeeded turned up and kept.
 const MIGRATIONS: &[&str] = &[
   "
   create table categories (
@@ -109,6 +110,11 @@ const MIGRATIONS: &[&str] = &[
     document_id integer primary key, title text not null, description text, body text not null,
     created_at integer not null);
 ",
+  "
+  alter table sources add column scan_count integer not null default 0;
+  alter table sources add column last_yield integer;
+  alter table sources add column last_taken integer;
+",
 ];
 
 /// The schema version this binary holds.
@@ -132,7 +138,7 @@ const ITEM_COLUMNS: &str =
 
 const SOURCE_COLUMNS: &str =
   "id, category, kind, address, query, require, exclude, every_minutes, item_limit,
-  failure_count, last_error, read_at, created_at, changed_at";
+  failure_count, last_error, read_at, created_at, changed_at, scan_count, last_yield, last_taken";
 
 const RUN_COLUMNS: &str =
   "id, category, item_id, item_ids, try, run_id, state, outcome, error, started_at, ended_at";
@@ -160,6 +166,13 @@ impl std::fmt::Display for Refusal {
       Refusal::NotFound(why) | Refusal::Conflict(why) | Refusal::Failed(why) => f.write_str(why),
     }
   }
+}
+
+/// What a reading that succeeded turned up: the candidates the filter let through, and those kept as new.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Yield {
+  pub candidates: i64,
+  pub taken: i64,
 }
 
 /// What a finished try leaves on an item.
@@ -632,17 +645,20 @@ impl Store {
     if n == 0 { Err(Refusal::NotFound(format!("no source {id}"))) } else { Ok(()) }
   }
 
-  /// A reading's end: the time it was read, and its failure counted or the count set back.
-  pub fn source_read(&self, id: i64, failure: Option<&str>) -> Result<(), String> {
+  /// A reading's end: the time it was read and the reading counted; what it turned up and kept, and the
+  /// failure count set back, or its failure counted and what the last reading that succeeded left kept.
+  pub fn source_read(&self, id: i64, reading: Result<Yield, &str>) -> Result<(), String> {
     let now = now_ms();
     let conn = self.lock();
-    match failure {
-      None => conn.execute(
-        "update sources set read_at = ?2, failure_count = 0, last_error = null where id = ?1",
-        params![id, now],
+    match reading {
+      Ok(found) => conn.execute(
+        "update sources set read_at = ?2, scan_count = scan_count + 1, last_yield = ?3, last_taken = ?4,
+           failure_count = 0, last_error = null where id = ?1",
+        params![id, now, found.candidates, found.taken],
       ),
-      Some(why) => conn.execute(
-        "update sources set read_at = ?2, failure_count = failure_count + 1, last_error = ?3 where id = ?1",
+      Err(why) => conn.execute(
+        "update sources set read_at = ?2, scan_count = scan_count + 1, failure_count = failure_count + 1,
+           last_error = ?3 where id = ?1",
         params![id, now, why],
       ),
     }
@@ -661,15 +677,16 @@ impl Store {
       .map_err(|e| e.to_string())
   }
 
-  /// Keeps a candidate as seen, `unqueued` or `archived`; a key already seen is left as it stands.
+  /// Keeps a candidate as seen, `unqueued` or `archived`; a key already seen is left as it stands. Answers
+  /// whether a row was made.
   pub fn keep_seen(
     &self,
     candidate: &Candidate,
     category: &str,
     source_id: Option<i64>,
     archived: bool,
-  ) -> Result<(), String> {
-    self
+  ) -> Result<bool, String> {
+    let made = self
       .lock()
       .execute(
         "insert or ignore into seen (key, category, name, maker, address, kind, published_at, source_id, state,
@@ -688,7 +705,7 @@ impl Store {
         ],
       )
       .map_err(|e| e.to_string())?;
-    Ok(())
+    Ok(made > 0)
   }
 
   /// The state a seen row stands in, where one stands for the key.
@@ -1714,6 +1731,9 @@ fn read_source(r: &rusqlite::Row<'_>) -> rusqlite::Result<Source> {
     read_at: r.get(11)?,
     created_at: r.get(12)?,
     changed_at: r.get(13)?,
+    scan_count: r.get(14)?,
+    last_yield: r.get(15)?,
+    last_taken: r.get(16)?,
   })
 }
 

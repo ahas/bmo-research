@@ -33,8 +33,11 @@ milliseconds; lists are JSON arrays.
 | `every_minutes` | Its own cadence, or null for its category's |
 | `item_limit` | How many items one reading asks for |
 | `failure_count` | Readings failed since the last that did not |
-| `last_error` | The last failure's sentence, or null |
+| `last_error` | The last reading's failure sentence, or null when it succeeded |
 | `read_at` | When it was last read, or null |
+| `scan_count` | Readings made, failed or not |
+| `last_yield` | Candidates the last reading that succeeded turned up past the filter, or null |
+| `last_taken` | Of those, the ones it kept as new seen rows, `unqueued`, or null |
 | `created_at`, `changed_at` | When it was registered and last changed |
 
 ## `seen`

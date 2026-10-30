@@ -324,12 +324,20 @@ pub struct Source {
   pub filter: Filter,
   pub every_minutes: Option<i64>,
   pub limit: i64,
+  /// readings failed since the last that did not
   pub failure_count: i64,
+  /// the last reading's failure sentence, null when it succeeded
   pub last_error: Option<String>,
-  /// epoch milliseconds
+  /// epoch milliseconds of the last reading, failed or not
   pub read_at: Option<i64>,
   pub created_at: i64,
   pub changed_at: i64,
+  /// readings made, failed or not
+  pub scan_count: i64,
+  /// candidates the last reading that succeeded turned up past the filter
+  pub last_yield: Option<i64>,
+  /// of those, the ones kept as new, each waiting for a slot in the queue
+  pub last_taken: Option<i64>,
 }
 
 /// A source asked to be registered.

@@ -173,6 +173,38 @@ async fn sources_are_registered_with_their_kind_s_address_and_refused_when_malfo
 }
 
 #[tokio::test]
+async fn a_source_answers_what_its_readings_left() {
+  let (ground, base, client) = served().await;
+  let feed = client
+    .add_source(&NewSource {
+      category_name: "security".into(),
+      kind: "rss".into(),
+      address: Some(format!("{}/feed.xml", ground.sources)),
+      ..NewSource::default()
+    })
+    .await
+    .unwrap();
+  let (_, unread) = raw(&base, reqwest::Method::GET, &format!("/sources/{}", feed.id), None).await;
+  for (field, value) in [
+    ("readAt", json!(null)),
+    ("scanCount", json!(0)),
+    ("lastYield", json!(null)),
+    ("lastTaken", json!(null)),
+    ("lastError", json!(null)),
+  ] {
+    assert_eq!(unread[field], value, "{field}");
+  }
+  research_server::scan::scan(&ground.app).await.unwrap();
+  let read = client.source(feed.id).await.unwrap();
+  assert!(read.read_at.is_some());
+  assert_eq!(read.scan_count, 1);
+  assert!(read.last_yield.is_some_and(|n| n > 0) && read.last_taken == read.last_yield, "{read:?}");
+  let (_, listed) = raw(&base, reqwest::Method::GET, "/sources?categoryName=security", None).await;
+  assert_eq!(listed["items"][0]["scanCount"], 1);
+  assert_eq!(listed["items"][0]["lastTaken"], json!(read.last_taken));
+}
+
+#[tokio::test]
 async fn the_queue_takes_asks_dismissals_takings_and_front_moves() {
   let (_ground, base, client) = served().await;
   let ask = |name: &str, category: Option<&str>, shape: Option<Shape>| Ask {

@@ -120,13 +120,17 @@ the one to read.
 - **A source** is `id`, `categoryName`, `kind`, `address`, `query` (null where the kind takes none),
   `filter` (`require` and `exclude`, lists of words), `everyMinutes` (null where its category's cadence
   stands), `limit` (how many items one reading asks for), `failureCount`, `lastError`, `readAt`,
-  `createdAt` and `changedAt`.
+  `scanCount`, `lastYield`, `lastTaken`, `createdAt` and `changedAt`.
 - **A new source** names `categoryName` and `kind` and, where the kind takes them, `address`, `query`,
   `filter`, `everyMinutes` and `limit`. A category that does not stand is 404 `not-found`; a kind outside
   `docs/sources.md`, a kind that needs a query given none, an `everyMinutes` or a `limit` below 1 is 400
   `bad-request`. An address left out is the kind's own.
-- **`failureCount`** counts the readings that failed since the last that did; `lastError` is the last
-  failure's sentence, null once a reading succeeds.
+- **What its readings left** (`docs/sources.md`, 「What a reading leaves on its source」): `readAt` is the
+  last reading's time, null before the first; `scanCount` counts every reading, failed or not;
+  `lastYield` is how many candidates the last reading that succeeded turned up past the filter, and
+  `lastTaken` how many of them it kept as new, each waiting for a slot in the queue, both null before a
+  reading first succeeds; `failureCount` counts the readings that failed since the last that did not, and
+  `lastError` is the last reading's failure sentence, null when the last reading succeeded.
 
 ### queue
 

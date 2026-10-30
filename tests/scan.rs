@@ -1,11 +1,11 @@
 //! The scan against stand-in sources and a stand-in archive (`docs/sources.md`): each kind asked as it
 //! states, the filter and the archive applied, each category's part filled to its cap, a source read no more
-//! often than its cadence, and a failing source counted.
+//! often than its cadence, a failing source counted, and what each reading leaves on its source.
 
 mod support;
 
 use bmo_research_client::{Filter, ItemState, NewSource, Running, Shape};
-use research_server::scan::scan;
+use research_server::scan::{read_source, scan};
 
 fn source(category: &str, kind: &str, address: String, query: Option<&str>) -> NewSource {
   NewSource {
@@ -153,4 +153,43 @@ async fn a_failing_source_is_counted_and_a_stopped_category_is_not_read() {
     "a stopped category's source is read"
   );
   assert!(store.queue(Some("economy"), &[], None, 50).unwrap().items.is_empty());
+}
+
+#[tokio::test]
+async fn a_reading_writes_what_it_turned_up_and_a_failed_one_keeps_the_earlier_yield() {
+  let ground = support::ground(|_| {}).await;
+  ground.world.lock().unwrap().archived.push("A Survey of Things".into());
+  let store = &ground.app.store;
+  let arxiv = source("it", "arxiv", format!("{}/api/query", ground.sources), Some("all:quantization"));
+  let id = store.add_source(&arxiv, arxiv.address.as_deref().unwrap(), 30).unwrap().id;
+  let unread = store.source(id).unwrap();
+  assert_eq!(
+    (unread.read_at, unread.scan_count, unread.last_yield, unread.last_taken),
+    (None, 0, None, None)
+  );
+
+  scan(&ground.app).await.unwrap();
+
+  // Two entries pass the filter; the archive holds one, so one is kept as new.
+  let first = store.source(id).unwrap();
+  assert!(first.read_at.is_some());
+  assert_eq!(
+    (first.scan_count, first.last_yield, first.last_taken, first.last_error.as_deref()),
+    (1, Some(2), Some(1), None)
+  );
+
+  // Read again, both are seen: the yield stands and nothing is taken.
+  let category = store.category("it").unwrap();
+  read_source(&ground.app, &category, &first).await;
+  let again = store.source(id).unwrap();
+  assert_eq!((again.scan_count, again.last_yield, again.last_taken), (2, Some(2), Some(0)));
+
+  let mut broken = again.clone();
+  broken.address = format!("{}/missing", ground.sources);
+  read_source(&ground.app, &category, &broken).await;
+  let failed = store.source(id).unwrap();
+  assert_eq!((failed.scan_count, failed.failure_count), (3, 1));
+  assert!(failed.last_error.as_deref().is_some_and(|why| why.contains("404")), "{failed:?}");
+  assert!(failed.read_at >= again.read_at);
+  assert_eq!((failed.last_yield, failed.last_taken), (Some(2), Some(0)), "the earlier yield is kept");
 }

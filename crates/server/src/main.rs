@@ -7,6 +7,7 @@ use clap::{Parser, Subcommand};
 use research_server::App;
 use research_server::config::Settings;
 use research_server::store::Store;
+use research_server::words::fill;
 
 #[derive(Parser)]
 #[command(
@@ -353,9 +354,22 @@ async fn command(verb: Verb) -> Result<(), String> {
       if json {
         return print_json(&page);
       }
+      let columns = &research_server::words::report().sources;
+      let now = research_server::store::now_ms();
       for s in page.items {
+        let read = match s.read_at {
+          Some(at) => fill(&columns.read, &[("minutes", &((now - at).max(0) / 60_000).to_string())]),
+          None => columns.unread.clone(),
+        };
+        let taken = match (s.last_taken, s.last_yield) {
+          (Some(taken), Some(candidates)) => fill(
+            &columns.taken,
+            &[("taken", &taken.to_string()), ("candidates", &candidates.to_string())],
+          ),
+          _ => columns.untaken.clone(),
+        };
         println!(
-          "#{} {:<10} {:<20} {} {} failures {}",
+          "#{} {:<10} {:<20} {} {} failures {} {read} {taken}",
           s.id,
           s.category_name,
           s.kind,

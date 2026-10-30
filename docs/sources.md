@@ -56,8 +56,19 @@ appeared, and the words the filter reads.
    item of the shape its category takes, and in a `manual-or-investigation` category the shape its item
    kind takes (`docs/api.md`, 「The questions」). The queue never idles while a seen row waits.
 
+## What a reading leaves on its source
+
+Every reading, whether it succeeds or fails, sets the source's `readAt` to its time and adds one to its
+`scanCount`; before the first reading `readAt` is null and the count 0.
+
+- **A reading that succeeds** sets `lastYield`, how many candidates it turned up that the filter let
+  through, and `lastTaken`, how many of those it kept as seen `unqueued`: new to the seen rows and not held
+  by the archive, so each waits for a slot in the queue. Both are null before a reading first succeeds.
+- **A reading that fails** leaves `lastYield` and `lastTaken` as the last reading that succeeded set them.
+
 ## Failures
 
 - **A reading that fails** — the address does not answer, answers a status that is no success, or answers
   a body its kind does not read — is said once in the log, counted on the source's `failureCount`, kept as
-  its `lastError`, and read again at its next turn. A reading that succeeds sets the count back to 0.
+  its `lastError`, and read again at its next turn. A reading that succeeds sets the count back to 0 and
+  `lastError` to null.

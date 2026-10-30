@@ -1714,6 +1714,7 @@
             ]
           },
           "failureCount": {
+            "description": "readings failed since the last that did not",
             "format": "int64",
             "type": "integer"
           },
@@ -1728,8 +1729,25 @@
             "type": "string"
           },
           "lastError": {
+            "description": "the last reading's failure sentence, null when it succeeded",
             "type": [
               "string",
+              "null"
+            ]
+          },
+          "lastTaken": {
+            "description": "of those, the ones kept as new, each waiting for a slot in the queue",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "lastYield": {
+            "description": "candidates the last reading that succeeded turned up past the filter",
+            "format": "int64",
+            "type": [
+              "integer",
               "null"
             ]
           },
@@ -1744,12 +1762,17 @@
             ]
           },
           "readAt": {
-            "description": "epoch milliseconds",
+            "description": "epoch milliseconds of the last reading, failed or not",
             "format": "int64",
             "type": [
               "integer",
               "null"
             ]
+          },
+          "scanCount": {
+            "description": "readings made, failed or not",
+            "format": "int64",
+            "type": "integer"
           }
         },
         "required": [
@@ -1765,7 +1788,10 @@
           "lastError",
           "readAt",
           "createdAt",
-          "changedAt"
+          "changedAt",
+          "scanCount",
+          "lastYield",
+          "lastTaken"
         ],
         "type": "object"
       },
@@ -1891,7 +1917,7 @@
   "info": {
     "description": "The research unit: a daemon that keeps a queue of things to research by category, reads the sources the owner registers, has each item researched by its own runner in its category's shape, and tells the category's recipients. It files no job and launches nothing.",
     "title": "bmo-research",
-    "version": "0.1.0-rev.5"
+    "version": "0.1.0-rev.6"
   },
   "openapi": "3.1.0",
   "paths": {

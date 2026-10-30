@@ -1,5 +1,6 @@
 //! The words under `prompts/`, built into the binary: the question templates, one per shape, the notices'
-//! words, the words a filed document is read by and the sections it holds, the notes the translator is handed
+//! words and the columns a source's readings are listed with, the words a filed document is read by and the
+//! sections it holds, the notes the translator is handed
 //! and the words a deep dive's page is drawn with (`docs/api.md`, 「The questions」 and 「The page」); and the runner's: the search and browse lines' tasks,
 //! requests and branch instructions, the rulebooks, the words a run's document is written in, and the
 //! rulebooks' order and the rounds (`docs/runner.md`).
@@ -56,6 +57,18 @@ pub struct ReportWords {
   pub worker: String,
   pub failed: String,
   pub restore: String,
+  pub sources: SourceColumns,
+}
+
+/// The columns a source's readings are listed with: when it was last read and what its last reading that
+/// succeeded kept, each with its word for a source that has none.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SourceColumns {
+  pub read: String,
+  pub unread: String,
+  pub taken: String,
+  pub untaken: String,
 }
 
 /// The words a filed document is read by, by shape, one set per language in the order they are tried.
