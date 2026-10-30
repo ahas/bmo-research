@@ -18,7 +18,7 @@ fn manifest() -> toml::Table {
 #[test]
 fn the_manifest_names_exactly_the_executable_s_entries_with_their_schemas() {
   let manifest = manifest();
-  assert_eq!(manifest["tool"]["name"].as_str(), Some("research"));
+  assert_eq!(manifest["tool"]["name"].as_str(), Some("researcher"));
   assert_eq!(manifest["tool"]["protocol"].as_integer(), Some(1));
   let entries = manifest["entry"].as_array().unwrap();
   let names: Vec<&str> = entries.iter().map(|e| e["name"].as_str().unwrap()).collect();

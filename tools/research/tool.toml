@@ -2,7 +2,7 @@
 # daemon's routes (docs/api.md, "The tools"). The tests hold the entries here to the executable's.
 
 [tool]
-name = "research"
+name = "researcher"
 protocol = 1
 language = "rust"
 build = 'cargo build --release -p research-tool && cp "$BMO_CARGO_TARGET/release/research-tool" "$BMO_TOOL_OUT/"'
