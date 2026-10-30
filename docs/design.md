@@ -169,12 +169,13 @@ A source is a registration: a category, a kind, an address and, where the kind t
 kakia and its workers run on lab-arena, the engine on n3 to n6; a bench on one of those nodes evicts lab-arena
 there, and with it the model the daemon's own research runs go out on. So:
 
-- **The bench code is the coder registration's to write.** The verification job goes to a worker pinned to
-  the lab's coder model, `flash-next-coder`, which lab-arena serves on n4, n5 and n6 behind the gateway; the
-  notice for a `fit` item says so, and the chat agent files the item for that worker. A bench that takes one
-  of those three nodes evicts one instance and leaves two serving, so the worker's own turns go on through
-  the gateway; a bench on n3 evicts the supervisor's model, `flash-next`, which the arbiter restores when the
-  ticket is given back, and the companion's turns wait meanwhile.
+- **The researcher is kakia and the bench is kakia's worker with its three coders.** The daemon's runs go
+  out on `flash-next`, the supervisor's model on n3; the verification job goes to kakia's worker, which
+  writes the bench code through its three co-workers, one on each of the coder instances `flash-next-coder`
+  serves on n4, n5 and n6 behind the gateway. The notice for a `fit` item names that worker, and the chat
+  agent files the item for it. A bench that takes one of the three coder nodes evicts one instance and
+  leaves two serving; a bench on n3 evicts `flash-next` itself, which the arbiter restores when the ticket
+  is given back, and the daemon's own runs wait meanwhile.
 - **The daemon pauses its own runs while a bench holds a node its model stands on.** It reads the
   arbiter's card state before each run and while one runs; a bench ticket standing on kakia's node holds
   the queue, and a run cut by the eviction is retried after the bench is gone, not counted against its
