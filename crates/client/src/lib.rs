@@ -65,58 +65,64 @@ pub struct CategoryState {
   pub cap: i64,
 }
 
-/// Why a watched model holds the queue: a bench's ticket stands on one of its nodes, or the queue waits on
-/// its health.
+/// Why a run asked does not go out now: it waits for the arbiter to grant its engine's card.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "kebab-case")]
 pub enum HoldReason {
-  Bench,
-  Restore,
+  WaitingCard,
 }
 
 impl HoldReason {
   pub fn as_str(self) -> &'static str {
     match self {
-      HoldReason::Bench => "bench",
-      HoldReason::Restore => "restore",
+      HoldReason::WaitingCard => "waiting-card",
     }
   }
 }
 
-/// A watched model that keeps runs from starting now (`docs/api.md`, 「The bench」).
+/// A run asked that waits for its engine now (`docs/api.md`, 「The engine」).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Hold {
-  pub registration: String,
   pub reason: HoldReason,
-  /// the node the bench stands on; null while the queue waits on the model's health
-  pub node_name: Option<String>,
-  /// epoch milliseconds; when the bench was first seen, or the wait began
+  /// the try that waits
+  pub run_id: i64,
+  pub category_name: String,
+  /// the registration the try's road goes out on
+  pub registration: String,
+  /// the arbiter service whose card it waits for
+  pub service_name: String,
+  /// the arbiter demand it waits on; null until the master has answered the ask
+  pub demand_id: Option<i64>,
+  /// the master's reason the card waits (`starting`, `in-use`, `held` or `start-failed`); null where it gave
+  /// none
+  pub cause: Option<String>,
+  /// the master's sentence for that reason
+  pub cause_text: Option<String>,
+  /// epoch milliseconds; when the demand was asked
   pub since: i64,
-  /// whether the owner's room was told the model stays down
+  /// whether the owner's room was told the engine has not come
   pub reported: bool,
-  /// the categories whose road is the model
-  pub category_names: Vec<String>,
 }
 
 impl Hold {
-  /// The hold in one English line: what holds which model, and the categories that wait on it.
+  /// The hold in one English line: which try waits for which service's card, and why where the master said.
   pub fn line(&self) -> String {
-    let what = match (self.reason, &self.node_name) {
-      (HoldReason::Bench, Some(node)) => format!("a bench holds {} on {node}", self.registration),
-      _ => format!("the queue waits on {}'s health", self.registration),
+    let why = match (&self.cause_text, &self.cause) {
+      (Some(text), _) if !text.trim().is_empty() => format!(": {}", text.trim()),
+      (_, Some(cause)) => format!(" ({cause})"),
+      _ => String::new(),
     };
-    let waiting = if self.category_names.is_empty() {
-      "no category waits".to_string()
-    } else {
-      format!("{} wait", self.category_names.join(", "))
-    };
-    let told = if self.reported { "; the owner's room was told it stays down" } else { "" };
-    format!("{what}; {waiting}{told}")
+    let told = if self.reported { "; the owner's room was told it has not come" } else { "" };
+    format!(
+      "run {} of {} waits for a {} card for {}{why}{told}",
+      self.run_id, self.category_name, self.service_name, self.registration
+    )
   }
 }
 
-/// The daemon's state: stopped where every category is stopped, each category's, and what holds the queue.
+/// The daemon's state: stopped where every category is stopped, each category's, and the runs that wait for
+/// their engine.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct DaemonState {
@@ -490,8 +496,6 @@ pub struct Item {
   /// the languages whose narration the document's page plays, Korean first
   pub narrations: Vec<String>,
   pub fit: bool,
-  /// the settings' model nodes a manual's fit names
-  pub fit_nodes: Vec<String>,
   /// the repositories and hosts an advisory touches
   pub touches: Option<String>,
   /// the heading of the document's plan section

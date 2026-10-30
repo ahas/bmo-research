@@ -1,15 +1,15 @@
 //! The research unit's daemon: its settings, its store, the source readers and the scan, the deep dive and
-//! its notices, the bench watch, the readings of a filed document and its Korean rendering, the research
+//! its notices, the engine a run needs, the readings of a filed document and its Korean rendering, the research
 //! runner with its branches, its documents and the tool host it reads, the routes and the OpenAPI document
 //! (`docs/api.md`).
 
 use std::sync::Arc;
 
-pub mod bench;
 pub mod branches;
 pub mod config;
 pub mod dive;
 pub mod document;
+pub mod engine;
 pub mod openapi;
 pub mod page;
 pub mod peers;
@@ -31,8 +31,8 @@ pub struct App {
   /// The client the sources are read with, under the settings' `User-Agent`.
   pub http: reqwest::Client,
   pub token: String,
-  /// How each watched model stands against the bench.
-  pub watch: bench::Watch,
+  /// The tries waiting for their engine's card.
+  pub waits: engine::Waits,
 }
 
 impl App {
@@ -48,7 +48,7 @@ impl App {
       store,
       http,
       token,
-      watch: bench::Watch::default(),
+      waits: engine::Waits::default(),
     })
   }
 }

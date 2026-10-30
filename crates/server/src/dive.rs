@@ -1,8 +1,8 @@
 //! The deep dive and its notices (`docs/api.md`, 「The deep dive」, 「The page」 and 「The notices」): the next
-//! run picked among the running categories whose road no bench holds, asked of the runner, read until it
-//! closes, its result read and its items filed, its page finished with its Korean side and its narration, and
-//! every recipient told; what a page still lacks asked again on the retry wait and its follow-up told; a try
-//! the bench cut put back uncounted.
+//! run picked among the running categories, its engine's card waited for where its road is watched, asked of
+//! the runner, read until it closes, its result read and its items filed, its page finished with its Korean
+//! side and its narration, and every recipient told; what a page still lacks asked again on the retry wait and
+//! its follow-up told; a try the arbiter cut put back uncounted.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -15,8 +15,8 @@ use tokio::task::JoinHandle;
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::App;
-use crate::bench;
 use crate::document::{self, Drawn};
+use crate::engine;
 use crate::page::{self, Side};
 use crate::reading::{self, Exposure};
 use crate::runner::{self, Filing, PageAsk, Refused};
@@ -117,11 +117,11 @@ pub async fn give_owner_room(app: &App) {
   }
 }
 
-/// One pass of the loop: the bench watch read, a scan, every page whose pending part's retry is due asked
-/// again, then as many tries started as `concurrency` leaves room for. Answers the tasks started,
-/// each carried to its end on a task of its own.
+/// One pass of the loop: the demands left behind given back, a scan, every page whose pending part's retry is
+/// due asked again, then as many tries started as `concurrency` leaves room for, a try waiting for its card
+/// among them. Answers the tasks started, each carried to its end on a task of its own.
 pub async fn tick(app: &Arc<App>) -> Vec<JoinHandle<()>> {
-  bench::look(app).await;
+  engine::give_back_left(app).await;
   if let Err(why) = crate::scan::scan(app).await {
     eprintln!("bmo-research: the scan: {why}");
   }
@@ -148,18 +148,13 @@ pub async fn tick(app: &Arc<App>) -> Vec<JoinHandle<()>> {
   started
 }
 
-/// The next try to ask: in each running category whose road no bench holds, its next waiting item, or a
-/// brief's whole gathering once it is due; among them, the highest priority, then the category whose last
-/// try was asked longest ago.
+/// The next try to ask: in each running category, its next waiting item, or a brief's whole gathering once it
+/// is due; among them, the highest priority, then the category whose last try was asked longest ago.
 fn next(app: &App) -> Option<(Category, Vec<Item>)> {
   let now = now_ms();
   let mut best: Option<(i64, Option<i64>, Category, Vec<Item>)> = None;
   for category in app.store.categories().ok()? {
     if category.state == Running::Stopped {
-      continue;
-    }
-    let (provider, model) = road(app, &category);
-    if bench::held(app, &provider, &model) {
       continue;
     }
     let last = app.store.last_try_at(&category.name).ok()?;
@@ -232,8 +227,16 @@ fn question(app: &App, items: &[Item]) -> String {
   }
 }
 
-/// One try carried to its end: asked where it was not, read until its run closes, filed and told.
+/// One try carried to its end, and the demand it held given back where it ended before its run did.
 pub async fn carry(app: Arc<App>, run: i64, asked: Option<i64>) {
+  carried(app.clone(), run, asked).await;
+  engine::give_back_try(&app, run).await;
+}
+
+/// One try carried to its end: its engine's card waited for and the try asked where it was not, read until
+/// its run closes, filed and told. A try whose category is stopped before its card is granted waits again,
+/// uncounted.
+async fn carried(app: Arc<App>, run: i64, asked: Option<i64>) {
   let Ok(row) = app.store.run(run) else {
     return;
   };
@@ -250,6 +253,18 @@ pub async fn carry(app: Arc<App>, run: i64, asked: Option<i64>) {
     Some(id) => id,
     None => {
       let (provider, model) = road(&app, &category);
+      let demand = match engine::watched(&app, &provider, &model) {
+        Some(watched) => match engine::card(&app, run, &category.name, &lead, &watched).await {
+          Some(id) => Some(id),
+          None => {
+            let why =
+              "the category was stopped before the run's card was granted, so the try is not counted";
+            let _ = app.store.requeue(run, "failed", None, why);
+            return;
+          }
+        },
+        None => None,
+      };
       let ask = ResearchRunAsk {
         key: app.settings.road.key.clone(),
         query: question(&app, &items),
@@ -260,7 +275,7 @@ pub async fn carry(app: Arc<App>, run: i64, asked: Option<i64>) {
       let filing = Filing::Page(PageAsk {
         sections: words::document().sections.of(lead.shape).to_vec(),
       });
-      match runner::launch(app.clone(), ask, filing).await {
+      match runner::launch(app.clone(), ask, filing, demand).await {
         Ok(launched) => {
           let _ = app.store.keep_run_id(run, launched.run_id);
           launched.run_id
@@ -287,6 +302,8 @@ pub async fn carry(app: Arc<App>, run: i64, asked: Option<i64>) {
     let why = closed.error.clone().unwrap_or_else(|| "the run closed with no document filed".into());
     return fail(&app, run, &lead, "failed", outcome.as_deref(), &why).await;
   };
+  // The run has ended: its card is given back before its page is finished.
+  engine::give_back_try(&app, run).await;
   let source = match source(&app, run_id) {
     Ok(source) => source,
     Err(why) => return fail(&app, run, &lead, "failed", outcome.as_deref(), &why).await,
@@ -307,9 +324,8 @@ pub async fn carry(app: Arc<App>, run: i64, asked: Option<i64>) {
   let mut exposure = Exposure::default();
   match lead.shape {
     Shape::Manual => {
-      let read = reading::manual_fit(&content, &words::document().manual, &app.settings.model_nodes);
+      let read = reading::manual_fit(&content, &words::document().manual);
       filed.fit = read.fit;
-      filed.fit_nodes = read.nodes;
       filed.plan = read.plan;
     }
     Shape::Advisory => {
@@ -565,7 +581,6 @@ fn filed_of(item: &Item, document_id: i64) -> Filed {
     description: item.description.clone(),
     share_url: item.share_url.clone().unwrap_or_default(),
     fit: item.fit,
-    fit_nodes: item.fit_nodes.clone(),
     touches: item.touches.clone(),
     plan: item.plan.clone(),
   }
@@ -594,11 +609,11 @@ async fn render_again(app: Arc<App>, item: Item) {
   }
 }
 
-/// A failed try: the bench's is not counted and its items wait again at once; any other's wait again after
+/// A failed try: the arbiter's is not counted and its items wait again at once; any other's wait again after
 /// `retry_minutes`, or after the last retry are failed and every recipient is told once.
 async fn fail(app: &App, run: i64, lead: &Item, state: &str, outcome: Option<&str>, why: &str) {
-  if let Some(model) = benched(app, run, lead).await {
-    let error = format!("{why}; {model} was benched or does not answer, so the try is not counted");
+  if engine::evicted(app, run).await {
+    let error = format!("{why}; the engine's card was taken, so the try is not counted");
     eprintln!("bmo-research: item {}: {error}", lead.id);
     let _ = app.store.requeue(run, state, outcome, &error);
     return;
@@ -616,14 +631,6 @@ async fn fail(app: &App, run: i64, lead: &Item, state: &str, outcome: Option<&st
       notify(app, &category, lead, &notice, "failed").await;
     }
   }
-}
-
-/// The watched model a failed try's road stands on, where the bench cut the try; none otherwise.
-async fn benched(app: &App, run: i64, lead: &Item) -> Option<String> {
-  let category = app.store.category(&lead.category_name).ok()?;
-  let started_at = app.store.run(run).ok()?.started_at;
-  let (provider, model) = road(app, &category);
-  bench::evicted(app, &provider, &model, started_at).await.then_some(model)
 }
 
 /// The notice a filed item's recipients hear: the line of the page's Korean side and its one link, or the
@@ -667,9 +674,6 @@ fn acting(lead: &Item, filed: &Filed) -> Vec<String> {
     lines.push(fill(&words.name, &[("name", &lead.name)]));
     if let Some(plan) = &filed.plan {
       lines.push(fill(&words.plan, &[("plan", plan)]));
-    }
-    if !filed.fit_nodes.is_empty() {
-      lines.push(fill(&words.bench, &[("nodes", &filed.fit_nodes.join(", "))]));
     }
   }
   lines

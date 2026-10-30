@@ -53,7 +53,6 @@ pub struct ReportWords {
   pub touches: String,
   pub name: String,
   pub plan: String,
-  pub bench: String,
   pub worker: String,
   pub failed: String,
   pub restore: String,

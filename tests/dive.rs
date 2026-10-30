@@ -169,13 +169,11 @@ async fn a_manual_is_asked_read_filed_and_told_with_what_the_owner_s_word_needs(
     assert!(order.contains(part), "{part} missing from {order}");
   }
   assert!(!order.contains("It does more."), "only the first sentence is told");
-  assert!(order.contains(&words::fill(&report.bench, &[("nodes", "n3")])), "{order}");
   assert!(order.contains(&words::document().manual[0].plan_heading));
   assert!(told[0]["summary"].as_str().unwrap().contains("Thing-7B"));
 
   let filed = ground.app.store.item(item.id).unwrap();
   assert_eq!(filed.state, ItemState::Fit);
-  assert_eq!(filed.fit_nodes, ["n3"]);
   assert_eq!(filed.run_id, Some(1));
   assert_eq!(filed.share_url.as_deref(), Some("https://share.example/d501"));
   let run = ground.app.store.runs(Some(item.id), None, None, 10).unwrap().items;

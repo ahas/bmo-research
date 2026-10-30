@@ -77,7 +77,7 @@ The items (`docs/api.md`, 「queue」).
 | `languages`, `narrations` | The languages its document's page holds, and those whose narration it plays, JSON lists, Korean first |
 | `translation_tries`, `narration_tries` | The Korean sides and the narrations asked for its page |
 | `pending_retry_at` | When what its page still lacks — the Korean side or a narration — may be asked again, or null where nothing is pending |
-| `fit`, `fit_nodes`, `touches` | Whether the document asks the owner's word, the model nodes a manual's fit names (a JSON list) and what an advisory touches |
+| `fit`, `touches` | Whether the document asks the owner's word, and what an advisory touches |
 | `plan` | The heading of the document's plan section |
 | `job_item_id` | The job item the chat agent filed for it |
 | `error` | Why the latest try failed |
@@ -191,6 +191,20 @@ What a research run holds of agency while it stands, so a restart gives it back.
 | `id` | The hold's key |
 | `run_id` | The research run |
 | `kind`, `value` | `seat` and the seat's token, or `session` and the session's id |
+
+## `demands`
+
+Every demand the daemon holds of the arbiter's master, kept until it is given back, so a start gives back
+what a stopped daemon left (`docs/api.md`, 「The engine」).
+
+| Column | Holds |
+|---|---|
+| `id` | The demand's id, as the master gave it |
+| `try_id` | The try it was asked for, or null for a branch's |
+| `run_id` | The research run it stands for: the try's once it is asked, or the run a branch was opened from |
+| `within` | The demand it was asked within, a branch's run's, or null for a try's |
+| `service` | The arbiter service it asks a card of |
+| `asked_at` | When it was asked |
 
 ## `research_settings`
 

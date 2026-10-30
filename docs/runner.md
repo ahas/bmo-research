@@ -61,7 +61,9 @@ of a run is this unit's.
 
 1. **The ask:** `POST /research-runs` with the key, the question and, where they are known, who asked, the
    options, the room the result is for, and the provider and model the run is to go out on. A key that is no
-   research key or an empty question is refused 400.
+   research key or an empty question is refused 400. The daemon's deep dive asks its runs here too, each
+   with the arbiter demand its try was granted where its road is watched (`docs/design.md`, 「The engine a
+   run needs」); such a run's seat and sessions stand on that demand.
 2. **The composition:** the settings read, the system prompt and the request composed; a search with no web
    listing is refused 503.
 3. **The seat:** agency's `POST /seat-requests` with `requestKey` and `owner` `research:<run>`, the role the
@@ -71,13 +73,14 @@ of a run is this unit's.
 4. **The session:** agency's `POST /sessions` with `agent` the line, `scope` `apart`, the provider and the model
    the ask names, else the seat's, `cwd` empty, `line` the line, `systemPrompt` the composed instructions,
    `labels` `{research: <the run's record>}`, `toolsAllowed` the run's capabilities, and `boundMs` the clock
-   and a writing margin of `runner.writing_margin_minutes`. A seat or a session agency refuses is answered 503
+   and a writing margin of `runner.writing_margin_minutes`, and `demandId` the run's demand where it holds
+   one. A seat or a session agency refuses is answered 503
    with agency's sentence; a seat already asked is cancelled and nothing is left standing.
 5. **The answer at once:** 202 with the run's id, its key, its state (`waiting` while its seat waits for a
    place, `running` once admitted), its road and the moment its web tools close. The run's clock starts at the
    ask, so a seat that waits spends the run's own time.
 6. **The admission:** a seat still waiting is asked for its place again every half second (`PATCH` naming
-   `admitted`) until it is let in, then bound to the session (`PATCH` naming `bound` with the session's id). A
+   `admitted`, and `within` the run's demand where it holds one) until it is let in, then bound to the session (`PATCH` naming `bound` with the session's id). A
    seat the pool ends, or one still waiting when the clock runs out, ends the run `failed`.
 7. **The first turn:** the request, as one turn of the session (`POST /sessions/{id}/turns`) carrying the work
    parts — the provider, the model, the seat's mapping (model, effort, tier), a fresh resume, an empty folder,
@@ -133,6 +136,10 @@ of a run is this unit's.
   one turn carries the angle, framed as data, and how long is left before research closes; its session is
   bounded to two minutes past the close, which cuts a turn still working then, and the turn is waited on to
   that bound and half a minute more.
+- **A branch of a run holding a demand** asks the arbiter's master its own first, for the service the engine
+  watch maps the branch's model to, `within` the run's demand, and waits for the grant until research
+  closes; its seat's admission names `within` that demand and its session stands on it as `demandId`, and
+  it is given back as the branch ends (`docs/api.md`, 「The engine」).
 - **A branch ends** `completed`, `stopped` (cut at the close, its notes as far as they got) or `failed`, its
   session ended and its seat given back with the same word; a caller that lets go of the ask ends it the same
   way.

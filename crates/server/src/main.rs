@@ -187,6 +187,10 @@ async fn serve() -> Result<(), String> {
   if cut > 0 {
     eprintln!("bmo-research: {cut} research runs left open were closed as cut");
   }
+  let given = research_server::engine::give_back_all(&app).await;
+  if given > 0 {
+    eprintln!("bmo-research: {given} arbiter demands left held were given back");
+  }
   let listener = tokio::net::TcpListener::bind(&listen).await.map_err(|e| format!("{listen}: {e}"))?;
   eprintln!("bmo-research: serving on http://{listen}");
   tokio::spawn(research_server::dive::daemon(app.clone()));

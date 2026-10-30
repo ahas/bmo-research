@@ -520,11 +520,13 @@ pub struct Start<'a> {
   pub record: &'a Value,
   pub capabilities: &'a [String],
   pub bound_ms: i64,
+  /// The arbiter demand every turn of the session stands on, where its run or branch holds one.
+  pub demand: Option<i64>,
 }
 
 /// A thrown-away session started on agency's line, its id kept as the run's hold.
 pub async fn start_session(app: &App, run: i64, start: &Start<'_>) -> Result<String, String> {
-  let body = json!({
+  let mut body = json!({
     "agent": start.line,
     "scope": "apart",
     "provider": start.provider,
@@ -536,6 +538,9 @@ pub async fn start_session(app: &App, run: i64, start: &Start<'_>) -> Result<Str
     "toolsAllowed": start.capabilities,
     "boundMs": start.bound_ms,
   });
+  if let Some(demand) = start.demand {
+    body["demandId"] = json!(demand);
+  }
   let session = app.peers.start_session(&body).await?;
   let _ = app.store.hold(run, "session", &session);
   Ok(session)
@@ -652,12 +657,28 @@ struct Going {
   model: String,
   closes_at: i64,
   bound_ms: i64,
+  demand: Option<i64>,
+}
+
+/// The change that asks a waiting seat for its place, within the demand its run or branch holds where it holds
+/// one.
+pub fn admission(demand: Option<i64>) -> Value {
+  match demand {
+    Some(demand) => json!({ "state": "admitted", "within": demand }),
+    None => json!({ "state": "admitted" }),
+  }
 }
 
 /// One research sent out (`docs/runner.md`, 「One run, step by step」): composed, seated, its session started,
 /// and the rest carried on in the background; answered at once with what it went out on. A run asked for a
-/// room queues its end for it; a deep dive's tells nothing.
-pub async fn launch(app: Arc<App>, ask: ResearchRunAsk, filing: Filing) -> Result<ResearchRun, Refused> {
+/// room queues its end for it; a deep dive's tells nothing. A run handed the arbiter demand its try was
+/// granted stands on it: its seat is admitted within it and its sessions stand on it.
+pub async fn launch(
+  app: Arc<App>,
+  ask: ResearchRunAsk,
+  filing: Filing,
+  demand: Option<i64>,
+) -> Result<ResearchRun, Refused> {
   let tells = filing == Filing::Room;
   if let Some(why) = ask_fault(&ask) {
     return Err(Refused::Ask(why));
@@ -697,6 +718,9 @@ pub async fn launch(app: Arc<App>, ask: ResearchRunAsk, filing: Filing) -> Resul
     })
     .map_err(Refused::Failed)?;
   note(&app, run, "asked", &format!("Research on {}: {}", ask.key, ask.query.trim()));
+  if let Some(demand) = demand {
+    let _ = app.store.demand_ran(demand, run);
+  }
   let refuse = |why: String| {
     note(&app, run, "ended", &format!("The research was refused: {why}"));
     let _ = app.store.close_research_run(run, "failed", Some(&why), None);
@@ -751,6 +775,7 @@ pub async fn launch(app: Arc<App>, ask: ResearchRunAsk, filing: Filing) -> Resul
       record: &record,
       capabilities: &capabilities,
       bound_ms,
+      demand,
     },
   )
   .await;
@@ -785,6 +810,7 @@ pub async fn launch(app: Arc<App>, ask: ResearchRunAsk, filing: Filing) -> Resul
     model,
     closes_at,
     bound_ms,
+    demand,
   };
   tokio::spawn(go(app, going));
   Ok(launched)
@@ -844,7 +870,7 @@ async fn admitted(app: &App, going: &Going) -> Result<Seat, String> {
       return Err("the common co-worker pool stayed full until research closed".into());
     }
     tokio::time::sleep(LOOK_EVERY).await;
-    match app.peers.move_seat(&seat.token, &json!({ "state": "admitted" })).await {
+    match app.peers.move_seat(&seat.token, &admission(going.demand)).await {
       Ok(said) => {
         if let Some(now) = Seat::admission(&said) {
           seat = now;
@@ -943,6 +969,7 @@ async fn rounds(app: &App, going: &Going, seat: &Seat, first: String) -> String 
     record: &record,
     capabilities: &capabilities,
     bound_ms: going.bound_ms,
+    demand: going.demand,
   };
   let session = match start_session(app, run, &start).await {
     Ok(session) => session,

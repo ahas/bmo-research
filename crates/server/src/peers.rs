@@ -76,32 +76,40 @@ struct Share {
   url: String,
 }
 
-/// The parts of the arbiter master's cluster picture the bench watch reads: each node's cards, each card's
-/// turn and the tickets waiting in its queue, by the service each stands for.
-#[derive(Deserialize)]
-struct Cluster {
-  nodes: Vec<ClusterNode>,
-}
-
-#[derive(Deserialize)]
-struct ClusterNode {
-  name: String,
-  #[serde(default)]
-  cards: Vec<ClusterCard>,
-}
-
-#[derive(Deserialize)]
-struct ClusterCard {
-  #[serde(default)]
-  turn: Option<Ticket>,
-  #[serde(default)]
-  queue: Vec<Ticket>,
-}
-
-#[derive(Deserialize)]
+/// A demand as the arbiter's master answers it, the parts the daemon reads: its id, its state (`waiting`,
+/// `granted`, `partly` or `lent`), who took its card where one did, and why a card waits.
+#[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct Ticket {
-  service_name: String,
+pub struct Demand {
+  pub id: i64,
+  #[serde(default)]
+  pub state: String,
+  #[serde(default)]
+  pub taken: Option<Value>,
+  #[serde(default)]
+  pub reason: Option<CardWait>,
+}
+
+/// Why a demand's card waits, as the master says it: its code and its sentence.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct CardWait {
+  #[serde(default)]
+  pub code: Option<String>,
+  #[serde(default)]
+  pub text: Option<String>,
+}
+
+impl Demand {
+  pub fn granted(&self) -> bool {
+    self.state == "granted"
+  }
+
+  /// Whether a claimant or a lower tier took its card: the master names who did, or its card is no longer
+  /// granted or lent.
+  pub fn taken(&self) -> bool {
+    self.taken.as_ref().is_some_and(|who| !who.is_null())
+      || !matches!(self.state.as_str(), "granted" | "lent")
+  }
 }
 
 #[derive(Clone)]
@@ -146,9 +154,9 @@ impl Peers {
     })
   }
 
-  /// The arbiter's master at the bench watch's address, with the token its file holds where one is named.
+  /// The arbiter's master at the engine watch's address, with the token its file holds where one is named.
   pub fn arbiter(&self) -> Result<Peer, String> {
-    let watch = &self.settings.bench_watch;
+    let watch = &self.settings.engine;
     let token = match watch.token.trim() {
       "" => None,
       name => Some(token_file(&self.settings.env_file(name))?),
@@ -209,44 +217,58 @@ impl Peers {
     serde_json::from_str(&body).map_err(|e| format!("{} {what}: the answer did not read: {e}", peer.name))
   }
 
-  /// Each node's occupants holding a ticket now, granted or waiting, as the arbiter master's cluster
-  /// picture shows them, by node.
-  pub async fn tickets(&self) -> Result<BTreeMap<String, Vec<String>>, String> {
+  /// A demand asked of the arbiter's master, answered as it stands: granted, or waiting.
+  pub async fn ask_demand(&self, body: &Value) -> Result<Demand, String> {
     let arbiter = self.arbiter()?;
     let answer = self
-      .call(&arbiter, self.request(&arbiter, reqwest::Method::GET, "/cluster"), "GET /cluster")
-      .await?;
-    let cluster: Cluster =
-      serde_json::from_value(answer).map_err(|e| format!("the arbiter's cluster did not read: {e}"))?;
-    Ok(
-      cluster
-        .nodes
-        .into_iter()
-        .map(|node| {
-          let services = node
-            .cards
-            .into_iter()
-            .flat_map(|card| card.turn.into_iter().chain(card.queue))
-            .map(|ticket| ticket.service_name)
-            .collect();
-          (node.name, services)
-        })
-        .collect(),
-    )
-  }
-
-  /// Whether a registration of agency's registry answers its health now.
-  pub async fn healthy(&self, provider: &str, registration: &str) -> Result<bool, String> {
-    let agency = self.agency()?;
-    let path = format!("/models/{registration}");
-    let answer = self
       .call(
-        &agency,
-        self.request(&agency, reqwest::Method::GET, &path).query(&[("provider", provider)]),
-        &format!("GET {path}"),
+        &arbiter,
+        self.request(&arbiter, reqwest::Method::POST, "/demands").json(body),
+        "POST /demands",
       )
       .await?;
-    Ok(answer["healthy"].as_bool().unwrap_or(false))
+    serde_json::from_value(answer).map_err(|e| format!("the arbiter's demand did not read: {e}"))
+  }
+
+  /// A demand read, its answer held open up to `wait_ms` for a change; none where the master no longer
+  /// holds it.
+  pub async fn read_demand(&self, id: i64, wait_ms: u64) -> Result<Option<Demand>, String> {
+    let arbiter = self.arbiter()?;
+    let path = format!("/demands/{id}");
+    let answer = self
+      .request(&arbiter, reqwest::Method::GET, &path)
+      .query(&[("waitMs", wait_ms)])
+      .timeout(Duration::from_millis(wait_ms) + Duration::from_secs(30))
+      .send()
+      .await
+      .map_err(|e| format!("the arbiter GET {path}: {e}"))?;
+    let status = answer.status().as_u16();
+    let body = answer.text().await.unwrap_or_default();
+    match status {
+      404 => Ok(None),
+      200..300 => serde_json::from_str(&body)
+        .map(Some)
+        .map_err(|e| format!("the arbiter GET {path}: the answer did not read: {e}")),
+      _ => Err(format!("the arbiter GET {path} answered {status}: {body}")),
+    }
+  }
+
+  /// A demand given back; one the master no longer holds is given back already.
+  pub async fn give_back_demand(&self, id: i64) -> Result<(), String> {
+    let arbiter = self.arbiter()?;
+    let path = format!("/demands/{id}");
+    let answer = self
+      .request(&arbiter, reqwest::Method::DELETE, &path)
+      .send()
+      .await
+      .map_err(|e| format!("the arbiter DELETE {path}: {e}"))?;
+    match answer.status().as_u16() {
+      200..300 | 404 => Ok(()),
+      status => Err(format!(
+        "the arbiter DELETE {path} answered {status}: {}",
+        answer.text().await.unwrap_or_default()
+      )),
+    }
   }
 
   /// A notice told to an agent by a turn into its worker session. A turn still working after the wait is

@@ -185,9 +185,11 @@ A source is a registration: a category, a kind, an address and, where the kind t
   which one stands on it is the arbiter's grant (bmo-lab-arena `docs/engines.md`). The daemon's runs go out
   on `flash-next`; their branches, and the verification job's co-workers, on `flash-next-coder`.
 - **A run asks for its engine before it starts.** For a category whose road is one of the engine watch's
-  registrations (`docs/settings.md`, `[engine]`), the daemon asks the arbiter's master for one card of
-  that registration's service, as the run's own, with the run as the work it continues, and starts the run
-  once a card is granted. The run's seat and sessions are asked with the demand's id, so agency asks none
+  registrations (`docs/settings.md`, `[engine]`), where the watch names a master, the daemon asks the
+  arbiter's master for one card of that registration's service, as the run's own, with the run as the work
+  it continues, and starts the run once a card is granted. The wait has no clock of the daemon's; the run's
+  own clock starts when it is asked of the runner, after the grant. A category stopped while its run waits
+  takes the demand back and its items wait again, the try uncounted. The run's seat and sessions are asked with the demand's id, so agency asks none
   of its own for them and places them on the granted card. The demand is held for the whole run and given
   back when the run ends; the daemon gives back, at its start, every demand its store holds for a run no
   longer under way.
@@ -292,7 +294,7 @@ take; so its own area stays the research and the measurement, however many categ
   named in the settings, never copied.
 - **The store** (`docs/store.md`): SQLite under the data root's `research/` folder: `categories`,
   `sources`, `seen`, `queue`, `runs`, `reports`, `rooms`, `facts` (the economy category's figures),
-  `stack` (the security category's inventory), and the runner's `research_runs`, `research_log`,
+  `stack` (the security category's inventory), `demands` (the arbiter demands held), and the runner's `research_runs`, `research_log`,
   `research_holds` and `research_settings`. Schema versioned and migrated at start.
 
 ## The routes and the tools

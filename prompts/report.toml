@@ -2,10 +2,9 @@
 # {title}, {summary} and {link} are the page's title, the first sentence of its description and the
 # document's one share link: the Korean title and description, or the English ones while the Korean side is
 # pending; {name} and {tries} are the item's name and the tries it took; {touches} is what an advisory names
-# as touched; {plan} is the heading of the document's plan section; {nodes} the model nodes a manual's fit
-# names; {repository} and {rows} a touched repository and its rows of the exposure table. In `restore`,
-# {model} is a watched registration, {nodes} the nodes it stands on and {minutes} how long the queue has
-# waited on its health. Under [sources] stand the columns `bmo-research research sources` lists a source's
+# as touched; {plan} is the heading of the document's plan section; {repository} and {rows} a touched
+# repository and its rows of the exposure table. In `restore`, {model} is a watched registration,
+# {service} the arbiter service its engine is and {minutes} how long a run has waited for its card. Under [sources] stand the columns `bmo-research research sources` lists a source's
 # readings with: {minutes} is how long ago it was last read, {taken} how many candidates its last reading
 # that succeeded kept as new and {candidates} how many it turned up past the filter.
 
@@ -16,7 +15,6 @@ fit = "우리 카드에 들어간다고 적혀 있습니다. 사장님께 검수
 touches = "우리 플랫폼의 {touches}에 닿는다고 적혀 있습니다. 저장소를 맡은 워커가 있으면 그 워커에게 따로 알렸습니다."
 name = "대상: {name}"
 plan = "계획은 문서의 「{plan}」 절에 있습니다."
-bench = "{nodes}에서 재야 하므로, 검수는 그 노드 위에서 돌지 않는 워커에게 맡겨야 합니다."
 # A touched repository's part, told to the worker that keeps it as a turn; workers read English.
 worker = """Security notice: the advisory {name} touches the repository {repository}.
 {rows}
@@ -24,7 +22,7 @@ The report: {link}
 The patch steps stand in its section "{plan}".
 This is a notice, not an order: what you do with it is your own rules' to decide."""
 failed = "{name} 조사를 {tries}번 시도했지만 끝내지 못했습니다."
-restore = "조사에 쓰는 {model} 모델({nodes})이 {minutes}분이 지나도록 돌아오지 않아, 조사 대기열이 멈춘 채 기다리고 있습니다."
+restore = "조사에 쓰는 {model} 모델({service})이 {minutes}분이 지나도록 카드를 받지 못해, 조사 한 건이 그대로 기다리고 있습니다."
 
 [sources]
 read = "마지막 읽음 {minutes}분 전"

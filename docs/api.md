@@ -67,15 +67,18 @@ the one to read.
 
 - **The state** answers `state` (`stopped` where every category is stopped, `running` otherwise),
   `changedAt` (the latest change of any category's state, null where none was changed) and `categories`,
-  each `categoryName`, `state`, `waitingCount`, `runningCount` and `cap`, and `holds`, what keeps runs
-  from starting now (「The bench」), each `registration`, `reason` (`bench` while a bench's ticket stands on
-  one of its nodes, `restore` while the queue waits on its health), `nodeName` (the node the bench stands
-  on; null while restoring), `since` (when the bench was first seen, or the wait began), `reported`
-  (whether the owner's room was told the model stays down) and `categoryNames` (the categories whose road
-  it is); empty where nothing holds.
-- **A held category starts no run;** its sources are read and its part of the queue fills as ever.
+  each `categoryName`, `state`, `waitingCount`, `runningCount` and `cap`, and `holds`, the runs asked that
+  wait for their engine now (「The engine」), each `reason` (`waiting-card`), `runId` (the try), its
+  `categoryName`, `registration`, `serviceName` (the arbiter service whose card it waits for), `demandId`
+  (null until the master has answered the ask), `cause` and `causeText` (the master's reason the card
+  waits — `starting`, `in-use`, `held` or `start-failed` — and its sentence, null where it gave none),
+  `since` (when the demand was asked) and `reported` (whether the owner's room was told the engine has not
+  come); empty where nothing waits.
+- **A run waiting for its card counts as running** against `concurrency`; its category's sources are read
+  and its part of the queue fills as ever.
 - **A stopped category starts no run** and its sources are not read; a run under way is waited on to its
-  end and reported as any other. `running` starts it again. A category's state outlives a restart; a
+  end and reported as any other, and a run still waiting for its card gives its demand back and its items
+  wait again, the try uncounted. `running` starts it again. A category's state outlives a restart; a
   category starts running. A `categoryName` no category holds is 404 `not-found`.
 
 ### categories
@@ -153,8 +156,7 @@ the one to read.
   `title` and `description` (the head the run gave its document, in English), `shareUrl` (the document's
   live link), `languages` (the languages the document's page holds, Korean first: `["en"]` until the Korean
   side is had, `["ko", "en"]` after, empty before a document is filed; 「The page」), `narrations` (the
-  languages whose narration the page plays, Korean first), `fit`, `fitNodes` (the nodes of the settings'
-  `model_nodes` a manual's fit names), `touches` (the hosts and repositories an advisory names), `plan`
+  languages whose narration the page plays, Korean first), `fit`, `touches` (the hosts and repositories an advisory names), `plan`
   (the heading of the document's plan section, as the document holds it), `jobItemId` (the job item the
   chat agent filed for it), `error`, `foundAt`, `createdAt` and `changedAt`.
 - **Its states:** `waiting` until a run is asked for it; `running` while one is under way; `reported` once
@@ -279,8 +281,12 @@ the one to read.
   `branch-refused`, the sentence saying why, where the run is no longer running or its research has closed,
   the run is allowed no branches, it has opened every branch it is allowed (the sentence names how many), or
   the pool stayed full until research closed; every ask past the first two checks counts against the
-  allowance. A caller that lets go ends its branch: its session ended once its turn is over and its seat
-  given back.
+  allowance. A caller that lets go ends its branch: its session ended once its turn is over, its seat
+  given back and its demand with them.
+- **A branch of a run holding a card** (「The engine」) asks its own demand first, for the service the
+  engine watch maps the branch's model to, within the run's demand; it waits for the grant until research
+  closes, when it is 409 `branch-refused` with nothing left standing, and its seat and session stand on the
+  grant.
 
 ### research settings
 
@@ -303,7 +309,8 @@ the one to read.
 
 ## The deep dive
 
-- **One run at a time,** `concurrency` at most, while the run's category runs. A try asks the runner
+- **`concurrency` tries at once at most,** across the running categories, each waiting for its engine first
+  where its road is watched (「The engine」). A try asks the runner
   (「research runs」, `docs/runner.md`) for a research run at the settings' `road.key`, on the category's
   provider and model (the settings' `road` where it names none), with the question its shape takes (「The
   questions」) and no room, keeps the run's id on its items and its run row, and reads the run's row every
@@ -322,7 +329,7 @@ the one to read.
 - **A brief** gathers, once its category's `gatherMinutes` have passed since its last run was asked, every
   waiting item of the category, at most its `cap`, into one run; a gathering whose retry is due is asked
   at once.
-- **A try the bench cut is not counted** (「The bench」); every other failed try is.
+- **A try the arbiter cut is not counted** (「The engine」); every other failed try is.
 - **A daemon that starts** closes every research run it left open as `cut` (`docs/runner.md`, 「A
   restart」), then takes up every try it left `running`: one with a run id is read again, and ends as a
   cut run's try; one without puts its items back `waiting`.
@@ -331,25 +338,32 @@ the one to read.
   the Korean side and the narration are asked, the page drawn again with the Korean side, then the
   recipients are told.
 
-### The bench
+### The engine
 
-- **What is watched** is the settings' `bench_watch` (`docs/settings.md`): the provider, each registration
-  on it and the nodes it stands on, the occupant a bench stands under, and the arbiter master's address.
-- **Read on every pass of the loop and at every failed try:** the master's cluster picture, each watched
-  node's cards looked at for a ticket of the bench's occupant, its turn or one waiting in its queue.
-- **While one stands,** every category whose road is the watch's provider and that registration is held
-  (`holds`, reason `bench`) and starts no try.
-- **Once it is gone,** the hold waits on the registration's health: agency's `GET /models/{registration}`
-  answering `healthy` true, read on every pass (reason `restore`). Healthy, the hold ends and the queue
-  goes on. Not healthy `restore_wait_minutes` after the wait began, the owner's private room is told once
-  (「The notices」, `restore`); the hold stands until the health comes back.
-- **A failed try of a watched road** is the bench's where, read again as it fails, a bench's ticket stands
-  on one of the road's nodes, one was seen there since the try was asked, or the registration does not
-  answer its health; a health failure with no bench holds the queue as a restore does. Such a try ends in
-  its state with its `error` saying the model was benched or does not answer, and its items wait again at
-  once with the try not counted.
-- **A master that cannot be read** leaves each hold as it stood and is said in the log, once while the
-  failure stays the same.
+- **What is watched** is the settings' `[engine]` (`docs/settings.md`): the arbiter master's address, the
+  provider, and each registration on it with the arbiter service its engine is. A master address left
+  empty watches nothing: no demand is asked and every try goes out as soon as a slot frees.
+- **A try of a watched road asks its card first:** the master's `POST /demands` with `serviceName` the
+  service its road's registration maps to, `count` 1, `workKey` `research:run:<runId>` and `ref` naming
+  the try and its item, kept in the store (`docs/store.md`, `demands`). The try is asked of the runner
+  only once the demand is `granted`, read with `GET /demands/{demandId}` and its answer held open; it waits
+  however long that takes, the hold in `GET /state` saying why. A demand the master no longer holds is
+  asked again; a master that cannot be reached is asked again on the next pass, and said in the log once
+  while the failure stays the same.
+- **The demand is held for the whole run** and handed to it: the run's seat asks its admission within it
+  and the run's sessions stand on it (「Calls this unit makes」). It is given back with
+  `DELETE /demands/{demandId}` once the run has closed with its document, before the page is finished, or
+  as the try ends where it ends sooner, however it ends; a pass of the loop gives back any demand whose try
+  has ended or whose branch's run has closed. A daemon that starts gives back every
+  demand its store holds, since no run it asked is still under way.
+- **A try whose category is stopped** while it waits for its card gives its demand back, ends `failed`
+  with its `error` saying so, and its items wait again with the try not counted.
+- **A failed try of a watched road** is the arbiter's where its demand, read as the try fails, names a
+  claimant or a lower tier that took its card (`taken`), or no longer stands granted. Such a try ends in
+  its state with its `error` saying the engine's card was taken, and its items wait again at once with the
+  try not counted. The words of the failure are not read.
+- **An engine that does not come:** a try still waiting for its card `restore_wait_minutes` after its demand
+  was asked is told to the owner's private room once (「The notices」, `restore`); it goes on waiting.
 
 ### The questions
 
@@ -382,8 +396,7 @@ search runner applies it, and the run writes its document in English, the questi
   whether it is touched. Every row whose touched cell opens with the `yes` word is a touch; the item keeps
   the repositories and hosts touched, joined, as `touches`, and is `fit` where any row is touched.
 - **An investigation and a brief are never marked `fit`.**
-- **The reading is a hint, and the owner decides.** It reads the line's words and judges nothing. Each node
-  of the settings' `model_nodes` standing in a manual's line as a word of its own is kept in `fitNodes`.
+- **The reading is a hint, and the owner decides.** It reads the line's words and judges nothing.
 - **The plan's place** is the heading of the section `plan_heading` names for the shape (the reproduction
   plan of a manual, the patch steps of an advisory), as the document holds it, kept as `plan`.
 
@@ -462,10 +475,8 @@ search runner applies it, and the run writes its document in English, the questi
   handed, since agency carries a sent turn to its end.
 - **A `fit` item's notice carries what its recipient needs to act,** after the line: what its shape says
   (`fit` for a manual, the question for the owner's word; `touches` for an advisory, what it touches set
-  in), the thing's name (`name`), and the plan's place (`plan`, the heading set in); and for a manual whose
-  `fitNodes` is not empty, `bench`, those nodes set in: the bench must be carried by a worker that does not
-  stand on them, since the bench evicts the model the worker would run on. The chat agent files what the
-  owner's word calls for, and marks the item `taken` or `dismissed`.
+  in), the thing's name (`name`), and the plan's place (`plan`, the heading set in). The chat agent files
+  what the owner's word calls for, and marks the item `taken` or `dismissed`.
 - **The share link** is the document's live link from the artifact service's `GET /shares`, or one made
   with `POST /shares` where none stands.
 - **An advisory's touched repositories are told their own part.** For each repository the exposure table
@@ -474,8 +485,8 @@ search runner applies it, and the run writes its document in English, the questi
   share link and the plan's place. Workers read English, which the page's switch shows them. The
   category's recipients are told the whole; a repository no stack row names a worker for is heard by them
   alone.
-- **A model that stays down after a bench** is told to the owner's private room alone, once per wait, with
-  `restore`, the registration, its nodes and the minutes waited set in, under the kind
+- **An engine that does not come** is told to the owner's private room alone, once per waiting try, with
+  `restore`, the registration, its service and the minutes waited set in, under the kind
   `research-restore:<registration>`.
 - **A recipient that refuses** is said in the log and kept as a report row in the state `refused`; the
   others are told all the same.
@@ -538,13 +549,14 @@ of these units, and reads each one's address and token from that unit's own file
   one is named, `workKey` and `source`, a run's or a branch's seat, answered with its `token`, `state`,
   `provider`, `model`, `effort` and `tier`; `PATCH /seat-requests/{token}` naming `admitted` (its place asked
   for), `bound` with `childId` (bound to its session) or `finished` with `outcome`, and `cancel` where it never
-  ran. `POST /sessions` with `agent`, `scope` `apart`, `provider`, `model`, `cwd`, `line`, `systemPrompt`,
-  `labels`, `toolsAllowed` and `boundMs`, answered with the session's `id`, or 503 `line-not-carried`.
+  ran; an admission of a seat whose run or branch holds a card names `within`, that card's demand id.
+  `POST /sessions` with `agent`, `scope` `apart`, `provider`, `model`, `cwd`, `line`, `systemPrompt`,
+  `labels`, `toolsAllowed` and `boundMs`, and `demandId` where its run or branch holds a card, answered
+  with the session's `id`, or 503 `line-not-carried`.
   `POST /sessions/{id}/turns` with `prompt` and the work parts (`provider`, `model`, `mapping`, `resume`,
   `cwd`, `name`, `title`, `chat`, `workKey`, `hearsWords`, `variables`), answered once the turn ends with its
   `answer`. `DELETE /sessions/{id}`, the session ended, answered 409 while its turn runs. `GET /roles`, the
   co-worker roles a branch role is checked against.
-  `GET /models/{registration}?provider=<provider>`, a watched registration read for `healthy`.
   `POST /sessions/{agentName}@worker/turns` with `prompt`, a notice to an agent. `POST /translation-runs`
   with `purpose`, `language`, `text` and `note`, one part of a page's Korean side or its narration;
   answered 200 with `text`, 413 `too-large` or 503 `no-login-open`.
@@ -563,7 +575,7 @@ of these units, and reads each one's address and token from that unit's own file
   second until its `state` is `done` or `failed`, at most `voice.wait_seconds`; and
   `GET /syntheses/{synthesisId}/sound`, the sound, OGG/Opus.
 - **the receiver:** `GET /owner`, the owner's private room; `POST /instructions`, a report line, the notice
-  that a model stays down, or a research run's end (`room`, null where the run named none, `sort` `notice`,
+  that an engine has not come, or a research run's end (`room`, null where the run named none, `sort` `notice`,
   `kind` `research-ended:<run>`, `said`, `summary` and `events`).
 - **the tool host:** on its control socket, under the issuer token it keeps (`docs/settings.md`,
   「The tool host」): `GET /namespaces/web/tools` page by page, read for each tool's `listing`;
@@ -574,9 +586,11 @@ of these units, and reads each one's address and token from that unit's own file
   with its `strategy` (explorer's `direct-then-browser` for `direct`, `browser-first` for `browser`), whose
   calls of `web/web_fetch` hand `url`, `raw` true, `max_chars` and `offset` and read the page's markup on
   slice by slice, waiting at most two minutes for each (`docs/sources.md`, 「A page」).
-- **the arbiter:** the master's `GET /cluster` at the bench watch's address, with its token where one is
-  named, read for each node's cards' `turn` and `queue` and the `serviceName` each carries (「The bench」).
-  The bench lock of a verification is the job's; the daemon asks no ticket.
+- **the arbiter:** at the engine watch's master address, with its token where one is named (「The engine」):
+  `POST /demands` with `serviceName`, `count` 1, `workKey`, `ref` and, for a branch, `within`, answered with
+  the demand (`id`, `state`, `taken`, `reason`); `GET /demands/{demandId}?waitMs=<ms>`, read until it is
+  `granted`, a 404 asked again; `DELETE /demands/{demandId}`, given back, a 404 counted as given back. The
+  bench lock of a verification is the job's; the daemon asks no ticket.
 - **The job service is never called:** the work a report calls for is the chat agent's to file.
 - **the sources:** each source's own address, read with the daemon's HTTP client, a `page` source's
   through the tool host as above (`docs/sources.md`).

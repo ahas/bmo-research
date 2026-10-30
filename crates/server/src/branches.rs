@@ -1,7 +1,8 @@
 //! A research run's branches (`docs/runner.md`, 「Branches」): the run's allowance counted here, and each
-//! branch carried through agency — its seat in the common co-worker pool, a thrown-away session on the search
-//! line's branch instructions and that session's one turn — to its notes. A caller that lets go ends its
-//! branch the same way a branch that ends does.
+//! branch carried — its card asked of the arbiter's master within the run's where the run holds one, then
+//! through agency its seat in the common co-worker pool, a thrown-away session on the search line's branch
+//! instructions and that session's one turn — to its notes. A caller that lets go ends its branch the same
+//! way a branch that ends does.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -10,6 +11,7 @@ use bmo_research_client::{BranchAsk, BranchEnd, BranchState, ResearchRunState};
 use serde_json::json;
 
 use crate::App;
+use crate::engine::{self, Uncarded};
 use crate::runner::{self, Seat, Start, Turn};
 use crate::store::now_ms;
 use crate::tool_host::ToolHost;
@@ -27,6 +29,7 @@ const NO_LONGER_RUNNING: &str = "the run is no longer running or its research ha
 const ALLOWED_NONE: &str = "this run is allowed no branches";
 const FULL_UNTIL_CLOSE: &str = "the common co-worker pool stayed full until research closed";
 const UNSEATED: &str = "research closed before a pool place";
+const UNCARDED: &str = "research closed before the arbiter granted the branch a card";
 
 /// Why a branch is not opened.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -62,13 +65,14 @@ pub fn branch_prompt(angle: &str, left_ms: u64) -> String {
   )
 }
 
-/// What a branch holds of agency until it is given back; a branch dropped before its end — its caller let go
-/// — gives it back on a task of its own.
+/// What a branch holds of agency and of the arbiter until it is given back; a branch dropped before its end —
+/// its caller let go — gives it back on a task of its own.
 struct Held {
   app: Arc<App>,
   run: i64,
   seat: Option<String>,
   session: Option<String>,
+  demand: Option<i64>,
   until: i64,
   bound: bool,
 }
@@ -83,12 +87,15 @@ impl Held {
       let cancel = !self.bound;
       runner::give_back(&self.app, self.run, &seat, if cancel { UNSEATED } else { outcome }, cancel).await;
     }
+    if let Some(demand) = self.demand.take() {
+      engine::give_back(&self.app, demand).await;
+    }
   }
 }
 
 impl Drop for Held {
   fn drop(&mut self) {
-    if self.seat.is_none() && self.session.is_none() {
+    if self.seat.is_none() && self.session.is_none() && self.demand.is_none() {
       return;
     }
     let mut left = Held {
@@ -96,6 +103,7 @@ impl Drop for Held {
       run: self.run,
       seat: self.seat.take(),
       session: self.session.take(),
+      demand: self.demand.take(),
       until: self.until,
       bound: self.bound,
     };
@@ -133,9 +141,17 @@ pub async fn open(app: Arc<App>, ask: BranchAsk) -> Result<BranchEnd, Refusal> {
     run: row.id,
     seat: None,
     session: None,
+    demand: None,
     until: closes_at + MARGIN.as_millis() as i64 + GRACE.as_millis() as i64,
     bound: false,
   };
+  match engine::branch_card(&app, row.id, &row.provider, &row.model, index, closes_at).await {
+    Ok(demand) => held.demand = demand,
+    Err(Uncarded::Closed) => return Err(Refusal::Refused(UNCARDED.into())),
+    Err(Uncarded::Failed(why)) => {
+      return Ok(failed(index, &format!("the arbiter granted this branch no card: {why}")));
+    }
+  }
   let source = row.record["source"].as_str().unwrap_or(LINE).to_string();
   let mut asked = json!({
     "requestKey": format!("research:{}:branch:{index}", row.id),
@@ -170,7 +186,7 @@ pub async fn open(app: Arc<App>, ask: BranchAsk) -> Result<BranchEnd, Refusal> {
       return Err(Refusal::Refused(FULL_UNTIL_CLOSE.into()));
     }
     tokio::time::sleep(runner::LOOK_EVERY).await;
-    match app.peers.move_seat(&seat.token, &json!({ "state": "admitted" })).await {
+    match app.peers.move_seat(&seat.token, &runner::admission(held.demand)).await {
       Ok(said) => {
         if let Some(now) = Seat::admission(&said) {
           seat = now;
@@ -238,6 +254,7 @@ async fn seated(
       record: &record,
       capabilities: &capabilities,
       bound_ms,
+      demand: held.demand,
     },
   )
   .await?;

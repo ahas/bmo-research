@@ -1,6 +1,6 @@
 //! The daemon's settings (`docs/settings.md`): where it listens, the loop's numbers, the road its runs go out
-//! on where a category names none, how a document is cut for the translator, the models the bench watch
-//! looks after, how the runner seats a run and what it is held to where the owner changed nothing, where the
+//! on where a category names none, how a document is cut for the translator, the models the engine watch
+//! asks the arbiter's cards for, how the runner seats a run and what it is held to where the owner changed nothing, where the
 //! tool host answers, the voice a narration is spoken in, and the files its peers' addresses and tokens are
 //! read from.
 
@@ -23,11 +23,10 @@ pub struct Settings {
   pub restore_wait_minutes: i64,
   pub poll_seconds: u64,
   pub turn_wait_seconds: u64,
-  pub model_nodes: Vec<String>,
   pub user_agent: String,
   pub road: Road,
   pub translation: Translation,
-  pub bench_watch: BenchWatch,
+  pub engine: Engine,
   pub runner: Runner,
   pub research_settings: ResearchDefaults,
   pub tool_host: ToolHost,
@@ -47,17 +46,16 @@ impl Default for Settings {
       token_file: "research.token".into(),
       store: "research".into(),
       tick_seconds: 30,
-      concurrency: 1,
+      concurrency: 4,
       retries: 3,
       retry_minutes: 30,
       restore_wait_minutes: 20,
       poll_seconds: 30,
       turn_wait_seconds: 20,
-      model_nodes: ["n3", "n4", "n5", "n6"].map(String::from).to_vec(),
       user_agent: "bmo-research".into(),
       road: Road::default(),
       translation: Translation::default(),
-      bench_watch: BenchWatch::default(),
+      engine: Engine::default(),
       runner: Runner::default(),
       research_settings: ResearchDefaults::default(),
       tool_host: ToolHost::default(),
@@ -106,45 +104,43 @@ impl Default for Translation {
   }
 }
 
-/// The registered models the runs stand on, the nodes each stands on, and where the daemon reads whether a
-/// bench holds one of them.
+/// The registered models the runs stand on, the arbiter service each one's engine is, and the arbiter's
+/// master that grants their cards; no master address asks no demand.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-pub struct BenchWatch {
+pub struct Engine {
   pub address: String,
   pub token: String,
-  pub occupant: String,
   pub provider: String,
   pub models: Vec<Watched>,
 }
 
-impl Default for BenchWatch {
+impl Default for Engine {
   fn default() -> Self {
-    BenchWatch {
-      address: "http://127.0.0.1:7440".into(),
+    Engine {
+      address: String::new(),
       token: String::new(),
-      occupant: "bench".into(),
       provider: "registered".into(),
       models: vec![Watched {
         registration: "flash-next".into(),
-        nodes: vec!["n3".into()],
+        service: "lab-arena".into(),
       }],
     }
   }
 }
 
-/// One watched model: its registration's name and the nodes it stands on.
+/// One watched model: its registration's name and the arbiter service its engine is.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Watched {
   pub registration: String,
-  pub nodes: Vec<String>,
+  pub service: String,
 }
 
-impl BenchWatch {
-  /// The watched model a road goes out on, or none where the road is not watched.
+impl Engine {
+  /// The watched model a road goes out on, or none where the road is not watched or no master is named.
   pub fn model(&self, provider: &str, model: &str) -> Option<&Watched> {
-    if provider != self.provider {
+    if self.address.trim().is_empty() || provider != self.provider {
       return None;
     }
     self.models.iter().find(|w| w.registration == model)

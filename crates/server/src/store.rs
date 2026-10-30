@@ -1,6 +1,6 @@
 //! The daemon's store: the categories and their recipients, the sources, the candidates seen, the queue, the
-//! tries, the reports, the facts and the stack, and the runner's research runs, their log, what they hold of
-//! agency and the research settings, in SQLite under the data root (`docs/store.md`).
+//! tries, the reports, the facts and the stack, the arbiter demands held, and the runner's research runs, their
+//! log, what they hold of agency and the research settings, in SQLite under the data root (`docs/store.md`).
 
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -22,7 +22,8 @@ use crate::translation::Rendering;
 /// dive's one page holds — its languages, its narrations and its Korean side — and what it still lacks, a
 /// document filed before it holding English alone and lacking nothing it can be given; the fifth keeps what
 /// the readings left on each source: how many were made, and what the last that succeeded turned up and kept;
-/// the sixth holds a `page` source's link pattern and strategy.
+/// the sixth holds a `page` source's link pattern and strategy; the seventh keeps the arbiter demands the daemon
+/// holds and takes the fit's node list away.
 const MIGRATIONS: &[&str] = &[
   "
   create table categories (
@@ -120,6 +121,12 @@ const MIGRATIONS: &[&str] = &[
   alter table sources add column pattern text;
   alter table sources add column strategy text;
 ",
+  "
+  alter table queue drop column fit_nodes;
+  create table demands (
+    id integer primary key, try_id integer, run_id integer, within integer, service text not null,
+    asked_at integer not null);
+",
 ];
 
 /// The schema version this binary holds.
@@ -138,7 +145,7 @@ const CATEGORY_COLUMNS: &str = "name, purpose, shape, cap, cadence_minutes, gath
 
 const ITEM_COLUMNS: &str =
   "id, category, key, name, maker, address, kind, shape, source_id, asked, priority,
-  state, tries, retry_at, run_id, document_id, title, description, share_url, fit, fit_nodes, touches, plan,
+  state, tries, retry_at, run_id, document_id, title, description, share_url, fit, touches, plan,
   job_item_id, error, found_at, created_at, changed_at, languages, narrations";
 
 const SOURCE_COLUMNS: &str =
@@ -188,7 +195,6 @@ pub struct Filed {
   pub description: Option<String>,
   pub share_url: String,
   pub fit: bool,
-  pub fit_nodes: Vec<String>,
   pub touches: Option<String>,
   pub plan: Option<String>,
 }
@@ -980,8 +986,7 @@ impl Store {
       .lock()
       .execute(
         "update queue set state = ?2, document_id = ?3, title = ?4, description = ?5, share_url = ?6, fit = ?7,
-           fit_nodes = ?8, touches = ?9, plan = ?10, error = null, languages = '[\"en\"]', narrations = '[]',
-           changed_at = ?11
+           touches = ?8, plan = ?9, error = null, languages = '[\"en\"]', narrations = '[]', changed_at = ?10
          where id = ?1 and state = 'running'",
         params![
           item_id,
@@ -991,7 +996,6 @@ impl Store {
           filed.description,
           filed.share_url,
           filed.fit,
-          words_json(&filed.fit_nodes),
           filed.touches,
           filed.plan,
           now_ms()
@@ -1582,6 +1586,102 @@ impl Store {
       .map_err(|e| e.to_string())
   }
 
+  /// A demand asked of the arbiter's master, kept until it is given back: for a try, or for a branch of the
+  /// run `run_id` names within the demand `within` names.
+  pub fn keep_demand(
+    &self,
+    id: i64,
+    try_id: Option<i64>,
+    run_id: Option<i64>,
+    within: Option<i64>,
+    service: &str,
+  ) -> Result<(), String> {
+    self
+      .lock()
+      .execute(
+        "insert or replace into demands (id, try_id, run_id, within, service, asked_at)
+         values (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![id, try_id, run_id, within, service, now_ms()],
+      )
+      .map_err(|e| e.to_string())?;
+    Ok(())
+  }
+
+  /// The research run a try's demand stands for, once the try is asked of the runner.
+  pub fn demand_ran(&self, id: i64, run_id: i64) -> Result<(), String> {
+    self
+      .lock()
+      .execute("update demands set run_id = ?2 where id = ?1", params![id, run_id])
+      .map_err(|e| e.to_string())?;
+    Ok(())
+  }
+
+  /// The demand a try holds, or none.
+  pub fn try_demand(&self, try_id: i64) -> Result<Option<i64>, String> {
+    self
+      .lock()
+      .query_row("select id from demands where try_id = ?1 order by id desc", params![try_id], |r| {
+        r.get(0)
+      })
+      .optional()
+      .map_err(|e| e.to_string())
+  }
+
+  /// The demand a research run stands on, its try's, or none.
+  pub fn run_demand(&self, run_id: i64) -> Result<Option<i64>, String> {
+    self
+      .lock()
+      .query_row(
+        "select id from demands where run_id = ?1 and try_id is not null order by id desc",
+        params![run_id],
+        |r| r.get(0),
+      )
+      .optional()
+      .map_err(|e| e.to_string())
+  }
+
+  /// Every demand held, in the order they were asked.
+  pub fn demands(&self) -> Result<Vec<i64>, String> {
+    let conn = self.lock();
+    let mut stmt = conn
+      .prepare("select id from demands order by asked_at, id")
+      .map_err(|e| e.to_string())?;
+    stmt
+      .query_map([], |r| r.get(0))
+      .map_err(|e| e.to_string())?
+      .collect::<Result<Vec<_>, _>>()
+      .map_err(|e| e.to_string())
+  }
+
+  /// The demands left behind: a try's whose try is no longer running, a branch's whose run has closed.
+  pub fn demands_left(&self) -> Result<Vec<i64>, String> {
+    let conn = self.lock();
+    let mut stmt = conn
+      .prepare(
+        "select d.id from demands d
+           left join runs r on r.id = d.try_id
+           left join research_runs rr on rr.id = d.run_id
+         where (d.try_id is not null and (r.id is null or r.state != 'running'))
+            or (d.try_id is null and (rr.id is null or rr.state = 'closed'))
+         order by d.asked_at, d.id",
+      )
+      .map_err(|e| e.to_string())?;
+    stmt
+      .query_map([], |r| r.get(0))
+      .map_err(|e| e.to_string())?
+      .collect::<Result<Vec<_>, _>>()
+      .map_err(|e| e.to_string())
+  }
+
+  /// A demand given back.
+  pub fn drop_demand(&self, id: i64) -> Result<(), String> {
+    self
+      .lock()
+      .execute("delete from demands where id = ?1", params![id])
+      .map_err(|e| e.to_string())?;
+    Ok(())
+  }
+
   /// The research settings the owner last set, as kept; none where he set none.
   pub fn kept_research_settings(&self) -> Result<Option<String>, String> {
     self
@@ -1766,9 +1866,8 @@ fn read_source(r: &rusqlite::Row<'_>) -> rusqlite::Result<Source> {
 fn read_item(r: &rusqlite::Row<'_>) -> rusqlite::Result<Item> {
   let shape: String = r.get(7)?;
   let state: String = r.get(11)?;
-  let nodes: String = r.get(20)?;
-  let languages: String = r.get(28)?;
-  let narrations: String = r.get(29)?;
+  let languages: String = r.get(27)?;
+  let narrations: String = r.get(28)?;
   Ok(Item {
     id: r.get(0)?,
     category_name: r.get(1)?,
@@ -1790,14 +1889,13 @@ fn read_item(r: &rusqlite::Row<'_>) -> rusqlite::Result<Item> {
     description: r.get(17)?,
     share_url: r.get(18)?,
     fit: r.get(19)?,
-    fit_nodes: serde_json::from_str(&nodes).unwrap_or_default(),
-    touches: r.get(21)?,
-    plan: r.get(22)?,
-    job_item_id: r.get(23)?,
-    error: r.get(24)?,
-    found_at: r.get(25)?,
-    created_at: r.get(26)?,
-    changed_at: r.get(27)?,
+    touches: r.get(20)?,
+    plan: r.get(21)?,
+    job_item_id: r.get(22)?,
+    error: r.get(23)?,
+    found_at: r.get(24)?,
+    created_at: r.get(25)?,
+    changed_at: r.get(26)?,
     languages: serde_json::from_str(&languages).unwrap_or_default(),
     narrations: serde_json::from_str(&narrations).unwrap_or_default(),
   })

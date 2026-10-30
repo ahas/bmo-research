@@ -44,13 +44,14 @@ How a page's body is cut for agency's translator (`docs/api.md`, 「The page」)
 ## The engine watch: `[engine]`
 
 Which registered models the runs stand on, the arbiter service each one's engine is, and the arbiter's
-master that grants them (`docs/design.md`, 「The engine a run needs」). A category whose road is the
-watch's `provider` and one of its `models` starts no run until the master grants the run a card of that
-model's `service`. Which card answers is the master's; no setting names a node.
+master that grants them (`docs/design.md`, 「The engine a run needs」). Where the watch names a master, a
+category whose road is the watch's `provider` and one of its `models` starts no run until the master grants
+the run a card of that model's `service`, and a branch of such a run is asked within the run's card. Which
+card answers is the master's; no setting names a node.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `address` | `http://127.0.0.1:7440` | The arbiter's master, which grants the demands |
+| `address` | empty | The arbiter's master, which grants the demands; empty asks no demand, and every run goes out as soon as a slot frees |
 | `token` | empty | The file under the data root's `env/` whose text is the master's bearer token; empty where the master takes none |
 | `provider` | `registered` | The provider whose models the watch names |
 | `models` | `flash-next` served by `lab-arena` | Each watched model, a table of `registration`, its name in agency's registry, and `service`, the arbiter service its engine is; an empty list watches nothing |
@@ -136,4 +137,8 @@ address = "http://127.0.0.1:7440"
 [[engine.models]]
 registration = "flash-next"
 service = "lab-arena"
+
+[[engine.models]]
+registration = "flash-next-coder"
+service = "lab-arena-coder"
 ```

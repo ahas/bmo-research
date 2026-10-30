@@ -1,6 +1,6 @@
 //! What the tests share: a scratch data root, the daemon's app over it, and stand-ins for agency (its seats,
 //! its thrown-away sessions and their turns), the artifact service, the receiver, the voice unit, the
-//! arbiter's master, the tool host on its Unix socket and the sources, each keeping every request it was
+//! arbiter's master and its demands, the tool host on its Unix socket and the sources, each keeping every request it was
 //! asked.
 
 #![allow(dead_code)]
@@ -102,11 +102,13 @@ pub struct World {
   /// The documents filed with `POST /documents`, as the archive answers them.
   pub posted: Vec<Value>,
   pub next_document: i64,
-  /// The tickets standing on each node's card, by the service each stands for: the first holds the turn,
-  /// the rest wait in its queue.
-  pub tickets: BTreeMap<String, Vec<String>>,
-  /// Whether every registration answers its health.
-  pub healthy: bool,
+  /// The demands the stand-in master holds, by id, as it answers them.
+  pub demands: BTreeMap<i64, Value>,
+  pub next_demand: i64,
+  /// While set, a demand asked waits for its card, every card in use, until it is granted.
+  pub cards_busy: bool,
+  /// While set, every demand read names a claimant that took its card.
+  pub cards_taken: bool,
   /// Whether the translator answers each text with the note it was handed set before it.
   pub leaking: bool,
   /// The files attached to documents.
@@ -127,7 +129,7 @@ pub fn world() -> Shared {
   Arc::new(Mutex::new(World {
     owner_room: 7,
     next_document: 900,
-    healthy: true,
+    next_demand: 4000,
     ..World::default()
   }))
 }
@@ -377,19 +379,6 @@ async fn agency_translation(State(w): State<Shared>, method: Method, uri: Uri, b
   axum::Json(json!({"text": answer, "provider": "registered", "model": "translator"})).into_response()
 }
 
-async fn agency_model(
-  State(w): State<Shared>,
-  Path(name): Path<String>,
-  method: Method,
-  uri: Uri,
-  body: Bytes,
-) -> Response {
-  keep(&w, "agency", &method, &uri, &body);
-  let healthy = w.lock().unwrap().healthy;
-  axum::Json(json!({"key": format!("registered::{name}"), "name": name, "healthy": healthy}))
-    .into_response()
-}
-
 pub fn agency(world: Shared) -> Router {
   Router::new()
     .route("/seat-requests", post(agency_seat))
@@ -397,7 +386,6 @@ pub fn agency(world: Shared) -> Router {
     .route("/sessions", post(agency_session))
     .route("/sessions/{session}", delete(agency_session_end))
     .route("/roles", get(agency_roles))
-    .route("/models/{name}", get(agency_model))
     .route("/translation-runs", post(agency_translation))
     .route("/sessions/{session}/turns", post(agency_turn))
     .with_state(world)
@@ -658,30 +646,91 @@ pub fn voice(world: Shared) -> Router {
     .with_state(world)
 }
 
-async fn arbiter_cluster(State(w): State<Shared>, method: Method, uri: Uri, body: Bytes) -> Response {
-  keep(&w, "arbiter", &method, &uri, &body);
-  let world = w.lock().unwrap();
-  let nodes: Vec<Value> = ["n3", "n4", "n5", "n6"]
-    .into_iter()
-    .map(|node| {
-      let standing = world.tickets.get(node).cloned().unwrap_or_default();
-      let turn = standing
-        .first()
-        .map(|service| json!({"serviceName": service, "ticketId": 1, "waitedMs": 0}));
-      let queue: Vec<Value> = standing
-        .iter()
-        .skip(1)
-        .map(|service| json!({"ticketId": 2, "serviceName": service, "waitedMs": 0}))
-        .collect();
-      json!({"name": node, "role": "kakia+lab-arena", "cards": [{"index": 0, "turn": turn, "queue": queue}]})
-    })
-    .collect();
-  axum::Json(json!({"master": {}, "groups": [], "nodes": nodes, "tiers": []})).into_response()
+/// A demand as the stand-in master answers a reading of it now: as it stands, or naming a claimant that took
+/// its card while the world says so.
+fn demand_now(world: &World, demand: &Value) -> Value {
+  let mut demand = demand.clone();
+  if world.cards_taken {
+    demand["state"] = json!("waiting");
+    demand["taken"] = json!("trainer");
+    demand["reason"] = json!({"code": "held", "text": "A claim holds the card."});
+  }
+  demand
 }
 
-/// A stand-in for the arbiter's master: its cluster picture, each node's tickets as the world holds them.
+async fn arbiter_demands(State(w): State<Shared>, method: Method, uri: Uri, body: Bytes) -> Response {
+  keep(&w, "arbiter", &method, &uri, &body);
+  let asked: Value = serde_json::from_slice(&body).unwrap_or_default();
+  let mut world = w.lock().unwrap();
+  world.next_demand += 1;
+  let id = world.next_demand;
+  let busy = world.cards_busy;
+  let mut demand = json!({
+    "id": id,
+    "serviceName": asked["serviceName"],
+    "count": asked["count"],
+    "cards": [],
+    "state": if busy { "waiting" } else { "granted" },
+    "waitedMs": 0,
+    "within": asked["within"],
+    "workKey": asked["workKey"],
+    "ref": asked["ref"],
+  });
+  if busy {
+    demand["reason"] = json!({"code": "in-use", "text": "Every card is in use."});
+  } else {
+    demand["cards"] = json!([{"nodeName": "n3"}]);
+  }
+  world.demands.insert(id, demand.clone());
+  let status = if busy { StatusCode::ACCEPTED } else { StatusCode::CREATED };
+  (status, axum::Json(demand)).into_response()
+}
+
+async fn arbiter_demand(
+  State(w): State<Shared>,
+  Path(id): Path<i64>,
+  method: Method,
+  uri: Uri,
+  body: Bytes,
+) -> Response {
+  keep(&w, "arbiter", &method, &uri, &body);
+  let mut world = w.lock().unwrap();
+  let held = if method == Method::DELETE {
+    world.demands.remove(&id)
+  } else {
+    world.demands.get(&id).cloned()
+  };
+  match held {
+    None => (
+      StatusCode::NOT_FOUND,
+      axum::Json(json!({"code": "not-found", "error": "no such demand"})),
+    )
+      .into_response(),
+    Some(_) if method == Method::DELETE => StatusCode::NO_CONTENT.into_response(),
+    Some(demand) => axum::Json(demand_now(&world, &demand)).into_response(),
+  }
+}
+
+impl World {
+  /// Every waiting demand granted a card.
+  pub fn grant_cards(&mut self) {
+    self.cards_busy = false;
+    for demand in self.demands.values_mut() {
+      demand["state"] = json!("granted");
+      demand["cards"] = json!([{"nodeName": "n3"}]);
+      if let Some(fields) = demand.as_object_mut() {
+        fields.remove("reason");
+      }
+    }
+  }
+}
+
+/// A stand-in for the arbiter's master: its demands, granted at once unless the world keeps every card busy.
 pub fn arbiter(world: Shared) -> Router {
-  Router::new().route("/cluster", get(arbiter_cluster)).with_state(world)
+  Router::new()
+    .route("/demands", post(arbiter_demands))
+    .route("/demands/{id}", get(arbiter_demand).delete(arbiter_demand))
+    .with_state(world)
 }
 
 /// The issuer token the stand-in tool host takes.
@@ -926,7 +975,8 @@ pub async fn ground(change: impl FnOnce(&mut Settings)) -> Ground {
   let mut settings = Settings::read("").unwrap();
   settings.data_root = root.clone();
   settings.artifact.address = artifact;
-  settings.bench_watch.address = arbiter;
+  settings.engine.address = arbiter;
+  settings.concurrency = 1;
   settings.tool_host.socket = socket.to_string_lossy().into_owned();
   settings.poll_seconds = 0;
   settings.turn_wait_seconds = 5;

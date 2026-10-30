@@ -328,7 +328,7 @@
         "type": "object"
       },
       "DaemonState": {
-        "description": "The daemon's state: stopped where every category is stopped, each category's, and what holds the queue.",
+        "description": "The daemon's state: stopped where every category is stopped, each category's, and the runs that wait for\ntheir engine.",
         "properties": {
           "categories": {
             "items": {
@@ -490,19 +490,30 @@
         "type": "object"
       },
       "Hold": {
-        "description": "A watched model that keeps runs from starting now (`docs/api.md`, 「The bench」).",
+        "description": "A run asked that waits for its engine now (`docs/api.md`, 「The engine」).",
         "properties": {
-          "categoryNames": {
-            "description": "the categories whose road is the model",
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
+          "categoryName": {
+            "type": "string"
           },
-          "nodeName": {
-            "description": "the node the bench stands on; null while the queue waits on the model's health",
+          "cause": {
+            "description": "the master's reason the card waits (`starting`, `in-use`, `held` or `start-failed`); null where it gave\nnone",
             "type": [
               "string",
+              "null"
+            ]
+          },
+          "causeText": {
+            "description": "the master's sentence for that reason",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "demandId": {
+            "description": "the arbiter demand it waits on; null until the master has answered the ask",
+            "format": "int64",
+            "type": [
+              "integer",
               "null"
             ]
           },
@@ -510,33 +521,46 @@
             "$ref": "#/components/schemas/HoldReason"
           },
           "registration": {
+            "description": "the registration the try's road goes out on",
             "type": "string"
           },
           "reported": {
-            "description": "whether the owner's room was told the model stays down",
+            "description": "whether the owner's room was told the engine has not come",
             "type": "boolean"
           },
+          "runId": {
+            "description": "the try that waits",
+            "format": "int64",
+            "type": "integer"
+          },
+          "serviceName": {
+            "description": "the arbiter service whose card it waits for",
+            "type": "string"
+          },
           "since": {
-            "description": "epoch milliseconds; when the bench was first seen, or the wait began",
+            "description": "epoch milliseconds; when the demand was asked",
             "format": "int64",
             "type": "integer"
           }
         },
         "required": [
-          "registration",
           "reason",
-          "nodeName",
+          "runId",
+          "categoryName",
+          "registration",
+          "serviceName",
+          "demandId",
+          "cause",
+          "causeText",
           "since",
-          "reported",
-          "categoryNames"
+          "reported"
         ],
         "type": "object"
       },
       "HoldReason": {
-        "description": "Why a watched model holds the queue: a bench's ticket stands on one of its nodes, or the queue waits on\nits health.",
+        "description": "Why a run asked does not go out now: it waits for the arbiter to grant its engine's card.",
         "enum": [
-          "bench",
-          "restore"
+          "waiting-card"
         ],
         "type": "string"
       },
@@ -584,13 +608,6 @@
           },
           "fit": {
             "type": "boolean"
-          },
-          "fitNodes": {
-            "description": "the settings' model nodes a manual's fit names",
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
           },
           "foundAt": {
             "format": "int64",
@@ -726,7 +743,6 @@
           "languages",
           "narrations",
           "fit",
-          "fitNodes",
           "touches",
           "plan",
           "jobItemId",
@@ -1961,7 +1977,7 @@
   "info": {
     "description": "The research unit: a daemon that keeps a queue of things to research by category, reads the sources the owner registers, has each item researched by its own runner in its category's shape, and tells the category's recipients. It files no job and launches nothing.",
     "title": "bmo-research",
-    "version": "0.1.0-rev.11"
+    "version": "0.1.0-rev.12"
   },
   "openapi": "3.1.0",
   "paths": {

@@ -143,15 +143,13 @@ fn bare_line(line: &str) -> &str {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ManualFit {
   pub fit: bool,
-  /// The nodes of `model_nodes` its line names as words of their own.
-  pub nodes: Vec<String>,
   /// The heading of the reproduction plan, as the document holds it.
   pub plan: Option<String>,
 }
 
 /// A manual read for its fit, by the first language whose fit heading the document holds: the line opening
 /// with the label under the fit heading, naming anything but the none word.
-pub fn manual_fit(content: &str, languages: &[ManualWords], model_nodes: &[String]) -> ManualFit {
+pub fn manual_fit(content: &str, languages: &[ManualWords]) -> ManualFit {
   let plan = languages
     .iter()
     .find_map(|words| section(content, &words.plan_heading))
@@ -176,21 +174,7 @@ pub fn manual_fit(content: &str, languages: &[ManualWords], model_nodes: &[Strin
     };
   };
   let fit = !value.is_empty() && after_prefix(value, &words.none).is_none();
-  let tokens: Vec<String> = value
-    .split(|c: char| !c.is_alphanumeric())
-    .map(|t| t.to_lowercase())
-    .filter(|t| !t.is_empty())
-    .collect();
-  let nodes = if fit {
-    model_nodes
-      .iter()
-      .filter(|node| tokens.contains(&node.to_lowercase()))
-      .cloned()
-      .collect()
-  } else {
-    Vec::new()
-  };
-  ManualFit { fit, nodes, plan }
+  ManualFit { fit, plan }
 }
 
 /// One cell of a table: its text, and the address of the first link it holds.

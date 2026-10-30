@@ -5,10 +5,6 @@
 use research_server::reading;
 use research_server::words::{self, AdvisoryWords, ManualWords};
 
-fn nodes() -> Vec<String> {
-  ["n3", "n4", "n5", "n6"].map(String::from).to_vec()
-}
-
 /// A manual in the words given whose fit section names `cards` on its label's line.
 fn manual(w: &ManualWords, cards: &str) -> String {
   format!(
@@ -30,12 +26,11 @@ fn every_shape_holds_words_in_english_first_and_in_korean() {
 }
 
 #[test]
-fn a_manual_naming_a_card_fits_and_keeps_the_model_nodes_it_names_in_either_language() {
+fn a_manual_naming_a_card_fits_and_keeps_its_plan_in_either_language() {
   let all = &words::document().manual;
   for w in all {
-    let read = reading::manual_fit(&manual(w, "n3 (24 GB), n7"), all, &nodes());
+    let read = reading::manual_fit(&manual(w, "n3 (24 GB), n7"), all);
     assert!(read.fit, "{}", w.language);
-    assert_eq!(read.nodes, ["n3"]);
     assert_eq!(read.plan.as_deref(), Some(format!("9. {}", w.plan_heading).as_str()));
   }
 }
@@ -44,10 +39,10 @@ fn a_manual_naming_a_card_fits_and_keeps_the_model_nodes_it_names_in_either_lang
 fn a_manual_naming_none_or_nothing_does_not_fit() {
   let all = &words::document().manual;
   for w in all {
-    assert!(!reading::manual_fit(&manual(w, &w.none), all, &nodes()).fit, "{}", w.language);
-    assert!(!reading::manual_fit(&manual(w, ""), all, &nodes()).fit);
+    assert!(!reading::manual_fit(&manual(w, &w.none), all).fit, "{}", w.language);
+    assert!(!reading::manual_fit(&manual(w, ""), all).fit);
   }
-  assert!(!reading::manual_fit("# A document with no such section\n", all, &nodes()).fit);
+  assert!(!reading::manual_fit("# A document with no such section\n", all).fit);
 }
 
 #[test]
@@ -55,11 +50,10 @@ fn a_manual_s_words_are_matched_regardless_of_case() {
   let all = &words::document().manual;
   let w = &all[0];
   let document = format!("## 7. {}\n\n- **{}** n4\n", w.heading.to_uppercase(), w.label.to_lowercase());
-  let read = reading::manual_fit(&document, all, &nodes());
+  let read = reading::manual_fit(&document, all);
   assert!(read.fit);
-  assert_eq!(read.nodes, ["n4"]);
   let none = format!("## {}\n\n- {} {}\n", w.heading, w.label, w.none.to_uppercase());
-  assert!(!reading::manual_fit(&none, all, &nodes()).fit);
+  assert!(!reading::manual_fit(&none, all).fit);
 }
 
 #[test]
@@ -67,7 +61,7 @@ fn a_label_inside_a_longer_label_is_not_the_line() {
   let all = &words::document().manual;
   for w in all {
     let document = format!("## {}\n\n- x{} n3\n", w.heading, w.label);
-    assert!(!reading::manual_fit(&document, all, &nodes()).fit, "{}", w.language);
+    assert!(!reading::manual_fit(&document, all).fit, "{}", w.language);
   }
 }
 
@@ -175,7 +169,7 @@ fn every_template_reads_and_fills_what_it_names() {
     &report.touches,
     &report.name,
     &report.plan,
-    &report.bench,
+    &report.restore,
     &report.worker,
     &report.failed,
   ] {
