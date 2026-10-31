@@ -104,7 +104,6 @@ How a deep dive's narration is spoken (`docs/api.md`, 「The page」).
 | Key | Default | Meaning |
 |---|---|---|
 | `name` | empty | The voice the narration is spoken in; empty for the first voice the voice unit lists |
-| `wait_seconds` | 900 | How long one narration's synthesis is waited on before it is counted as not made |
 
 ## Peers
 

@@ -2,9 +2,9 @@
 //! deep dive」, 「The page」 and 「The notices」): the bodies each unit is asked with, the retries, the failure
 //! told once, a result short of its shape asked again whole and never filed short, a final answer in two
 //! text blocks filed whole, the one page with both languages and its switch, the narration's sounds, a
-//! missing one logged and retried and a long script cut to what the voice speaks, the pending Korean side
-//! drawn into the same page and its follow-up, an advisory's parts to the workers of its repositories, and a
-//! brief's gathering with its facts. The filed documents are composed from the English words
+//! missing one logged and retried, a synthesis waited on however long with its reasons logged, and a long
+//! script cut to what the voice speaks, the pending Korean side drawn into the same page and its follow-up,
+//! an advisory's parts to the workers of its repositories, and a brief's gathering with its facts. The filed documents are composed from the English words
 //! `prompts/document.toml` holds, so this file holds none of them.
 mod support;
 
@@ -538,6 +538,51 @@ async fn a_script_longer_than_the_voice_speaks_is_spoken_to_its_last_whole_sente
   assert_eq!(speakable("One. Two.", 5), "One.");
   assert_eq!(speakable("Onetwothree four", 5), "Onetw", "no sentence and no word fits");
   assert_eq!(speakable(" Short. ", 40), "Short.");
+}
+
+#[tokio::test]
+async fn a_narration_waits_for_its_synthesis_however_long_and_logs_each_new_reason_once() {
+  let ground = support::ground(|_| {}).await;
+  give_owner_room(&ground.app).await;
+  let item = ground
+    .app
+    .store
+    .ask("it", "example.org/thing", "Thing-7B", "https://example.org/thing", Shape::Manual)
+    .unwrap();
+  file(&ground, 1, 501, narrated(manual_document()));
+  let reasons = ["Every card of voice is in use.", "Voice is starting on a card."];
+  ground.world.lock().unwrap().voice_waiting_on =
+    vec![reasons[0].into(), reasons[0].into(), reasons[1].into()];
+
+  settle(&ground).await;
+
+  let attached: Vec<String> =
+    ground.world.lock().unwrap().attachments.iter().map(|a| a.name.clone()).collect();
+  assert_eq!(
+    attached,
+    ["narration-ko.ogg", "narration-en.ogg"],
+    "both are spoken once their wait ends"
+  );
+  assert_eq!(ground.app.store.item(item.id).unwrap().narrations, ["ko", "en"]);
+  let logged: Vec<String> = ground
+    .app
+    .store
+    .research_log(1)
+    .unwrap()
+    .into_iter()
+    .filter(|line| line.kind == "narration")
+    .map(|line| line.text)
+    .collect();
+  for code in ["ko", "en"] {
+    let said: Vec<&String> = logged
+      .iter()
+      .filter(|text| text.starts_with(&format!("The {code} narration waits")))
+      .collect();
+    assert_eq!(said.len(), 2, "each reason once as it changes: {logged:?}");
+    for (line, reason) in said.iter().zip(reasons) {
+      assert!(line.ends_with(reason), "{line}");
+    }
+  }
 }
 
 #[tokio::test]

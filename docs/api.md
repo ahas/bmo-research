@@ -445,7 +445,10 @@ search runner applies it, and the run writes its document in English, the questi
   narration, to be translated in short sentences, its figures written as they are read aloud and model and
   product names kept. Each is spoken by the voice unit (「Calls this unit makes」) in the settings' voice, a
   text of at most the 4,000 characters the voice unit speaks: a longer one is spoken up to the last sentence
-  that ends within them, and the run's log says so. Each is attached to the document with `POST /documents/{id}/attachments`: the Korean sound as `narration-ko.ogg`
+  that ends within them, and the run's log says so. Each synthesis is followed until it is spoken or has
+  failed, however long its card takes to be granted: nothing ends that wait, and while it waits, each time
+  the voice unit's `waitingOn` sentence for it changes, the run's log says so once under `narration`, naming
+  the language and that sentence. Each is attached to the document with `POST /documents/{id}/attachments`: the Korean sound as `narration-ko.ogg`
   with `role` `head`, the English as `narration-en.ogg` with no role. The page is then drawn again with its
   listen band referring to every sound attached by its name (`docs/runner.md`, 「The page」), and the
   archive plays them there. A sound already attached is not made again.
@@ -572,7 +575,8 @@ of these units, and reads each one's address and token from that unit's own file
 - **the voice unit:** at the address and with the token its own settings file under `env/` names
   (`docs/settings.md`, 「Peers」): `GET /voices`, the first voice where the settings name none;
   `POST /syntheses` with `voiceName` and `text`, a narration spoken; `GET /syntheses/{synthesisId}` read every
-  second until its `state` is `done` or `failed`, at most `voice.wait_seconds`; and
+  second until its `state` is `done` or `failed`, however long that takes, its `waitingOn` read as it
+  stands; and
   `GET /syntheses/{synthesisId}/sound`, the sound, OGG/Opus.
 - **the receiver:** `GET /owner`, the owner's private room; `POST /instructions`, a report line, the notice
   that an engine has not come, or a research run's end (`room`, null where the run named none, `sort` `notice`,

@@ -322,9 +322,14 @@ impl Peers {
       .ok_or_else(|| Untranslated::Failed("agency's translation answered no text".into()))
   }
 
-  /// One text spoken by the voice unit in the settings' voice, else the first it lists, waited on until it is
-  /// spoken: the sound and its media type.
-  pub async fn speak(&self, text: &str) -> Result<(Vec<u8>, String), String> {
+  /// One text spoken by the voice unit in the settings' voice, else the first it lists, followed until it is
+  /// spoken or has failed however long that takes: the sound and its media type. `waiting` is handed what the
+  /// synthesis waits on each time the voice unit's sentence for it changes.
+  pub async fn speak(
+    &self,
+    text: &str,
+    mut waiting: impl FnMut(&str),
+  ) -> Result<(Vec<u8>, String), String> {
     let voice = self.voice()?;
     let name = match self.settings.voice.name.trim() {
       "" => {
@@ -349,7 +354,7 @@ impl Peers {
       .await?;
     let id = made["id"].as_i64().ok_or("the voice unit answered the synthesis with no id")?;
     let path = format!("/syntheses/{id}");
-    let until = std::time::Instant::now() + Duration::from_secs(self.settings.voice.wait_seconds.max(1));
+    let mut told: Option<String> = None;
     loop {
       let read = self
         .call(&voice, self.request(&voice, reqwest::Method::GET, &path), &format!("GET {path}"))
@@ -360,10 +365,16 @@ impl Peers {
           let size = text.chars().count();
           return Err(format!("the voice unit's synthesis {id} of {size} characters failed"));
         }
-        _ if std::time::Instant::now() >= until => {
-          return Err(format!("the voice unit's synthesis {id} was not spoken in time"));
+        _ => {
+          let on = read["waitingOn"].as_str().map(str::trim).filter(|on| !on.is_empty());
+          if let Some(on) = on
+            && told.as_deref() != Some(on)
+          {
+            waiting(on);
+            told = Some(on.to_owned());
+          }
+          tokio::time::sleep(Duration::from_secs(1)).await;
         }
-        _ => tokio::time::sleep(Duration::from_secs(1)).await,
       }
     }
     let sound = format!("{path}/sound");

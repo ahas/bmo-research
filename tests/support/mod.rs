@@ -117,6 +117,8 @@ pub struct World {
   pub voice_failing: bool,
   /// A text whose synthesis fails while it is set.
   pub voice_failing_on: Option<String>,
+  /// What each synthesis waits on, one sentence for each reading of it in turn, before it is spoken.
+  pub voice_waiting_on: Vec<String>,
   /// The markup the stand-in explorer answers each page address with; an address not here answers 404.
   pub pages: BTreeMap<String, String>,
   /// How many characters one slice of a page holds, however many were asked for.
@@ -617,9 +619,19 @@ async fn voice_synthesis(
   keep(&w, "voice", &method, &uri, &body);
   let world = w.lock().unwrap();
   let text = synthesis_text(&world, id);
+  let path = uri.path();
+  let readings = world
+    .asked
+    .iter()
+    .filter(|a| a.unit == "voice" && a.method == "GET" && a.path == path)
+    .count();
+  if let Some(on) = world.voice_waiting_on.get(readings - 1) {
+    return axum::Json(json!({"id": id, "text": text, "state": "waiting", "waitingOn": on}))
+      .into_response();
+  }
   let refused = world.voice_failing_on.is_some() && world.voice_failing_on == text;
   let state = if world.voice_failing || refused { "failed" } else { "done" };
-  axum::Json(json!({"id": id, "text": text, "state": state})).into_response()
+  axum::Json(json!({"id": id, "text": text, "state": state, "waitingOn": null})).into_response()
 }
 
 async fn voice_sound(
@@ -635,8 +647,8 @@ async fn voice_sound(
   ([(axum::http::header::CONTENT_TYPE, "audio/ogg")], spoken(&text)).into_response()
 }
 
-/// A stand-in for the voice unit: its voices, and a synthesis spoken at once, or failed while the world says
-/// so.
+/// A stand-in for the voice unit: its voices, and a synthesis spoken once it has waited as long as the world
+/// says, or failed while the world says so.
 pub fn voice(world: Shared) -> Router {
   Router::new()
     .route("/voices", get(voice_voices))

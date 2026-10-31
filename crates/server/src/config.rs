@@ -276,14 +276,12 @@ impl Default for Artifact {
 }
 
 /// The voice unit a deep dive's narration is spoken by: its own settings file, which names its address and its
-/// token's file, the voice the narration is spoken in, empty for the first the unit lists, and how long one
-/// synthesis is waited on.
+/// token's file, and the voice the narration is spoken in, empty for the first the unit lists.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Voice {
   pub settings: String,
   pub name: String,
-  pub wait_seconds: u64,
 }
 
 impl Default for Voice {
@@ -291,7 +289,6 @@ impl Default for Voice {
     Voice {
       settings: "voice.toml".into(),
       name: String::new(),
-      wait_seconds: 900,
     }
   }
 }

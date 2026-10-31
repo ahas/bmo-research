@@ -398,8 +398,8 @@ pub fn speakable(text: &str, most: usize) -> &str {
 
 /// One narration's sound attached beside its page, which the archive's reader plays: the one the document
 /// already keeps, else the script spoken — in Korean translated to be spoken first, and either cut to what
-/// the voice unit speaks, the run's log saying so — and attached, the Korean as the sound heard at the
-/// document's head.
+/// the voice unit speaks, the run's log saying so — followed however long its synthesis waits, the run's log
+/// saying what on whenever that changes, and attached, the Korean as the sound heard at the document's head.
 async fn narration(
   app: &App,
   run: i64,
@@ -425,7 +425,13 @@ async fn narration(
     );
     let _ = app.store.log_research(run, "narration", &said);
   }
-  let (bytes, media_type) = app.peers.speak(spoken).await?;
+  let (bytes, media_type) = app
+    .peers
+    .speak(spoken, |on| {
+      let said = format!("The {code} narration waits for the voice: {on}");
+      let _ = app.store.log_research(run, "narration", &said);
+    })
+    .await?;
   let role = (code == LANGUAGES[0]).then_some("head");
   app.peers.attach(document_id, &name, &media_type, role, &bytes).await
 }
