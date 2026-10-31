@@ -67,7 +67,8 @@ the one to read.
 
 - **The state** answers `state` (`stopped` where every category is stopped, `running` otherwise),
   `changedAt` (the latest change of any category's state, null where none was changed) and `categories`,
-  each `categoryName`, `state`, `waitingCount`, `runningCount` and `cap`, and `holds`, the runs asked that
+  each `categoryName`, `state`, `waitingCount`, `runningCount`, `finishingCount` (its items whose page is
+  finished before they are told) and `cap`, and `holds`, the runs asked that
   wait for their engine now (「The engine」), each `reason` (`waiting-card`), `runId` (the try), its
   `categoryName`, `registration`, `serviceName` (the arbiter service whose card it waits for), `demandId`
   (null until the master has answered the ask), `cause` and `causeText` (the master's reason the card
@@ -156,11 +157,16 @@ the one to read.
   `title` and `description` (the head the run gave its document, in English), `shareUrl` (the document's
   live link), `languages` (the languages the document's page holds, Korean first: `["en"]` until the Korean
   side is had, `["ko", "en"]` after, empty before a document is filed; 「The page」), `narrations` (the
-  languages whose narration the page plays, Korean first), `fit`, `touches` (the hosts and repositories an advisory names), `plan`
+  languages whose narration the page plays, Korean first), `pending` (what the page still lacks before its
+  report is told: `korean` for its Korean side, `narration-ko` and `narration-en` for each narration its
+  script allows; empty where it lacks nothing), `pendingRetryAt` (when that is asked again, null where
+  nothing is pending), `fit`, `touches` (the hosts and repositories an advisory names), `plan`
   (the heading of the document's plan section, as the document holds it), `jobItemId` (the job item the
   chat agent filed for it), `error`, `foundAt`, `createdAt` and `changedAt`.
-- **Its states:** `waiting` until a run is asked for it; `running` while one is under way; `reported` once
-  its document is told to its category's recipients, or `fit` where the document asks the owner's word (「The fit」);
+- **Its states:** `waiting` until a run is asked for it; `running` while one is under way; `finishing` once
+  its run has filed its document and while its page is not yet whole, `pending` naming what it waits on and
+  nobody told of it yet (「The page」); `reported` once its whole page is told to its category's
+  recipients, or `fit` where the document asks the owner's word (「The fit」);
   `failed` after its last try; `taken` once the chat agent filed the work it calls for; `dismissed` on the
   owner's word. A dismissed item's key stays seen, so nothing turns it up again.
 - **The queue's order** is the order runs are taken in, within a category: `priority` from highest, then
@@ -273,7 +279,9 @@ the one to read.
   out under, its first answer's and each round's, by which its tool calls are read in agency's log).
 - **Its log** answers `items`, each `id`, `runId`, `at`, `kind` (`asked`, `seated`, `answer`, `round`,
   `branch`, `whole`, `narration`, `filed`, `told` or `ended`) and `text`, the run's own notes from the ask to
-  its end, and for a deep dive's run every narration sound the page was given or not, and why.
+  its end, and for a deep dive's run how its page was finished (「The page」): every narration sound the page
+  was given or not, and why, under `narration`; why its Korean side is pending, and what its report waits on
+  each time that changes, under `filed`; and when its report was told, under `told`.
 - **A branch** is asked with the token the run's record names, `run` (the run's id) and `angle`, and answered
   200 once it ends with `index` (counted from 1 per run), `state` (`completed`, `stopped` at research close,
   or `failed`), `notes` (what the branch wrote, empty where nothing) and `reason` (why, on `failed`; null
@@ -332,11 +340,13 @@ the one to read.
 - **A try the arbiter cut is not counted** (「The engine」); every other failed try is.
 - **A daemon that starts** closes every research run it left open as `cut` (`docs/runner.md`, 「A
   restart」), then takes up every try it left `running`: one with a run id is read again, and ends as a
-  cut run's try; one without puts its items back `waiting`.
-- **A filed document's page is finished** before it is told (「The page」): its items are filed `reported` or
-  `fit` first, read from the run's result as the ledger keeps it (`written`, drawn as the runner drew it), then
-  the Korean side and the narration are asked, the page drawn again with the Korean side, then the
-  recipients are told.
+  cut run's try; one without puts its items back `waiting`. A page it left `finishing`, or with a part
+  pending, is asked again on its retry wait as any pending page is (「The page」).
+- **A filed document's page is finished before it is told** (「The page」): its items are filed `finishing`
+  first, the page read from the run's result as the ledger keeps it (`written`, drawn as the runner drew
+  it), then its Korean side and its narrations are asked and the page drawn again with what was had. Once
+  the page is whole its items are `reported` or `fit` and the recipients are told; until then its pending
+  parts are asked again on every retry wait.
 
 ### The engine
 
@@ -452,25 +462,29 @@ search runner applies it, and the run writes its document in English, the questi
   with `role` `head`, the English as `narration-en.ogg` with no role. The page is then drawn again with its
   listen band referring to every sound attached by its name (`docs/runner.md`, 「The page」), and the
   archive plays them there. A sound already attached is not made again.
-- **A narration that cannot be made** — no script, no voice, a translation refused, a synthesis failed —
-  leaves the document without that sound and the notice says nothing of it; why is written into the run's log
-  under `narration`, the synthesis named with the length of the text it was asked to speak, and a missing
-  sound is asked once more, on the retry wait, beside the Korean side where that is pending too.
-- **What is pending is asked again** on the retry wait, `retry_minutes` after its last try, while its item
-  stands `reported`, `fit` or `taken`: the Korean side until `retries` retries are spent, after which the
-  English page stands alone, and a missing sound once. The tries are counted apart from the run's tries.
+- **A page is whole** once it holds its Korean side and every narration its result's script allows: both
+  sounds where the result has a `LISTEN:` script, none where it has none, so a page whose result has no
+  script is whole with its Korean side.
+- **A narration that cannot be made** — no voice, a translation refused, a synthesis failed — leaves the
+  document without that sound for now, and the sound is pending; why is written into the run's log under
+  `narration`, the synthesis named with the length of the text it was asked to speak.
+- **What is pending is asked again on every retry wait,** `retry_minutes` after its last try, until it is
+  had, while its item stands `finishing`, `reported`, `fit` or `taken`: the Korean side and each missing
+  sound alike, and no count of tries ends it. A try that fails waits for the next; nothing a page lacks is
+  given up on. A page whose try is still under way when its wait ends — a narration still waiting for its
+  synthesis — is not asked a second time beside it, and its next wait runs from that try's end. A dismissed
+  item's page is no longer asked. The tries are counted apart from the run's tries.
 
 ### The notices
 
-- **Every recipient of the category is told every notice:** a report, with the words
-  `prompts/report.toml` holds as `line`, the Korean title, the first sentence of the Korean description and
-  the document's one share link set in; or a failed try's last, `failed`, with the name and the tries set in.
-  The narration is never named.
-- **A report whose Korean side is pending** is told with `line` naming the English title and description
-  and the same link, then `pending`. Once the Korean side is had on a later try, every recipient is told a
-  follow-up under the same kind, so the receiver replaces the report where it still waits: `translated`, the
-  Korean title and the same link set in, and for a `fit` item the lines that act on it below. A Korean side
-  no longer asked leaves the English line alone.
+- **Every recipient of the category is told every notice:** a report, once the item's page is whole (「The
+  page」), with the words `prompts/report.toml` holds as `line`, the Korean title, the first sentence of the
+  Korean description and the document's one share link set in; or a failed try's last, `failed`, with the
+  name and the tries set in. The narration is never named.
+- **A report is told once, whole.** While its page lacks a part, its recipients hear nothing of the item:
+  it stands `finishing`, its `pending` naming what it waits on, and its run's log says the same under
+  `filed`. The report goes out on the try that makes the page whole, the run's log saying so under `told`.
+  A page whose report was already told is not told again when a part it lacked is had later.
 - **A room** is told with the receiver's `POST /instructions`: `room`, `sort` `notice`, `kind`
   `research-report:<itemId>` (a brief's first item), `said` `{"order": "<the notice>"}` and `summary`.
 - **An agent** is told with agency's `POST /sessions/<agentName>@worker/turns`, the notice as `prompt`.

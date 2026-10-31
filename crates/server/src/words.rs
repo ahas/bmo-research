@@ -47,8 +47,6 @@ const RULEBOOKS: &[(&str, &str)] = &[
 #[serde(deny_unknown_fields)]
 pub struct ReportWords {
   pub line: String,
-  pub pending: String,
-  pub translated: String,
   pub fit: String,
   pub touches: String,
   pub name: String,

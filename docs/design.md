@@ -263,12 +263,12 @@ take; so its own area stays the research and the measurement, however many categ
 - **The page is heard as well as read.** The run's narration script is spoken by the platform's voice unit:
   in Korean, translated through the same route with a note that it is a spoken narration, as the sound the
   archive plays at the document's head, and in English as it was written, kept beside it; the page's listen
-  band plays the sound of the language shown. A narration that cannot be made leaves the page without it,
-  and the daemon tries it once more on its retry wait; nobody is told of it.
-- **A translation that cannot be had** (no road carries the translate line, a part refused as too long after
-  cutting) leaves the page in English and the notice with a line saying the Korean side is pending; the daemon
-  tries again on its retry wait, draws the page again with the Korean side once it has it, and tells the
-  recipients that the same link now reads in Korean.
+  band plays the sound of the language shown.
+- **A report is told only once its page is whole:** its Korean side had and every narration its script
+  allows attached. A translation that cannot be had (no road carries the translate line, a part refused as
+  too long after cutting) or a narration that cannot be made leaves that part pending, and the daemon asks
+  it again on every retry wait until it has it; no count of tries gives it up. Until then the recipients
+  hear nothing of the item, and its state in the queue says what it waits on.
 
 ## Reports and rooms
 

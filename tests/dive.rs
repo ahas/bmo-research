@@ -2,17 +2,20 @@
 //! deep dive」, 「The page」 and 「The notices」): the bodies each unit is asked with, the retries, the failure
 //! told once, a result short of its shape asked again whole and never filed short, a final answer in two
 //! text blocks filed whole, the one page with both languages and its switch, the narration's sounds, a
-//! missing one logged and retried, a synthesis waited on however long with its reasons logged, and a long
-//! script cut to what the voice speaks, the pending Korean side drawn into the same page and its follow-up,
-//! an advisory's parts to the workers of its repositories, and a brief's gathering with its facts. The filed documents are composed from the English words
-//! `prompts/document.toml` holds, so this file holds none of them.
+//! missing one logged and asked again on every retry wait, a synthesis waited on however long with its
+//! reasons logged, and a long script cut to what the voice speaks, the pending Korean side drawn into the
+//! same page, the report held until the page is whole and told once, across a restart too, an advisory's
+//! parts to the workers of its repositories, and a brief's gathering with its facts. The filed documents are
+//! composed from the English words `prompts/document.toml` holds, so this file holds none of them.
+
 mod support;
 
 use bmo_research_client::{ItemState, NewStackRow, RecipientKind, ResearchRunState, Running, Shape};
+use research_server::App;
 use research_server::dive::{VOICE_MOST_CHARACTERS, give_owner_room, speakable, take_up, tick};
 use research_server::document::{draw, page_body};
 use research_server::runner::narration_script;
-use research_server::store::{NewResearchRun, now_ms};
+use research_server::store::{NewResearchRun, Store, now_ms};
 use research_server::translation::{cut, narration_note, note};
 use research_server::words;
 use serde_json::Value;
@@ -253,7 +256,6 @@ async fn a_report_s_korean_side_is_drawn_into_the_same_page_with_a_switch_and_to
     order.starts_with(&format!("{korean_title} — {KO}It is a thing. https://share.example/d501")),
     "{order}"
   );
-  assert!(!order.contains(&words::report().pending));
   assert!(order.contains(&words::report().fit));
 
   let rendered = ground.app.store.item(item.id).unwrap();
@@ -379,8 +381,27 @@ async fn a_result_carrying_its_narration_asks_for_none() {
   assert_eq!(ground.spoken(), [translated(SCRIPT), SCRIPT.to_string()]);
 }
 
+/// The lines the first run's log holds under `kind`.
+fn logged(ground: &Ground, kind: &str) -> Vec<String> {
+  ground
+    .app
+    .store
+    .research_log(1)
+    .unwrap()
+    .into_iter()
+    .filter(|line| line.kind == kind)
+    .map(|line| line.text)
+    .collect()
+}
+
+/// How many of the `it` category's items are finishing, as the state answers it.
+fn finishing(ground: &Ground) -> i64 {
+  let state = ground.app.store.daemon_state().unwrap();
+  state.categories.iter().find(|c| c.category_name == "it").unwrap().finishing_count
+}
+
 #[tokio::test]
-async fn a_narration_that_cannot_be_made_leaves_the_page_filed_and_is_asked_once_more() {
+async fn a_report_waits_while_a_narration_is_pending_and_is_told_once_it_is_attached() {
   let ground = support::ground(|s| s.retry_minutes = 0).await;
   give_owner_room(&ground.app).await;
   let item = ground
@@ -398,18 +419,25 @@ async fn a_narration_that_cannot_be_made_leaves_the_page_filed_and_is_asked_once
   assert_eq!(rewrites.len(), 1, "drawn again with its Korean side");
   assert!(!rewrites[0]["html"].as_str().unwrap().contains("<audio"));
   assert!(ground.world.lock().unwrap().attachments.is_empty());
-  let filed = ground.app.store.item(item.id).unwrap();
+  let waiting = ground.app.store.item(item.id).unwrap();
   assert_eq!(
-    (filed.state, filed.languages.clone()),
-    (ItemState::Fit, vec!["ko".to_string(), "en".to_string()])
+    (waiting.state, waiting.languages.clone()),
+    (ItemState::Finishing, vec!["ko".to_string(), "en".to_string()])
   );
-  assert!(filed.narrations.is_empty());
-  let state = ground.app.store.page_state(item.id).unwrap();
-  assert_eq!(state.narration_tries, 1);
-  assert!(state.retry_at.is_some(), "the narration is asked once more");
-  let told = orders(&ground);
-  assert_eq!(told.len(), 1);
-  assert!(!told[0]["said"]["order"].as_str().unwrap().contains(&words::report().pending));
+  assert!(waiting.narrations.is_empty());
+  assert_eq!(waiting.pending, ["narration-ko", "narration-en"]);
+  assert!(waiting.pending_retry_at.is_some(), "the narrations are asked again");
+  assert_eq!(finishing(&ground), 1);
+  assert!(orders(&ground).is_empty(), "nobody is told while a narration is pending");
+  assert!(ground.app.store.reports(item.id).unwrap().is_empty());
+  let waits = logged(&ground, "filed");
+  assert!(
+    waits
+      .iter()
+      .any(|text| text.contains("waits") && text.contains("the ko narration and the en narration")),
+    "the run's log says what the report waits on: {waits:?}"
+  );
+  assert!(logged(&ground, "told").is_empty());
 
   ground.world.lock().unwrap().voice_failing = false;
   settle(&ground).await;
@@ -422,18 +450,37 @@ async fn a_narration_that_cannot_be_made_leaves_the_page_filed_and_is_asked_once
   let attached: Vec<String> =
     ground.world.lock().unwrap().attachments.iter().map(|a| a.name.clone()).collect();
   assert_eq!(attached, ["narration-ko.ogg", "narration-en.ogg"]);
-  assert_eq!(ground.app.store.item(item.id).unwrap().narrations, ["ko", "en"]);
+  let told = ground.app.store.item(item.id).unwrap();
+  assert_eq!(told.narrations, ["ko", "en"]);
+  assert_eq!(
+    (told.state, told.pending.is_empty(), told.pending_retry_at),
+    (ItemState::Fit, true, None)
+  );
+  assert_eq!(finishing(&ground), 0);
   let state = ground.app.store.page_state(item.id).unwrap();
   assert_eq!((state.narration_tries, state.translation_tries, state.retry_at), (2, 1, None));
-  assert_eq!(orders(&ground).len(), 1, "nobody is told of a narration");
+  let said = orders(&ground);
+  assert_eq!(said.len(), 1, "the report is told once the page is whole");
+  assert_eq!(said[0]["kind"], format!("research-report:{}", item.id));
+  let order = said[0]["said"]["order"].as_str().unwrap();
+  assert!(
+    order.starts_with(&format!("{KO}Report 501 — {KO}It is a thing. https://share.example/d501")),
+    "{order}"
+  );
+  assert!(
+    !order.contains("narration-") && !order.contains(SCRIPT),
+    "the notice says nothing of it"
+  );
+  assert_eq!(logged(&ground, "told").len(), 1, "the run's log says when it was told");
 
   settle(&ground).await;
   assert_eq!(ground.rewrites(501).len(), 2, "nothing more is asked");
   assert_eq!(ground.world.lock().unwrap().attachments.len(), 2, "no sound is made again");
+  assert_eq!(orders(&ground).len(), 1, "a report is told once");
 }
 
 #[tokio::test]
-async fn a_narration_failing_twice_is_no_longer_asked() {
+async fn a_failing_narration_is_asked_again_on_every_retry_wait_until_it_is_made() {
   let ground = support::ground(|s| s.retry_minutes = 0).await;
   give_owner_room(&ground.app).await;
   let item = ground
@@ -444,14 +491,31 @@ async fn a_narration_failing_twice_is_no_longer_asked() {
   file(&ground, 1, 501, narrated(manual_document()));
   ground.world.lock().unwrap().voice_failing = true;
 
-  for _ in 0..4 {
+  for _ in 0..3 {
     settle(&ground).await;
   }
 
-  assert_eq!(ground.spoken().len(), 4, "each language twice");
+  assert_eq!(ground.spoken().len(), 6, "each language on every try, the third among them");
   let state = ground.app.store.page_state(item.id).unwrap();
-  assert_eq!((state.narration_tries, state.retry_at), (2, None));
+  assert_eq!(state.narration_tries, 3);
+  assert!(state.retry_at.is_some(), "no count of tries gives it up");
+  assert_eq!(ground.app.store.item(item.id).unwrap().state, ItemState::Finishing);
   assert_eq!(ground.rewrites(501).len(), 1, "the Korean side alone");
+  assert!(orders(&ground).is_empty());
+  let waits: Vec<String> = logged(&ground, "filed").into_iter().filter(|t| t.contains("waits")).collect();
+  assert_eq!(waits.len(), 1, "what it waits on is said once while it stands: {waits:?}");
+
+  ground.world.lock().unwrap().voice_failing = false;
+  settle(&ground).await;
+
+  assert_eq!(ground.spoken().len(), 8);
+  let told = ground.app.store.item(item.id).unwrap();
+  assert_eq!(
+    (told.state, told.narrations.clone()),
+    (ItemState::Fit, vec!["ko".to_string(), "en".to_string()])
+  );
+  assert_eq!(ground.app.store.page_state(item.id).unwrap().narration_tries, 4);
+  assert_eq!(orders(&ground).len(), 1);
 }
 
 #[tokio::test]
@@ -471,21 +535,19 @@ async fn a_missing_english_sound_is_logged_and_retried_on_the_retry_wait() {
   let attached: Vec<String> =
     ground.world.lock().unwrap().attachments.iter().map(|a| a.name.clone()).collect();
   assert_eq!(attached, ["narration-ko.ogg"], "the Korean sound alone");
-  assert_eq!(ground.app.store.item(item.id).unwrap().narrations, ["ko"]);
+  let waiting = ground.app.store.item(item.id).unwrap();
+  assert_eq!(waiting.narrations, ["ko"]);
+  assert_eq!(
+    (waiting.state, waiting.pending.clone()),
+    (ItemState::Finishing, vec!["narration-en".to_string()])
+  );
   let state = ground.app.store.page_state(item.id).unwrap();
   assert_eq!(state.narration_tries, 1);
-  assert!(state.retry_at.is_some(), "the English sound is asked once more");
-  let logged: Vec<String> = ground
-    .app
-    .store
-    .research_log(1)
-    .unwrap()
-    .into_iter()
-    .filter(|line| line.kind == "narration")
-    .map(|line| line.text)
-    .collect();
-  let failed = logged.iter().find(|text| text.contains("en narration was not made"));
-  let said = failed.unwrap_or_else(|| panic!("the run's log says why: {logged:?}"));
+  assert!(state.retry_at.is_some(), "the English sound is asked again");
+  assert!(orders(&ground).is_empty(), "the report waits for the English sound");
+  let narrated = logged(&ground, "narration");
+  let failed = narrated.iter().find(|text| text.contains("en narration was not made"));
+  let said = failed.unwrap_or_else(|| panic!("the run's log says why: {narrated:?}"));
   let size = SCRIPT.chars().count().to_string();
   assert!(said.contains(&size), "the synthesis is named with its text's length: {said}");
 
@@ -499,6 +561,39 @@ async fn a_missing_english_sound_is_logged_and_retried_on_the_retry_wait() {
   assert_eq!(ground.spoken().iter().filter(|text| text.as_str() == SCRIPT).count(), 2);
   let state = ground.app.store.page_state(item.id).unwrap();
   assert_eq!((state.narration_tries, state.retry_at), (2, None));
+  assert_eq!(orders(&ground).len(), 1);
+}
+
+#[tokio::test]
+async fn a_page_a_stopped_daemon_left_finishing_is_finished_and_told_by_the_next() {
+  let ground = support::ground(|s| s.retry_minutes = 0).await;
+  give_owner_room(&ground.app).await;
+  let item = ground
+    .app
+    .store
+    .ask("it", "example.org/thing", "Thing-7B", "https://example.org/thing", Shape::Manual)
+    .unwrap();
+  file(&ground, 1, 501, narrated(manual_document()));
+  ground.world.lock().unwrap().voice_failing = true;
+  settle(&ground).await;
+  assert_eq!(ground.app.store.item(item.id).unwrap().state, ItemState::Finishing);
+  ground.world.lock().unwrap().voice_failing = false;
+
+  let settings = (*ground.app.settings).clone();
+  let store = Store::open(&settings.store_dir()).unwrap();
+  let next = App::new(settings, store, "test-token".into());
+  take_up(&next);
+  for handle in tick(&next).await {
+    handle.await.unwrap();
+  }
+
+  let told = next.store.item(item.id).unwrap();
+  assert_eq!(
+    (told.state, told.narrations.clone()),
+    (ItemState::Fit, vec!["ko".to_string(), "en".to_string()])
+  );
+  assert_eq!(ground.run_seats().len(), 1, "the run is not asked again");
+  assert_eq!(orders(&ground).len(), 1);
 }
 
 #[tokio::test]
@@ -821,8 +916,7 @@ async fn a_description_that_is_the_item_s_name_stands_untranslated_on_the_korean
 }
 
 #[tokio::test]
-async fn a_korean_side_no_road_carries_is_pending_and_its_retry_draws_the_same_page_and_sends_the_follow_up()
- {
+async fn a_korean_side_no_road_carries_holds_the_report_until_a_retry_draws_it_into_the_same_page() {
   let ground = support::ground(|s| s.retry_minutes = 0).await;
   give_owner_room(&ground.app).await;
   let item = ground
@@ -836,18 +930,20 @@ async fn a_korean_side_no_road_carries_is_pending_and_its_retry_draws_the_same_p
 
   settle(&ground).await;
 
-  let told = orders(&ground);
-  assert_eq!(told.len(), 1);
-  let order = told[0]["said"]["order"].as_str().unwrap();
-  assert!(order.starts_with("Report 501 — It is a thing. https://share.example/d501"), "{order}");
-  assert!(order.contains(&report.pending) && order.contains(&report.fit), "{order}");
-  assert!(!order.contains(KO));
+  assert!(orders(&ground).is_empty(), "nobody is told while the Korean side is pending");
   let pending = ground.app.store.item(item.id).unwrap();
-  assert_eq!((pending.state, pending.languages.clone()), (ItemState::Fit, vec!["en".to_string()]));
+  assert_eq!(
+    (pending.state, pending.languages.clone()),
+    (ItemState::Finishing, vec!["en".to_string()])
+  );
+  assert_eq!(pending.pending, ["korean"], "a result with no script waits for no narration");
   let state = ground.app.store.page_state(item.id).unwrap();
   assert_eq!(state.translation_tries, 1);
   assert!(state.retry_at.is_some());
   assert!(ground.rewrites(501).is_empty(), "the English page stands alone");
+  let filed = logged(&ground, "filed");
+  assert!(filed.iter().any(|text| text.starts_with("The Korean side is pending:")), "{filed:?}");
+  assert!(filed.iter().any(|text| text.contains("lacks the Korean side")), "{filed:?}");
 
   settle(&ground).await;
 
@@ -857,29 +953,32 @@ async fn a_korean_side_no_road_carries_is_pending_and_its_retry_draws_the_same_p
   assert_eq!(rewrites.len(), 1, "the same document is drawn again");
   assert_eq!(rewrites[0]["labels"]["languages"], "ko,en");
   let told = orders(&ground);
-  assert_eq!(told.len(), 2);
-  assert_eq!(told[1]["kind"], format!("research-report:{}", item.id), "the same kind replaces it");
-  let follow = told[1]["said"]["order"].as_str().unwrap();
-  let expected = words::fill(
-    &report.translated,
-    &[("title", &format!("{KO}Report 501")), ("link", "https://share.example/d501")],
+  assert_eq!(told.len(), 1, "the report is told once its page is whole");
+  assert_eq!(told[0]["kind"], format!("research-report:{}", item.id));
+  let order = told[0]["said"]["order"].as_str().unwrap();
+  assert!(
+    order.starts_with(&format!("{KO}Report 501 — {KO}It is a thing. https://share.example/d501")),
+    "{order}"
   );
-  assert!(follow.starts_with(&expected), "{follow}");
-  assert_eq!(follow.matches("https://").count(), 1, "one link: {follow}");
-  assert!(follow.contains(&report.fit), "a fit item's follow-up keeps what acts on it: {follow}");
+  assert_eq!(order.matches("https://").count(), 1, "one link: {order}");
+  assert!(order.contains(&report.fit), "a fit item's report keeps what acts on it: {order}");
   let rendered = ground.app.store.item(item.id).unwrap();
-  assert_eq!(rendered.languages, ["ko", "en"]);
+  assert_eq!(
+    (rendered.state, rendered.languages.clone()),
+    (ItemState::Fit, vec!["ko".to_string(), "en".to_string()])
+  );
+  assert!(rendered.pending.is_empty());
   let state = ground.app.store.page_state(item.id).unwrap();
   assert_eq!((state.translation_tries, state.retry_at), (2, None));
   let reports = ground.app.store.reports(item.id).unwrap();
-  assert!(reports.contains(&("room:7".into(), "translated".into(), "sent".into())));
+  assert_eq!(reports, [("room:7".to_string(), "report".to_string(), "sent".to_string())]);
 
   settle(&ground).await;
-  assert_eq!(orders(&ground).len(), 2, "a Korean side is told once");
+  assert_eq!(orders(&ground).len(), 1, "a report is told once");
 }
 
 #[tokio::test]
-async fn a_rendering_still_failing_after_its_retries_is_no_longer_asked() {
+async fn a_korean_side_failing_past_the_retries_is_still_asked_on_every_retry_wait() {
   let ground = support::ground(|s| {
     s.retry_minutes = 0;
     s.retries = 1;
@@ -892,18 +991,33 @@ async fn a_rendering_still_failing_after_its_retries_is_no_longer_asked() {
     .ask("it", "example.org/n", "N", "https://example.org/n", Shape::Investigation)
     .unwrap();
   file(&ground, 1, 70, format!("# N\n\n## {}\n\nIt is a thing.\n", answer_heading()));
-  ground.world.lock().unwrap().translation_answers.extend([503, 503]);
+  ground.world.lock().unwrap().translation_answers.extend([503, 503, 503]);
 
-  for _ in 0..4 {
+  for _ in 0..3 {
     settle(&ground).await;
   }
 
-  assert_eq!(translations(&ground).len(), 2, "the first try and one retry");
+  assert_eq!(translations(&ground).len(), 3, "the first try and every retry, past `retries`");
   let state = ground.app.store.page_state(item.id).unwrap();
-  assert_eq!((state.translation_tries, state.retry_at), (2, None));
-  assert_eq!(orders(&ground).len(), 1, "no follow-up");
-  assert_eq!(ground.app.store.item(item.id).unwrap().languages, ["en"]);
+  assert_eq!(state.translation_tries, 3);
+  assert!(state.retry_at.is_some(), "it is not given up");
+  assert!(orders(&ground).is_empty());
+  let waiting = ground.app.store.item(item.id).unwrap();
+  assert_eq!(
+    (waiting.state, waiting.languages.clone()),
+    (ItemState::Finishing, vec!["en".to_string()])
+  );
   assert!(ground.rewrites(70).is_empty());
+
+  settle(&ground).await;
+
+  let told = ground.app.store.item(item.id).unwrap();
+  assert_eq!(
+    (told.state, told.languages.clone()),
+    (ItemState::Reported, vec!["ko".to_string(), "en".to_string()])
+  );
+  assert_eq!(ground.rewrites(70).len(), 1);
+  assert_eq!(orders(&ground).len(), 1);
 }
 
 #[tokio::test]

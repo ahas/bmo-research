@@ -33,6 +33,8 @@ pub struct App {
   pub token: String,
   /// The tries waiting for their engine's card.
   pub waits: engine::Waits,
+  /// The pages being finished now.
+  pub pages: dive::Pages,
 }
 
 impl App {
@@ -49,6 +51,7 @@ impl App {
       http,
       token,
       waits: engine::Waits::default(),
+      pages: dive::Pages::default(),
     })
   }
 }

@@ -23,7 +23,9 @@ use crate::translation::Rendering;
 /// document filed before it holding English alone and lacking nothing it can be given; the fifth keeps what
 /// the readings left on each source: how many were made, and what the last that succeeded turned up and kept;
 /// the sixth holds a `page` source's link pattern and strategy; the seventh keeps the arbiter demands the daemon
-/// holds and takes the fit's node list away.
+/// holds and takes the fit's node list away; the eighth keeps what a page still lacks before its report is
+/// told, stands an item whose page was being finished and whose report was never told `finishing`, and sets
+/// every page finished since the fourth that still lacks a part due on the retry wait.
 const MIGRATIONS: &[&str] = &[
   "
   create table categories (
@@ -127,6 +129,16 @@ const MIGRATIONS: &[&str] = &[
     id integer primary key, try_id integer, run_id integer, within integer, service text not null,
     asked_at integer not null);
 ",
+  "
+  alter table queue add column pending text not null default '[]';
+  update queue set state = 'finishing'
+    where state in ('reported', 'fit') and pending_retry_at is not null
+      and not exists (select 1 from reports where reports.item_id = queue.id);
+  update queue set pending_retry_at = 0
+    where state in ('reported', 'fit', 'taken') and document_id is not null and pending_retry_at is null
+      and (translation_tries > 0 or narration_tries > 0)
+      and (languages <> '[\"ko\",\"en\"]' or narrations <> '[\"ko\",\"en\"]');
+",
 ];
 
 /// The schema version this binary holds.
@@ -146,7 +158,7 @@ const CATEGORY_COLUMNS: &str = "name, purpose, shape, cap, cadence_minutes, gath
 const ITEM_COLUMNS: &str =
   "id, category, key, name, maker, address, kind, shape, source_id, asked, priority,
   state, tries, retry_at, run_id, document_id, title, description, share_url, fit, touches, plan,
-  job_item_id, error, found_at, created_at, changed_at, languages, narrations";
+  job_item_id, error, found_at, created_at, changed_at, languages, narrations, pending, pending_retry_at";
 
 const SOURCE_COLUMNS: &str =
   "id, category, kind, address, query, require, exclude, every_minutes, item_limit,
@@ -205,6 +217,7 @@ pub struct Filed {
 pub struct PageState {
   pub languages: Vec<String>,
   pub narrations: Vec<String>,
+  pub pending: Vec<String>,
   pub translation_tries: i64,
   pub narration_tries: i64,
   pub retry_at: Option<i64>,
@@ -473,6 +486,7 @@ impl Store {
         state: c.state,
         waiting_count: count(&c.name, "waiting")?,
         running_count: count(&c.name, "running")?,
+        finishing_count: count(&c.name, "finishing")?,
         cap: c.cap,
       });
     }
@@ -980,17 +994,18 @@ impl Store {
     Ok(moved)
   }
 
-  /// A try that filed its document: the item `reported` or `fit`. Answers whether it was still running.
-  pub fn file(&self, item_id: i64, filed: &Filed) -> Result<bool, String> {
+  /// A try that filed its document: the item `finishing` until its page is whole, what its page lacks asked
+  /// at `retry_at` where the daemon does not finish it first. Answers whether it was still running.
+  pub fn file(&self, item_id: i64, filed: &Filed, retry_at: Option<i64>) -> Result<bool, String> {
     let n = self
       .lock()
       .execute(
-        "update queue set state = ?2, document_id = ?3, title = ?4, description = ?5, share_url = ?6, fit = ?7,
-           touches = ?8, plan = ?9, error = null, languages = '[\"en\"]', narrations = '[]', changed_at = ?10
+        "update queue set state = 'finishing', document_id = ?2, title = ?3, description = ?4, share_url = ?5,
+           fit = ?6, touches = ?7, plan = ?8, error = null, languages = '[\"en\"]', narrations = '[]',
+           pending = '[]', pending_retry_at = ?10, changed_at = ?9
          where id = ?1 and state = 'running'",
         params![
           item_id,
-          if filed.fit { "fit" } else { "reported" },
           filed.document_id,
           filed.title,
           filed.description,
@@ -998,7 +1013,8 @@ impl Store {
           filed.fit,
           filed.touches,
           filed.plan,
-          now_ms()
+          now_ms(),
+          retry_at
         ],
       )
       .map_err(|e| e.to_string())?;
@@ -1025,24 +1041,27 @@ impl Store {
     self.page_state(item_id)
   }
 
-  /// How an item's page stands: the languages and narrations it holds, the tries asked of each, and when
-  /// what it lacks is asked again.
+  /// How an item's page stands: the languages and narrations it holds, what it was last found lacking, the
+  /// tries asked of each, and when what it lacks is asked again.
   pub fn page_state(&self, item_id: i64) -> Result<PageState, String> {
     self
       .lock()
       .query_row(
-        "select languages, narrations, translation_tries, narration_tries, pending_retry_at from queue
+        "select languages, narrations, translation_tries, narration_tries, pending_retry_at, pending from queue
          where id = ?1",
         params![item_id],
         |r| {
           let languages: String = r.get(0)?;
           let narrations: String = r.get(1)?;
+          let pending: String = r.get(5)?;
           Ok(PageState {
             languages: serde_json::from_str(&languages).unwrap_or_default(),
             narrations: serde_json::from_str(&narrations).unwrap_or_default(),
+            pending: serde_json::from_str(&pending).unwrap_or_default(),
             translation_tries: r.get(2)?,
             narration_tries: r.get(3)?,
             retry_at: r.get(4)?,
+
           })
         },
       )
@@ -1099,22 +1118,48 @@ impl Store {
       .map_err(|e| e.to_string())
   }
 
-  /// When what an item's page lacks is asked again, or none where nothing more is asked.
-  pub fn pend_page(&self, item_id: i64, retry_at: Option<i64>) -> Result<(), String> {
+  /// What an item's page still lacks, and when it is asked again, or none where it lacks nothing.
+  pub fn pend_page(&self, item_id: i64, pending: &[String], retry_at: Option<i64>) -> Result<(), String> {
     self
       .lock()
-      .execute("update queue set pending_retry_at = ?2 where id = ?1", params![item_id, retry_at])
+      .execute(
+        "update queue set pending = ?2, pending_retry_at = ?3 where id = ?1",
+        params![item_id, words_json(pending), retry_at],
+      )
       .map(|_| ())
       .map_err(|e| e.to_string())
   }
 
-  /// The items whose page's pending part is due, while they stand reported, fit or taken.
+  /// A whole page's report about to be told: every item its document was filed for that stands
+  /// `finishing` is `reported`, or `fit` where its document asks the owner's word. Answers whether `item_id`
+  /// was among them, so a report is told once and a dismissed item's not at all.
+  pub fn finished(&self, item_id: i64, document_id: i64) -> Result<bool, String> {
+    let mut conn = self.lock();
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    let finishing: bool = tx
+      .query_row(
+        "select exists (select 1 from queue where id = ?1 and state = 'finishing')",
+        params![item_id],
+        |r| r.get(0),
+      )
+      .map_err(|e| e.to_string())?;
+    tx.execute(
+      "update queue set state = case when fit then 'fit' else 'reported' end, changed_at = ?2
+       where document_id = ?1 and state = 'finishing'",
+      params![document_id, now_ms()],
+    )
+    .map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(finishing)
+  }
+
+  /// The items whose page's pending part is due, while they stand finishing, reported, fit or taken.
   pub fn pages_due(&self, now: i64) -> Result<Vec<Item>, String> {
     let conn = self.lock();
     let mut stmt = conn
       .prepare(&format!(
         "select {ITEM_COLUMNS} from queue where pending_retry_at is not null and pending_retry_at <= ?1
-           and state in ('reported', 'fit', 'taken') order by pending_retry_at, id"
+           and state in ('finishing', 'reported', 'fit', 'taken') order by pending_retry_at, id"
       ))
       .map_err(|e| e.to_string())?;
     stmt
@@ -1868,6 +1913,7 @@ fn read_item(r: &rusqlite::Row<'_>) -> rusqlite::Result<Item> {
   let state: String = r.get(11)?;
   let languages: String = r.get(27)?;
   let narrations: String = r.get(28)?;
+  let pending: String = r.get(29)?;
   Ok(Item {
     id: r.get(0)?,
     category_name: r.get(1)?,
@@ -1898,6 +1944,8 @@ fn read_item(r: &rusqlite::Row<'_>) -> rusqlite::Result<Item> {
     changed_at: r.get(26)?,
     languages: serde_json::from_str(&languages).unwrap_or_default(),
     narrations: serde_json::from_str(&narrations).unwrap_or_default(),
+    pending: serde_json::from_str(&pending).unwrap_or_default(),
+    pending_retry_at: r.get(30)?,
   })
 }
 

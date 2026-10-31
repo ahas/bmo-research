@@ -62,6 +62,8 @@ pub struct CategoryState {
   pub state: Running,
   pub waiting_count: i64,
   pub running_count: i64,
+  /// its items whose page is finished before they are told
+  pub finishing_count: i64,
   pub cap: i64,
 }
 
@@ -429,6 +431,7 @@ impl Shape {
 pub enum ItemState {
   Waiting,
   Running,
+  Finishing,
   Reported,
   Fit,
   Failed,
@@ -437,9 +440,10 @@ pub enum ItemState {
 }
 
 impl ItemState {
-  pub const ALL: [ItemState; 7] = [
+  pub const ALL: [ItemState; 8] = [
     ItemState::Waiting,
     ItemState::Running,
+    ItemState::Finishing,
     ItemState::Reported,
     ItemState::Fit,
     ItemState::Failed,
@@ -451,6 +455,7 @@ impl ItemState {
     match self {
       ItemState::Waiting => "waiting",
       ItemState::Running => "running",
+      ItemState::Finishing => "finishing",
       ItemState::Reported => "reported",
       ItemState::Fit => "fit",
       ItemState::Failed => "failed",
@@ -495,6 +500,12 @@ pub struct Item {
   pub languages: Vec<String>,
   /// the languages whose narration the document's page plays, Korean first
   pub narrations: Vec<String>,
+  /// what the document's page still lacks before its report is told: `korean`, `narration-ko`,
+  /// `narration-en`; empty where it lacks nothing
+  pub pending: Vec<String>,
+  /// when what the page lacks is asked again, or none where nothing is pending
+  pub pending_retry_at: Option<i64>,
+
   pub fit: bool,
   /// the repositories and hosts an advisory touches
   pub touches: Option<String>,

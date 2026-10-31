@@ -1,14 +1,15 @@
 //! The deep dive and its notices (`docs/api.md`, 「The deep dive」, 「The page」 and 「The notices」): the next
 //! run picked among the running categories, its engine's card waited for where its road is watched, asked of
 //! the runner, read until it closes, its result read and its items filed, its page finished with its Korean
-//! side and its narration, and every recipient told; what a page still lacks asked again on the retry wait and
-//! its follow-up told; a try the arbiter cut put back uncounted.
+//! side and its narrations, and every recipient told once the page is whole; what a page still lacks asked
+//! again on every retry wait until it is had; a try the arbiter cut put back uncounted.
 
-use std::sync::Arc;
+use std::collections::HashSet;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use bmo_research_client::{
-  Category, CategoryShape, Item, RecipientKind, ResearchRunAsk, ResearchRunState, Running, Shape,
+  Category, CategoryShape, Item, ItemState, RecipientKind, ResearchRunAsk, ResearchRunState, Running, Shape,
 };
 use serde_json::{Value, json};
 use tokio::task::JoinHandle;
@@ -24,22 +25,62 @@ use crate::store::{Filed, now_ms};
 use crate::translation::{self, English, Rendering};
 use crate::words::{self, fill};
 
-/// How often a missing narration is asked: once, and once more on the retry wait.
-const NARRATION_TRIES: i64 = 2;
-
 /// The most characters the voice unit speaks in one text; it refuses a longer one.
 pub const VOICE_MOST_CHARACTERS: usize = 4_000;
 
 /// The languages a page may hold, in the order it shows them.
 const LANGUAGES: [&str; 2] = ["ko", "en"];
 
-/// How an item's page's Korean side stands as its report is told: had, pending a later try, or no longer
-/// asked.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Korean {
-  Filed(Rendering),
-  Pending,
-  Unavailable,
+/// The name the queue gives a page's pending Korean side; a pending narration is named `narration-<code>`.
+const KOREAN: &str = "korean";
+
+/// The pages being finished now, by their item, so a page whose finishing outlasts its retry wait is not
+/// asked a second time beside it.
+#[derive(Debug, Default)]
+pub struct Pages(Mutex<HashSet<i64>>);
+
+impl Pages {
+  /// The item's page held for finishing, or none where it is being finished already.
+  fn hold(&self, item: i64) -> Option<PageHold<'_>> {
+    let taken = self.0.lock().unwrap_or_else(|e| e.into_inner()).insert(item);
+    taken.then_some(PageHold { pages: self, item })
+  }
+}
+
+/// A page held for finishing, given back as it is dropped.
+struct PageHold<'a> {
+  pages: &'a Pages,
+  item: i64,
+}
+
+impl Drop for PageHold<'_> {
+  fn drop(&mut self) {
+    self.pages.0.lock().unwrap_or_else(|e| e.into_inner()).remove(&self.item);
+  }
+}
+
+/// How an item's page stands once it is finished as far as it can be now: its Korean side where it is had,
+/// what it still lacks, whole where that is nothing, and whether that changed on this call.
+struct Finished {
+  korean: Option<Rendering>,
+  pending: Vec<String>,
+  changed: bool,
+}
+
+/// What a page lacks, as the run's log says it.
+fn lacking_said(pending: &[String]) -> String {
+  let parts: Vec<String> = pending
+    .iter()
+    .map(|part| match part.strip_prefix("narration-") {
+      Some(code) => format!("the {code} narration"),
+      None => "the Korean side".to_string(),
+    })
+    .collect();
+  match parts.split_last() {
+    Some((last, [])) => last.clone(),
+    Some((last, rest)) => format!("{} and {last}", rest.join(", ")),
+    None => String::new(),
+  }
 }
 
 /// What a deep dive's page is drawn from: the run's result as the runner drew it, the page's English title and
@@ -329,7 +370,7 @@ async fn carried(app: Arc<App>, run: i64, asked: Option<i64>) {
       filed.plan = read.plan;
     }
     Shape::Advisory => {
-      exposure = reading::exposure(&content, &words::document().advisory);
+      exposure = exposure_of(&lead, &source);
       filed.fit = !exposure.touches.is_empty();
       filed.touches = exposure.summary();
       filed.plan = exposure.plan.clone();
@@ -349,15 +390,32 @@ async fn carried(app: Arc<App>, run: i64, asked: Option<i64>) {
     }
     Shape::Investigation => {}
   }
-  let mut told = false;
+  let retry_at = now_ms() + app.settings.retry_minutes * 60_000;
+  let mut finishing = false;
   for item in &items {
-    if app.store.file(item.id, &filed).unwrap_or(false) && item.id == lead.id {
-      told = true;
+    let retry = (item.id == lead.id).then_some(retry_at);
+    if app.store.file(item.id, &filed, retry).unwrap_or(false) && item.id == lead.id {
+      finishing = true;
     }
   }
-  if told {
-    let (korean, _) = finish(&app, run_id, &lead, &filed, &source).await;
-    tell(&app, &category, &lead, &filed, &korean, &exposure).await;
+  if !finishing {
+    // The lead was dismissed while its run went on: nobody is told, and its gathering stands filed.
+    let _ = app.store.finished(lead.id, document_id);
+    return;
+  }
+  let Some(_held) = app.pages.hold(lead.id) else {
+    return;
+  };
+  if let Some(page) = finish(&app, run_id, &lead, &filed, &source).await {
+    report(&app, &category, run_id, &lead, &filed, &page, &exposure).await;
+  }
+}
+
+/// What an advisory's document says it touches; nothing for another shape.
+fn exposure_of(lead: &Item, source: &Source) -> Exposure {
+  match lead.shape {
+    Shape::Advisory => reading::exposure(&source.drawn.body, &words::document().advisory),
+    _ => Exposure::default(),
   }
 }
 
@@ -481,36 +539,28 @@ async fn redraw(
     .map(|_| ())
 }
 
-/// An item's page finished as far as it can be now: its Korean side asked where it lacks one and its tries
-/// allow, each narration it lacks asked and attached where its tries allow, the page drawn again where its
-/// Korean side was had, and what is still lacking set at the retry wait. Answers how the Korean side stands,
-/// and whether it was had on this call.
-async fn finish(app: &App, run: i64, lead: &Item, filed: &Filed, source: &Source) -> (Korean, bool) {
+/// An item's page finished as far as it can be now: its Korean side asked where it lacks one, each narration
+/// its script allows asked and attached where it lacks it, the page drawn again with what was had, and what it
+/// still lacks kept, to be asked again `retry_minutes` from now. Answers how it stands, or none where the
+/// store could not be read.
+async fn finish(app: &App, run: i64, lead: &Item, filed: &Filed, source: &Source) -> Option<Finished> {
   let document_id = filed.document_id;
-  let state = match app.store.page_state(lead.id) {
-    Ok(state) => state,
-    Err(why) => {
-      eprintln!("bmo-research: item {}'s page could not be read: {why}", lead.id);
-      return (Korean::Unavailable, false);
-    }
-  };
-  let korean_had = state.languages.iter().any(|code| code == LANGUAGES[0]);
-  let ask_korean = !korean_had && state.translation_tries <= app.settings.retries;
+  let unread = |why: String| eprintln!("bmo-research: item {}'s page could not be read: {why}", lead.id);
+  let state = app.store.page_state(lead.id).map_err(unread).ok()?;
+  let had = state.languages.iter().any(|code| code == LANGUAGES[0]);
+  let mut rendering = if had { app.store.rendering(document_id).ok().flatten() } else { None };
+  let ask_korean = rendering.is_none();
   let script = source.drawn.narration.clone().filter(|script| !script.trim().is_empty());
   let lacking: Vec<&str> = LANGUAGES
     .into_iter()
-    .filter(|code| !state.narrations.iter().any(|had| had == code))
+    .filter(|code| script.is_some() && !state.narrations.iter().any(|had| had == code))
     .collect();
-  let ask_narration = script.is_some() && !lacking.is_empty() && state.narration_tries < NARRATION_TRIES;
   let next = now_ms() + app.settings.retry_minutes * 60_000;
-  let claimed = match app.store.claim_page(lead.id, next, ask_korean, ask_narration) {
-    Ok(claimed) => claimed,
-    Err(why) => {
-      eprintln!("bmo-research: item {}'s page could not be counted: {why}", lead.id);
-      return (Korean::Unavailable, false);
-    }
-  };
-  let mut rendering = if korean_had { app.store.rendering(document_id).ok().flatten() } else { None };
+  app
+    .store
+    .claim_page(lead.id, next, ask_korean, !lacking.is_empty())
+    .map_err(unread)
+    .ok()?;
   let mut fresh = false;
   if ask_korean {
     let body = document::page_body(&source.drawn, &source.title);
@@ -526,14 +576,16 @@ async fn finish(app: &App, run: i64, lead: &Item, filed: &Filed, source: &Source
         rendering = Some(korean);
         fresh = true;
       }
-      Err(why) => eprintln!("bmo-research: item {}'s Korean side is pending: {why}", lead.id),
+      Err(why) => {
+        eprintln!("bmo-research: item {}'s Korean side is pending: {why}", lead.id);
+        let _ = app.store.log_research(run, "filed", &format!("The Korean side is pending: {why}"));
+      }
     }
   }
   let mut sounds: Vec<String> = state.narrations.clone();
   let mut heard = false;
-  for code in LANGUAGES {
-    let asked = ask_narration && lacking.contains(&code);
-    let Some(script) = script.as_deref().filter(|_| asked) else {
+  for code in lacking {
+    let Some(script) = script.as_deref() else {
       continue;
     };
     match narration(app, run, lead, document_id, code, script).await {
@@ -549,47 +601,48 @@ async fn finish(app: &App, run: i64, lead: &Item, filed: &Filed, source: &Source
       }
     }
   }
-  if heard {
-    let _ = app.store.keep_narrations(document_id, &sounds);
-  }
   if fresh || heard {
     match redraw(app, document_id, source, rendering.as_ref(), &sounds).await {
       Ok(()) => {
         if let Some(korean) = rendering.as_ref().filter(|_| fresh) {
           let _ = app.store.keep_rendering(document_id, korean);
         }
+        if heard {
+          let _ = app.store.keep_narrations(document_id, &sounds);
+        }
       }
       Err(why) => {
+        // What the page was not drawn with is lacking still: a sound attached is found again on the next
+        // try, and the Korean side is asked again.
         eprintln!("bmo-research: item {}'s page was not drawn again: {why}", lead.id);
+        let _ = app.store.log_research(run, "filed", &format!("The page was not drawn again: {why}"));
         if fresh {
           rendering = None;
-          fresh = false;
         }
+        sounds = state.narrations.clone();
       }
     }
   }
-  let narrated = app.store.page_state(lead.id).map(|s| s.narrations.len()).unwrap_or_default();
-  let korean_pending = rendering.is_none() && claimed.translation_tries <= app.settings.retries;
-  let narration_pending =
-    script.is_some() && narrated < LANGUAGES.len() && claimed.narration_tries < NARRATION_TRIES;
-  let _ = app.store.pend_page(lead.id, (korean_pending || narration_pending).then_some(next));
-  let korean = match rendering {
-    Some(korean) => Korean::Filed(korean),
-    None if korean_pending => Korean::Pending,
-    None => {
-      if ask_korean {
-        eprintln!(
-          "bmo-research: item {}'s Korean side failed after {} tries and is no longer asked",
-          lead.id, claimed.translation_tries
-        );
-      }
-      Korean::Unavailable
+  let mut pending = Vec::new();
+  if rendering.is_none() {
+    pending.push(KOREAN.to_string());
+  }
+  if script.is_some() {
+    for code in LANGUAGES.into_iter().filter(|code| !sounds.iter().any(|had| had == code)) {
+      pending.push(format!("narration-{code}"));
     }
-  };
-  (korean, fresh)
+  }
+  let retry = (!pending.is_empty()).then(|| now_ms() + app.settings.retry_minutes * 60_000);
+  let _ = app.store.pend_page(lead.id, &pending, retry);
+  let changed = pending != state.pending;
+  Some(Finished {
+    korean: rendering,
+    pending,
+    changed,
+  })
 }
 
-/// What a filed item holds of its document, for a page finished after its report was told.
+/// What a filed item holds of its document, for a page finished on a later try.
 fn filed_of(item: &Item, document_id: i64) -> Filed {
   Filed {
     document_id,
@@ -602,26 +655,78 @@ fn filed_of(item: &Item, document_id: i64) -> Filed {
   }
 }
 
-/// What a page still lacks asked again; once its Korean side is had, every recipient of the category is told
-/// the follow-up.
+/// What a page still lacks asked again, unless it is being finished already, and its report told once the
+/// page is whole. A page whose source cannot be read now is asked again on the next retry wait.
 async fn render_again(app: Arc<App>, item: Item) {
   let (Some(document_id), Some(run_id)) = (item.document_id, item.run_id) else {
-    let _ = app.store.pend_page(item.id, None);
+    let _ = app.store.pend_page(item.id, &item.pending, None);
+    return;
+  };
+  let Some(_held) = app.pages.hold(item.id) else {
     return;
   };
   let source = match source(&app, run_id) {
     Ok(source) => source,
     Err(why) => {
-      eprintln!("bmo-research: item {}'s page cannot be drawn again: {why}", item.id);
-      let _ = app.store.pend_page(item.id, None);
+      eprintln!("bmo-research: item {}'s page cannot be drawn again now: {why}", item.id);
+      let next = now_ms() + app.settings.retry_minutes * 60_000;
+      let _ = app.store.pend_page(item.id, &item.pending, Some(next));
       return;
     }
   };
   let filed = filed_of(&item, document_id);
-  if let (Korean::Filed(rendering), true) = finish(&app, run_id, &item, &filed, &source).await
-    && let Ok(category) = app.store.category(&item.category_name)
-  {
-    notify(&app, &category, &item, &follow_up(&item, &filed, &rendering), "translated").await;
+  let Some(page) = finish(&app, run_id, &item, &filed, &source).await else {
+    return;
+  };
+  match app.store.category(&item.category_name) {
+    Ok(category) => {
+      let exposure = exposure_of(&item, &source);
+      report(&app, &category, run_id, &item, &filed, &page, &exposure).await;
+    }
+    Err(why) => eprintln!("bmo-research: item {}'s category could not be read: {why:?}", item.id),
+  }
+}
+
+/// A finished page's report: told to every recipient once the page is whole while its item stands
+/// `finishing`, the run's log saying so under `told`; while it lacks a part, the run's log saying under `filed`
+/// what it waits on each time that changes. A page whose report was told before is not told again.
+async fn report(
+  app: &App,
+  category: &Category,
+  run: i64,
+  lead: &Item,
+  filed: &Filed,
+  page: &Finished,
+  exposure: &Exposure,
+) {
+  let finishing = app.store.item(lead.id).map(|item| item.state == ItemState::Finishing).unwrap_or(false);
+  let every = app.settings.retry_minutes;
+  match page.korean.as_ref().filter(|_| page.pending.is_empty()) {
+    None if page.changed => {
+      let lacks = lacking_said(&page.pending);
+      let said = if finishing {
+        format!(
+          "The report waits for its page, which lacks {lacks}; what it lacks is asked again every {every} \
+           minutes until it is had, and the report is told once the page is whole."
+        )
+      } else {
+        format!(
+          "The page lacks {lacks}, asked again every {every} minutes until it is had; its report was told before."
+        )
+      };
+      let _ = app.store.log_research(run, "filed", &said);
+    }
+    None => {}
+    Some(korean) if finishing => {
+      if app.store.finished(lead.id, filed.document_id).unwrap_or(false) {
+        tell(app, category, lead, filed, korean, exposure).await;
+        let _ = app.store.log_research(run, "told", "The page is whole, and its report was told.");
+      }
+    }
+    Some(_) if page.changed => {
+      let _ = app.store.log_research(run, "filed", "The page is whole; its report was told before.");
+    }
+    Some(_) => {}
   }
 }
 
@@ -649,29 +754,15 @@ async fn fail(app: &App, run: i64, lead: &Item, state: &str, outcome: Option<&st
   }
 }
 
-/// The notice a filed item's recipients hear: the line of the page's Korean side and its one link, or the
-/// English line and the pending line while the Korean side is pending; then for a `fit` item what its
-/// recipient needs to act.
-pub fn notice(lead: &Item, filed: &Filed, korean: &Korean) -> String {
+/// The notice a whole page's recipients hear: the line of the page's Korean side and its one link, then for
+/// a `fit` item what its recipient needs to act.
+pub fn notice(lead: &Item, filed: &Filed, korean: &Rendering) -> String {
   let words = words::report();
-  let line = |title: &str, description: Option<&str>| {
-    let summary = reading::first_sentence(description.unwrap_or_default());
-    fill(&words.line, &[("title", title), ("summary", &summary), ("link", &filed.share_url)])
-  };
-  let mut lines = match korean {
-    Korean::Filed(rendering) => vec![line(&rendering.title, rendering.description.as_deref())],
-    Korean::Pending => vec![line(&filed.title, filed.description.as_deref()), words.pending.clone()],
-    Korean::Unavailable => vec![line(&filed.title, filed.description.as_deref())],
-  };
-  lines.extend(acting(lead, filed));
-  lines.join("\n")
-}
-
-/// The follow-up told once a pending Korean side is had: the Korean title and the same link, and for a `fit`
-/// item what its recipient needs to act, since it replaces the report where that still waits.
-pub fn follow_up(lead: &Item, filed: &Filed, rendering: &Rendering) -> String {
-  let words = words::report();
-  let mut lines = vec![fill(&words.translated, &[("title", &rendering.title), ("link", &filed.share_url)])];
+  let summary = reading::first_sentence(korean.description.as_deref().unwrap_or_default());
+  let mut lines = vec![fill(
+    &words.line,
+    &[("title", &korean.title), ("summary", &summary), ("link", &filed.share_url)],
+  )];
   lines.extend(acting(lead, filed));
   lines.join("\n")
 }
@@ -701,7 +792,7 @@ async fn tell(
   category: &Category,
   lead: &Item,
   filed: &Filed,
-  korean: &Korean,
+  korean: &Rendering,
   exposure: &Exposure,
 ) {
   notify(app, category, lead, &notice(lead, filed, korean), "report").await;

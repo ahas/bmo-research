@@ -212,8 +212,9 @@ daemon finishes, held first to the shape the deep dive asked for.
   and labels as a room's document's are, with the label `languages` `en`; its pictures are kept beside it as a
   room's document's are, and the page draws every picture from its address.
 - **The daemon finishes it** (`docs/api.md`, 「The page」): the Korean side, with the page drawn again with
-  both languages and set with `PATCH /documents/{id}`, and the narration's sounds attached beside it. The
-  result stays in the ledger as `written`, which the daemon draws the page from again.
+  both languages and set with `PATCH /documents/{id}`, and the narration's sounds attached beside it, before
+  its report is told. The result stays in the ledger as `written`, which the daemon draws the page from
+  again.
 
 ## The page
 

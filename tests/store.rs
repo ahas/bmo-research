@@ -70,7 +70,7 @@ fn the_cap_holds_a_category_s_part_and_the_oldest_unqueued_fill_a_freed_slot() {
   // A slot freed by a try that ends takes the oldest that waits unqueued.
   let (run, _) = store.start_try("it", &[made[0]]).unwrap().unwrap();
   store.end_run(run, "closed", Some("answered"), None).unwrap();
-  store.file(made[0], &Default::default()).unwrap();
+  store.file(made[0], &Default::default(), None).unwrap();
   let next = store.fill(&it).unwrap();
   assert_eq!(next.len(), 1);
   assert_eq!(store.item(next[0]).unwrap().name, "model-5");
@@ -166,8 +166,17 @@ fn dismissal_and_taking_follow_the_states() {
   );
   let (run, _) = store.start_try("it", &[item.id]).unwrap().unwrap();
   store.end_run(run, "closed", None, None).unwrap();
-  store.file(item.id, &Default::default()).unwrap();
+  store.file(item.id, &Default::default(), None).unwrap();
+  assert_eq!(store.item(item.id).unwrap().state, ItemState::Finishing);
+  assert!(
+    matches!(store.take(item.id, 5), Err(Refusal::Conflict(_))),
+    "an item nobody was told of is not taken"
+  );
+  assert!(store.finished(item.id, 0).unwrap(), "the whole page's report is told once");
+  assert!(!store.finished(item.id, 0).unwrap());
+  assert_eq!(store.item(item.id).unwrap().state, ItemState::Reported);
   let taken = store.take(item.id, 5).unwrap();
+
   assert_eq!((taken.state, taken.job_item_id), (ItemState::Taken, Some(5)));
   assert!(matches!(store.dismiss(item.id), Err(Refusal::Conflict(_))));
 }

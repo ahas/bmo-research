@@ -306,6 +306,11 @@
           "categoryName": {
             "type": "string"
           },
+          "finishingCount": {
+            "description": "its items whose page is finished before they are told",
+            "format": "int64",
+            "type": "integer"
+          },
           "runningCount": {
             "format": "int64",
             "type": "integer"
@@ -323,6 +328,7 @@
           "state",
           "waitingCount",
           "runningCount",
+          "finishingCount",
           "cap"
         ],
         "type": "object"
@@ -655,6 +661,21 @@
             },
             "type": "array"
           },
+          "pending": {
+            "description": "what the document's page still lacks before its report is told: `korean`, `narration-ko`,\n`narration-en`; empty where it lacks nothing",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "pendingRetryAt": {
+            "description": "when what the page lacks is asked again, or none where nothing is pending",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "plan": {
             "description": "the heading of the document's plan section",
             "type": [
@@ -742,6 +763,8 @@
           "shareUrl",
           "languages",
           "narrations",
+          "pending",
+          "pendingRetryAt",
           "fit",
           "touches",
           "plan",
@@ -788,6 +811,7 @@
         "enum": [
           "waiting",
           "running",
+          "finishing",
           "reported",
           "fit",
           "failed",
@@ -1977,7 +2001,7 @@
   "info": {
     "description": "The research unit: a daemon that keeps a queue of things to research by category, reads the sources the owner registers, has each item researched by its own runner in its category's shape, and tells the category's recipients. It files no job and launches nothing.",
     "title": "bmo-research",
-    "version": "0.1.0-rev.13"
+    "version": "0.1.0-rev.14"
   },
   "openapi": "3.1.0",
   "paths": {

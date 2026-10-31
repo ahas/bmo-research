@@ -1,7 +1,7 @@
 # The words of the notices the daemon hands a category's recipients (docs/api.md, "The notices").
-# {title}, {summary} and {link} are the page's title, the first sentence of its description and the
-# document's one share link: the Korean title and description, or the English ones while the Korean side is
-# pending; {name} and {tries} are the item's name and the tries it took; {touches} is what an advisory names
+# {title}, {summary} and {link} are the page's Korean title, the first sentence of its Korean description and
+# the document's one share link, told once the page is whole; {name} and {tries} are the item's name and the
+# tries it took; {touches} is what an advisory names
 # as touched; {plan} is the heading of the document's plan section; {repository} and {rows} a touched
 # repository and its rows of the exposure table. In `restore`, {model} is a watched registration,
 # {service} the arbiter service its engine is and {minutes} how long a run has waited for its card. Under [sources] stand the columns `bmo-research research sources` lists a source's
@@ -9,8 +9,6 @@
 # that succeeded kept as new and {candidates} how many it turned up past the filter.
 
 line = "{title} — {summary} {link}"
-pending = "한국어본은 아직 번역 중입니다. 준비되면 같은 문서에 더하고 다시 알려 드리겠습니다."
-translated = "「{title}」 문서에 한국어본이 더해졌습니다. 같은 링크에서 한국어로 볼 수 있습니다. {link}"
 fit = "우리 카드에 들어간다고 적혀 있습니다. 사장님께 검수 여부를 여쭤 주세요."
 touches = "우리 플랫폼의 {touches}에 닿는다고 적혀 있습니다. 저장소를 맡은 워커가 있으면 그 워커에게 따로 알렸습니다."
 name = "대상: {name}"

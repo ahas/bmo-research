@@ -76,7 +76,8 @@ The items (`docs/api.md`, 「queue」).
 | `document_id`, `title`, `description`, `share_url` | The document the run filed, and its live link |
 | `languages`, `narrations` | The languages its document's page holds, and those whose narration it plays, JSON lists, Korean first |
 | `translation_tries`, `narration_tries` | The Korean sides and the narrations asked for its page |
-| `pending_retry_at` | When what its page still lacks — the Korean side or a narration — may be asked again, or null where nothing is pending |
+| `pending` | What its page still lacks before its report is told — `korean`, `narration-ko`, `narration-en` — a JSON list, empty where it lacks nothing |
+| `pending_retry_at` | When what its page still lacks may be asked again, or null where nothing is pending |
 | `fit`, `touches` | Whether the document asks the owner's word, and what an advisory touches |
 | `plan` | The heading of the document's plan section |
 | `job_item_id` | The job item the chat agent filed for it |
@@ -102,7 +103,7 @@ The items (`docs/api.md`, 「queue」).
 | `id` | The report's key |
 | `item_id` | The item told |
 | `recipient` | Who was told: `room:<roomId>` or `agent:<agentName>` |
-| `kind` | `report`; `translated`, a report's follow-up once its page's Korean side is had; `failed`, a failed item's notice; `part`, a touched repository's part to its worker |
+| `kind` | `report`, told once its page is whole; `failed`, a failed item's notice; `part`, a touched repository's part to its worker |
 | `instruction_id` | The receiver's instruction, or null for a turn |
 | `state`, `error` | `sent` or `refused`, and why |
 | `at` | When it was sent |

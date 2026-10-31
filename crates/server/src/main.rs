@@ -243,11 +243,12 @@ async fn command(verb: Verb) -> Result<(), String> {
       println!("{}", state.state.as_str());
       for c in state.categories {
         println!(
-          "  {:<12} {:<8} waiting {} running {} cap {}",
+          "  {:<12} {:<8} waiting {} running {} finishing {} cap {}",
           c.category_name,
           c.state.as_str(),
           c.waiting_count,
           c.running_count,
+          c.finishing_count,
           c.cap
         );
       }
@@ -291,7 +292,11 @@ async fn command(verb: Verb) -> Result<(), String> {
         return print_json(&page);
       }
       for i in page.items {
-        let links: Vec<String> = i.share_url.into_iter().collect();
+        let mut links: Vec<String> = i.share_url.into_iter().collect();
+        if !i.pending.is_empty() {
+          links.push(format!("(pending: {})", i.pending.join(", ")));
+        }
+
         println!(
           "#{} {:<10} {:<9} {:<13} {} {}",
           i.id,

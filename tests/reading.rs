@@ -163,8 +163,6 @@ fn every_template_reads_and_fills_what_it_names() {
   let report = words::report();
   for template in [
     &report.line,
-    &report.pending,
-    &report.translated,
     &report.fit,
     &report.touches,
     &report.name,

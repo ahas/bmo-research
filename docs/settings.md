@@ -14,8 +14,8 @@ the daemon does not know is refused, naming it. A path may open with `~/`, the h
 | `store` | `research` | The folder under the data root the store `research.db` stands in |
 | `tick_seconds` | 30 | How often the loop looks for a source due, a slot free and an item to run |
 | `concurrency` | 4 | How many runs the daemon asks for at once, across every category; how many run is how many cards the arbiter grants them (`docs/design.md`, 「The engine a run needs」) |
-| `retries` | 3 | How many times a failed try is tried again before the item is `failed`, and a page's pending Korean side before it is no longer asked |
-| `retry_minutes` | 30 | How long a failed try, or what a page still lacks, waits before it is tried again |
+| `retries` | 3 | How many times a failed try is tried again before the item is `failed` |
+| `retry_minutes` | 30 | How long a failed try, or what a page still lacks, waits before it is tried again; what a page lacks is asked on every such wait until it is had |
 | `restore_wait_minutes` | 20 | How long a run's demand for its engine waits before the owner's private room is told, once, that the engine has not come back; the demand goes on waiting |
 | `poll_seconds` | 30 | How long the daemon waits between two readings of a run under way |
 | `turn_wait_seconds` | 20 | How long a notice to an agent waits on its turn's answer before it is counted as handed |
