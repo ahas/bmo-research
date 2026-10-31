@@ -47,6 +47,8 @@ const RULEBOOKS: &[(&str, &str)] = &[
 #[serde(deny_unknown_fields)]
 pub struct ReportWords {
   pub line: String,
+  pub follows: String,
+  pub follows_document: String,
   pub fit: String,
   pub touches: String,
   pub name: String,
@@ -76,10 +78,11 @@ pub struct DocumentWords {
   pub advisory: Vec<AdvisoryWords>,
   pub brief: Vec<BriefWords>,
   pub sections: Sections,
+  pub opening: Sections,
 }
 
-/// The section headings a deep dive's result holds, by its item's shape, in every language it may be written
-/// in.
+/// Headings a deep dive's result holds, by its item's shape, in every language it may be written in: its
+/// sections, or its opening's.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Sections {
@@ -166,7 +169,9 @@ pub fn translation() -> &'static TranslationWords {
 }
 
 /// The words one language of a deep dive's page is drawn with: its code, its name on the switch, what the
-/// switch is called and the listen band's heading.
+/// switch is called, the listen band's heading, and the line under the title saying where the research came
+/// from: its label, its words for a source's item, an ask and a follow-up, and for the words an ask was made
+/// with.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PageLanguage {
@@ -174,6 +179,12 @@ pub struct PageLanguage {
   pub name: String,
   pub switch: String,
   pub listen: String,
+  pub origin: String,
+  pub source: String,
+  pub asked: String,
+  pub follow_up: String,
+  pub follow_up_untitled: String,
+  pub because: String,
 }
 
 /// The title a page falls back on, by shape, in one language.
@@ -224,8 +235,8 @@ pub fn page() -> &'static PageWords {
   &WORDS
 }
 
-/// The question an item of this shape is asked, its values set in: `name` and `address` for one thing,
-/// `stack` for an advisory, `items` for a brief.
+/// The question an item of this shape is asked, its values set in: `name`, `address` and `origin` for one
+/// thing, `stack` for an advisory, `items` for a brief.
 pub fn question(shape: Shape, values: &[(&str, &str)]) -> String {
   let template = match shape {
     Shape::Manual => MANUAL,

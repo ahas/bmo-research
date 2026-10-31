@@ -189,11 +189,15 @@ A run the daemon asks for its own deep dive is filed differently from a run told
 daemon finishes, held first to the shape the deep dive asked for.
 
 - **The shape is checked before anything is filed.** The deep dive names the section headings its item's shape
-  holds, in every language a result may be written in (`prompts/document.toml`, `[sections]`). A result is
-  whole, and may be filed, only where it carries all of these:
+  holds and its opening's headings, in every language a result may be written in (`prompts/document.toml`,
+  `[sections]` and `[opening]`), and the item's origin line the page prints. A result is whole, and may be
+  filed, only where it carries all of these:
   - the head lines the task requires of every result: the `ANSWERED:` line and the `TITLE:` line;
   - a body that opens with the answer: its first heading the answer's, in the words of the question's language
     (`prompts/search/document.toml`), so a body opening with a section's continuation is never whole;
+  - where the shape holds an opening (a manual's and an investigation's), the section saying what the
+    subject is and what it is for: a heading of the body holding one of the opening's headings in either
+    language, matched without regard to case;
   - at least half of the shape's section headings in one of the languages they are listed in, a heading
     written in Hangul being Korean and any other English, each held by a heading of the body (matched without
     regard to case, a heading's numbering aside).
@@ -203,11 +207,15 @@ daemon finishes, held first to the shape the deep dive asked for.
   answer written last. That turn's text is the result, and it is the one judged; a turn that writes nothing
   leaves the result as it stood. Where the rounds' session never started, the first answer is judged as it is.
 - **A result still short of its shape is not filed:** the run closes `failed`, its error naming each thing
-  missing — an empty body, a head line, the answer at the body's open, or the headings looked for — and the deep
-  dive's try fails with that error, so the item waits for its retry and the queue shows why. No document
-  stands for it and no notice goes out.
+  missing — an empty body, a head line, the answer at the body's open, the opening section, or the headings
+  looked for — and the deep dive's try fails with that error, so the item waits for its retry and the queue
+  shows why. No document stands for it and no notice goes out.
 - **The title** is the `TITLE:` line. A body that opens with a heading saying the title loses that heading,
   since the page's head says it.
+- **The opening section opens the page's body:** the first section whose heading holds one of the shape's
+  opening headings is set before the answer, so the page says what the subject is before its verdict and its
+  figures; the result keeps the order it was written in. The Korean side is translated from the body in that
+  order.
 - **It is filed as a page,** `kind` `page`, its `html` the page drawn in English alone (「The page」), its head
   and labels as a room's document's are, with the label `languages` `en`; its pictures are kept beside it as a
   room's document's are, and the page draws every picture from its address.
@@ -226,6 +234,15 @@ daemon finishes, held first to the shape the deep dive asked for.
   Korean pressed first. Pressing a language shows its side and hides the other. The switch is plain inline
   script and style, the style marked `data-archive` and drawn in the design's colour variables, so the page
   reads in the light and the dark scheme alike.
+- **Where the research came from stands under the title,** in the `header` after the description: one line
+  for each language side, marked as its side, its label and its words those of `prompts/page.toml`
+  (`[[language]]`: the label `origin`, then `source`, `asked`, or `follow_up` (`follow_up_untitled` where
+  no title is known), then `because` where the ask said why), drawn from the item's origin as the deep dive
+  hands it (`docs/api.md`, 「queue」): the source that found it; the owner's ask, the
+  words it was made with quoted; or the document a follow-up follows from, by its number and its title,
+  linked to its live link where that is known, with the sentence saying why it was asked quoted. Markdown
+  marks in a title or a quoted sentence stand as text. A page drawn for no item, or for a brief, has no such
+  line.
 - **The listen band stands under the title,** after the `header`, once the run has attached a narration
   (`docs/api.md`, 「The page」): a band element holding its heading in each language side's own words
   (`prompts/page.toml`, `listen`), each marked as its side, and one `audio` element for each narration

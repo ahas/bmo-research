@@ -84,14 +84,37 @@
     },
     "schemas": {
       "Ask": {
-        "description": "A thing the owner asks for by its name and its maker's address.",
+        "description": "A thing the owner asks for by its name and its maker's address, and, for a follow-up, the earlier research\nit follows from.",
         "properties": {
           "address": {
             "type": "string"
           },
+          "because": {
+            "description": "the words the ask is made with: why it is asked",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "categoryName": {
             "type": [
               "string",
+              "null"
+            ]
+          },
+          "followsDocumentId": {
+            "description": "for a follow-up: the document it follows from",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "followsItemId": {
+            "description": "for a follow-up: the item it follows from",
+            "format": "int64",
+            "type": [
+              "integer",
               "null"
             ]
           },
@@ -661,6 +684,9 @@
             },
             "type": "array"
           },
+          "origin": {
+            "$ref": "#/components/schemas/Origin"
+          },
           "pending": {
             "description": "what the document's page still lacks before its report is told: `korean`, `narration-ko`,\n`narration-en`; empty where it lacks nothing",
             "items": {
@@ -752,6 +778,7 @@
           "shape",
           "sourceId",
           "asked",
+          "origin",
           "priority",
           "state",
           "tries",
@@ -999,6 +1026,77 @@
           "component"
         ],
         "type": "object"
+      },
+      "Origin": {
+        "description": "Where an item came from; the fields its kind does not use are null.",
+        "properties": {
+          "because": {
+            "description": "the words the ask was made with: the owner's for `asked`, why it was asked for `follow-up`",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "documentId": {
+            "description": "for `follow-up`: the document it follows from",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "itemId": {
+            "description": "for `follow-up`: the item it follows from",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "kind": {
+            "$ref": "#/components/schemas/OriginKind"
+          },
+          "shareUrl": {
+            "description": "for `follow-up`: that document's live link, as it stood when the ask was made",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source": {
+            "description": "for `source`: the source that found it, by its kind and what it reads; null where it no longer stands",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "description": "for `follow-up`: that document's title, as it stood when the ask was made",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "kind",
+          "source",
+          "because",
+          "itemId",
+          "documentId",
+          "title",
+          "shareUrl"
+        ],
+        "type": "object"
+      },
+      "OriginKind": {
+        "description": "What an item came from (`docs/api.md`, 「queue」): a source's scan, the owner's ask, or an ask made from an\nearlier research.",
+        "enum": [
+          "source",
+          "asked",
+          "follow-up"
+        ],
+        "type": "string"
       },
       "Page": {
         "description": "A list, one page of it: the items and whether more stand past the last.",
@@ -2001,7 +2099,7 @@
   "info": {
     "description": "The research unit: a daemon that keeps a queue of things to research by category, reads the sources the owner registers, has each item researched by its own runner in its category's shape, and tells the category's recipients. It files no job and launches nothing.",
     "title": "bmo-research",
-    "version": "0.1.0-rev.14"
+    "version": "0.1.0-rev.15"
   },
   "openapi": "3.1.0",
   "paths": {

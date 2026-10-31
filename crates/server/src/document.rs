@@ -13,6 +13,7 @@ use serde_json::{Value, json};
 use crate::App;
 use crate::page::{self, Side};
 use crate::reading;
+use crate::runner::PageAsk;
 use crate::store::{RunDocument, now_ms};
 use crate::words::SearchDocumentWords as Words;
 
@@ -442,9 +443,9 @@ pub async fn file(app: &App, drawn: &Drawn, filing: &Value) -> Result<RunDocumen
 
 /// Why a deep dive's result is not whole (`docs/runner.md`, 「The deep dive's page」), each thing it lacks: an
 /// empty body, the `ANSWERED:` or the `TITLE:` line, a body opening with `answer`, the heading of the answer
-/// in the question's language, or half the section headings its shape holds in one language; none where it
-/// may be filed.
-pub fn short_of(drawn: &Drawn, sections: &[String], answer: &str) -> Option<String> {
+/// in the question's language, a section under one of the `opening` headings where its shape names any, or
+/// half the section headings its shape holds in one language; none where it may be filed.
+pub fn short_of(drawn: &Drawn, sections: &[String], opening: &[String], answer: &str) -> Option<String> {
   if drawn.body.trim().is_empty() {
     return Some("its body is empty".into());
   }
@@ -461,6 +462,12 @@ pub fn short_of(drawn: &Drawn, sections: &[String], answer: &str) -> Option<Stri
       short.push(format!("its body opens with \"{first}\", not with the answer, \"{answer}\""))
     }
     None => short.push(format!("its body has no heading, not even the answer, \"{answer}\"")),
+  }
+  if !opening.is_empty() && reading::headings_held(&drawn.body, opening) == 0 {
+    short.push(format!(
+      "its body has no opening section saying what the subject is and what it is for, under one of: {}",
+      opening.join(", ")
+    ));
   }
   let (korean, english): (Vec<String>, Vec<String>) =
     sections.iter().cloned().partition(|heading| language_of(heading) == "ko");
@@ -487,25 +494,29 @@ pub fn page_title(drawn: &Drawn, fallback: &str) -> String {
     .unwrap_or_else(|| fallback.to_owned())
 }
 
-/// A deep dive's page's English body: every picture drawn from its address, and the heading it opens with
-/// taken out where it says the title, since the page's head says it.
-pub fn page_body(drawn: &Drawn, title: &str) -> String {
-  let mut body = reading::without_opening_heading(&drawn.body, title).to_owned();
+/// A deep dive's page's English body: every picture drawn from its address, the heading it opens with taken
+/// out where it says the title, since the page's head says it, and the first section under one of the
+/// `opening` headings set before the rest, so the page opens by saying what its subject is.
+pub fn page_body(drawn: &Drawn, title: &str, opening: &[String]) -> String {
+  let rest = reading::without_opening_heading(&drawn.body, title);
+  let mut body = reading::lifted(rest, opening);
   for picture in &drawn.pictures {
     body = body.replace(&format!("]({})", picture.name), &format!("]({})", picture.url));
   }
   body
 }
 
-/// A deep dive's page as the artifact service files it: kind `page`, the page drawn in English alone, its
-/// head and its labels as a room's document's, with the languages it holds.
-pub fn page_filing(drawn: &Drawn, run: i64, key: &str, query: &str, title: &str) -> Value {
-  let body = page_body(drawn, title);
+/// A deep dive's page as the artifact service files it: kind `page`, the page drawn in English alone with the
+/// line saying where the research came from and its opening first, its head and its labels as a room's
+/// document's, with the languages it holds.
+pub fn page_filing(drawn: &Drawn, run: i64, key: &str, query: &str, title: &str, ask: &PageAsk) -> Value {
+  let body = page_body(drawn, title, &ask.opening);
   let html = page::compose(
     &[Side {
       code: "en",
       title,
       description: drawn.description.as_deref(),
+      origin: ask.origin.as_deref(),
       body: &body,
     }],
     &[],

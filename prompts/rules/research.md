@@ -1,11 +1,11 @@
 # The research routine
 
 - This rulebook sets how a research about a thing somebody made is carried out, measured and
-  reported: the three shapes a report takes, the fixed skeleton of each, the line that says when and
-  from what it was researched, the mark every figure carries, how a measurement is run, written and
-  kept, and how a report ends. Its deciding section stands in the search runner's prompt and the run
-  reads the rest once that section says it applies; a job that measures something the lab runs is
-  bound to it by its researching-and-benching skill.
+  reported: the three shapes a report takes, the opening every one of them starts with, the fixed
+  skeleton of each, the line that says when and from what it was researched, the mark every figure
+  carries, how a measurement is run, written and kept, and how a report ends. Its deciding section stands
+  in the search runner's prompt and the run reads the rest once that section says it applies; a job that
+  measures something the lab runs is bound to it by its researching-and-benching skill.
 - It stands on `deep-dives.md`, which says how the maker is read before anyone writing about it
   and how its figures become the baseline; this rulebook says what the document is then made of.
   Where it applies it sets the middle's sections, as `study-material.md` sets its own kind's, and the
@@ -38,9 +38,38 @@
   `<name> — 무엇의 실체와 우리 쪽 쓸모`. In an English question the same in English: `<name> manual`,
   `<name> verification report`.
 
+## The opening
+
+- **Every report opens with two things, before any figure or configuration:** where the research came
+  from, under its title, and what its subject is and what it is for, opening its body. They stand in every
+  shape, the manual, the investigation and the verification alike, and are unnumbered: the manual's
+  numbers count from its verdict.
+- **Where this research came from** (`어디서 나온 조사인가`, English: `Where this research came from`) is
+  one line: the source that found the subject, by name; the owner's ask, his words quoted; or, for a
+  follow-up, the earlier document it follows from — `문서 N 「제목」의 후속 조사` with that document's
+  share link — and why this one was asked, quoted. The question hands the run this line, and a deep
+  dive's page prints it under the title from the item itself, so the run writes no section of it. A
+  document no daemon draws, a verification job's among them, writes it itself as the first line under its
+  title; a verification follows from the manual whose reproduction plan it starts from.
+- **What it is and what it is for** (`무엇이고 어디에 쓰나`, English: `What it is and what it is for`) is
+  the body's first section, written as the first `SECTION:` after the verdict; the page sets it above the
+  verdict, so it is the first thing read. Two to five plain sentences, for a reader who has never heard
+  the name:
+  - the kind of thing it is — a model, an engine, a library, a tool, a dataset, a paper, a service, or a
+    claim or an event about one;
+  - the task it does, said in words a newcomer follows, a term the reader may not know explained rather
+    than only named;
+  - who would use it and for what;
+  - what it replaces or competes with, each named the same way.
+- **No figure stands in it:** no size, no version, no benchmark, no setting, no command and no price; those
+  are the sections' after it. A thing whose use is not yet known says so in a sentence rather than
+  guessing one.
+- **A follow-up says one sentence more there:** how this subject bears on the document it follows from —
+  what that document left open that this one answers.
+
 ## The line that says when and from what
 
-- **The first section of the middle is the research's own record,** named `조사 시각` (English:
+- **The first section after the opening is the research's own record,** named `조사 시각` (English:
   `When and from what`), one line: the span of the research in KST with the minute's last digit
   blurred (`2026-10-21 03:26~05:1x KST`), the primary sources swept and what they were checked
   against (`1차 출처(공식 저장소 · 모델카드 · PyPI API) 전수 + 한국·영어 보도 대조`), and what the
@@ -52,9 +81,9 @@
 
 ## The manual
 
-- **Eleven sections, numbered 0 to 10, in this order and under these names,** in the question's
-  language (the Korean names are the ones the owner reads; an English question takes their plain
-  English):
+- **Eleven sections, numbered 0 to 10, in this order and under these names,** after the opening
+  (「The opening」), in the question's language (the Korean names are the ones the owner reads; an
+  English question takes their plain English):
   0. `한 줄 정체` — the verdict: who made it, how big, what it does and what it claims, in one
      paragraph. It stands under `VERDICT:`, not as a section.
   1. `만든 곳 · 공개일 · 크기 · 라이선스` — the registry's own figures (the byte total, the file
@@ -98,6 +127,7 @@
 
 - **Its sections, in this order,** the verdict above them as every result has:
   - `지금 결론` — the verdict, one paragraph, under `VERDICT:`.
+  - `무엇이고 어디에 쓰나` — the opening (「The opening」).
   - `조사 시각` — the line above.
   - `처음 → 무엇이 틀려서 → 다음 → 지금` — how the matter came about, dated: what was first said,
     what proved wrong, what came next, where it stands now.
@@ -119,9 +149,10 @@
 
 ## The verification
 
-- **Its sections, in this order:**
+- **Its sections, in this order,** under the origin line, which names the manual it follows from:
   - `결론` — the verdict, one paragraph: whether the maker's figures were reproduced, what was kept,
     and what the owner has to do, `사장님이 하실 일은 없습니다` where nothing.
+  - `무엇이고 어디에 쓰나` — the opening (「The opening」).
   - `이걸로 정하실 것` — numbered options, each with `비용` and `되돌림`; `지금은 보관만(비용 0)`
     is always one of them, and the one recommended says `(권장)`.
   - `모델 한 줄`.

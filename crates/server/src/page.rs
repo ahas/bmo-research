@@ -1,21 +1,77 @@
 //! A deep dive's page (`docs/runner.md`, 「The page」): every language its document holds drawn into one HTML
 //! page on the archive's design, Korean first, a switch between them where it holds two, and the listen band
-//! under the title referring to each narration attached by its name, which the archive stands as its player.
+//! under the title referring to each narration attached by its name, which the archive stands as its player;
+//! under the title too, the line saying where the research came from.
 //! The markdown is written as HTML by `pulldown-cmark`, any raw HTML a result wrote stands as text, and a
 //! fenced `mermaid` block is a diagram the page draws with Mermaid.
 
 use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
 use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd, html};
 
+use bmo_research_client::{Item, OriginKind};
+
 use crate::words;
 
-/// One language's side of the page: its code, its title, its description and its markdown body.
+/// One language's side of the page: its code, its title, its description, the line saying where the research
+/// came from in markdown, and its markdown body.
 #[derive(Debug, Clone)]
 pub struct Side<'a> {
   pub code: &'a str,
   pub title: &'a str,
   pub description: Option<&'a str>,
+  pub origin: Option<&'a str>,
   pub body: &'a str,
+}
+
+/// Text set into markdown as it stands, its marks taken as text.
+fn plain(text: &str) -> String {
+  let mut out = String::with_capacity(text.len());
+  for c in text.chars() {
+    if matches!(c, '\\' | '`' | '*' | '_' | '[' | ']' | '<' | '>' | '#') {
+      out.push('\\');
+    }
+    out.push(c);
+  }
+  out
+}
+
+/// Where an item's research came from, in one language's words (`prompts/page.toml`) as markdown: the source
+/// that found it, the owner's ask, or the document a follow-up follows from by its number and its title,
+/// linked where its live link is known, `title` standing for the title the item keeps where it is named; then
+/// the words the ask was made with. None where the language has no words or the origin names nothing.
+pub fn origin_line(item: &Item, code: &str, title: Option<&str>) -> Option<String> {
+  let words = words::page().language(code)?;
+  let origin = &item.origin;
+  let said = match origin.kind {
+    OriginKind::Source => {
+      let source = origin.source.clone().or_else(|| item.source_id.map(|id| format!("#{id}")))?;
+      words::fill(&words.source, &[("source", &plain(&source))])
+    }
+    OriginKind::Asked => words.asked.clone(),
+    OriginKind::FollowUp => {
+      let document = origin.document_id?.to_string();
+      match title.or(origin.title.as_deref()).filter(|t| !t.trim().is_empty()) {
+        Some(title) => {
+          let title = match origin.share_url.as_deref().filter(|url| !url.trim().is_empty()) {
+            Some(url) => format!("[{}](<{}>)", plain(title.trim()), url.trim()),
+            None => plain(title.trim()),
+          };
+          words::fill(&words.follow_up, &[("document", &document), ("title", &title)])
+        }
+        None => words::fill(&words.follow_up_untitled, &[("document", &document)]),
+      }
+    }
+  };
+  let because = origin
+    .because
+    .as_deref()
+    .map(str::trim)
+    .filter(|b| !b.is_empty())
+    .map(|b| words::fill(&words.because, &[("because", &plain(b))]));
+  Some(match because {
+    Some(because) => format!("{said} {because}"),
+    None => said,
+  })
 }
 
 // The switch's look, an addition to the archive's design drawn in its colour variables, so it follows the
@@ -170,6 +226,13 @@ pub fn compose(sides: &[Side<'_>], sounds: &[Sound<'_>]) -> String {
   for side in sides {
     if let Some(description) = side.description.filter(|d| !d.trim().is_empty()) {
       page.push_str(&format!("<p{}>{}</p>\n", mark(side.code), escaped(description.trim())));
+    }
+  }
+  for side in sides {
+    if let Some(origin) = side.origin.filter(|o| !o.trim().is_empty()) {
+      let label = words.language(side.code).map(|l| plain(&l.origin)).unwrap_or_default();
+      let line = body_html(&format!("**{label}:** {}", origin.trim()));
+      page.push_str(&format!("<div class=\"origin\"{}>\n{line}</div>\n", mark(side.code)));
     }
   }
   page.push_str("</header>\n");

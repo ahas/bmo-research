@@ -469,6 +469,51 @@ impl ItemState {
   }
 }
 
+/// What an item came from (`docs/api.md`, 「queue」): a source's scan, the owner's ask, or an ask made from an
+/// earlier research.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum OriginKind {
+  Source,
+  Asked,
+  FollowUp,
+}
+
+impl OriginKind {
+  pub fn as_str(self) -> &'static str {
+    match self {
+      OriginKind::Source => "source",
+      OriginKind::Asked => "asked",
+      OriginKind::FollowUp => "follow-up",
+    }
+  }
+
+  pub fn parse(word: &str) -> Option<OriginKind> {
+    [OriginKind::Source, OriginKind::Asked, OriginKind::FollowUp]
+      .into_iter()
+      .find(|kind| kind.as_str() == word)
+  }
+}
+
+/// Where an item came from; the fields its kind does not use are null.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Origin {
+  pub kind: OriginKind,
+  /// for `source`: the source that found it, by its kind and what it reads; null where it no longer stands
+  pub source: Option<String>,
+  /// the words the ask was made with: the owner's for `asked`, why it was asked for `follow-up`
+  pub because: Option<String>,
+  /// for `follow-up`: the item it follows from
+  pub item_id: Option<i64>,
+  /// for `follow-up`: the document it follows from
+  pub document_id: Option<i64>,
+  /// for `follow-up`: that document's title, as it stood when the ask was made
+  pub title: Option<String>,
+  /// for `follow-up`: that document's live link, as it stood when the ask was made
+  pub share_url: Option<String>,
+}
+
 /// One thing in the queue.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
@@ -484,6 +529,7 @@ pub struct Item {
   pub shape: Shape,
   pub source_id: Option<i64>,
   pub asked: bool,
+  pub origin: Origin,
   pub priority: i64,
   pub state: ItemState,
   pub tries: i64,
@@ -519,8 +565,9 @@ pub struct Item {
   pub changed_at: i64,
 }
 
-/// A thing the owner asks for by its name and its maker's address.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+/// A thing the owner asks for by its name and its maker's address, and, for a follow-up, the earlier research
+/// it follows from.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Ask {
   pub name: String,
@@ -529,6 +576,15 @@ pub struct Ask {
   pub category_name: Option<String>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub shape: Option<Shape>,
+  /// the words the ask is made with: why it is asked
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub because: Option<String>,
+  /// for a follow-up: the item it follows from
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub follows_item_id: Option<i64>,
+  /// for a follow-up: the document it follows from
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub follows_document_id: Option<i64>,
 }
 
 /// A change of an item: dismiss it or mark it taken by `state`, or move it to the front.

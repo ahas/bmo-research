@@ -16,7 +16,7 @@ use crate::App;
 use crate::branches::Refusal as Branching;
 use crate::runner::Refused as Launch;
 use crate::sources::{LinkPattern, SourceKind, Strategy, address_key};
-use crate::store::{Refusal, item_shape};
+use crate::store::{Asked, Refusal, item_shape};
 
 type Shared = State<Arc<App>>;
 type Queries = Query<BTreeMap<String, String>>;
@@ -426,8 +426,26 @@ async fn create_ask(State(app): Shared, bytes: Bytes) -> Response {
     }
     (shape, None) => item_shape(shape, None),
   };
+  let parent = match (ask.follows_item_id, ask.follows_document_id) {
+    (None, None) => None,
+    (item, document) => match app.store.parent(item, document) {
+      Ok(parent) if document.is_some() && item.is_some() && parent.document_id != document => {
+        return bad(format!(
+          "item {} filed no document {}",
+          item.unwrap_or_default(),
+          document.unwrap_or_default()
+        ));
+      }
+      Ok(parent) => Some(parent),
+      Err(refusal) => return refused(refusal),
+    },
+  };
+  let asked = Asked {
+    because: ask.because.as_deref().map(str::trim).filter(|b| !b.is_empty()).map(str::to_owned),
+    parent,
+  };
   answered(
-    app.store.ask(&category.name, &address_key(address), name, address, shape),
+    app.store.ask_from(&category.name, &address_key(address), name, address, shape, &asked),
     StatusCode::CREATED,
   )
 }

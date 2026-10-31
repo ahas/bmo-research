@@ -288,6 +288,7 @@ async fn the_queue_takes_asks_dismissals_takings_and_front_moves() {
     address: format!("https://example.org/{name}"),
     category_name: category.map(String::from),
     shape,
+    ..Ask::default()
   };
   let one = client.ask(&ask("one", None, None)).await.unwrap();
   assert_eq!((one.category_name.as_str(), one.shape, one.asked), ("it", Shape::Manual, true));
@@ -372,6 +373,51 @@ async fn the_queue_takes_asks_dismissals_takings_and_front_moves() {
   let (status, _) = raw(&base, reqwest::Method::GET, "/queue?state=sleeping", None).await;
   assert_eq!(status, StatusCode::BAD_REQUEST);
   assert!(client.item(999).await.unwrap_err().starts_with("404"));
+}
+
+#[tokio::test]
+async fn an_ask_says_why_and_a_follow_up_names_the_research_it_follows_from() {
+  let (ground, _base, client) = served().await;
+  let ask = |name: &str| Ask {
+    name: name.into(),
+    address: format!("https://example.org/{name}"),
+    because: Some(format!("  why {name}  ")),
+    ..Ask::default()
+  };
+  let parent = client.ask(&ask("parent")).await.unwrap();
+  assert_eq!(
+    (parent.origin.kind, parent.origin.because.as_deref()),
+    (OriginKind::Asked, Some("why parent"))
+  );
+  let follows = |name: &str, item: Option<i64>, document: Option<i64>| Ask {
+    follows_item_id: item,
+    follows_document_id: document,
+    ..ask(name)
+  };
+  let early = client.ask(&follows("early", Some(parent.id), None)).await.unwrap_err();
+  assert!(early.starts_with("409 conflict"), "a parent with no document yet: {early}");
+  assert!(client.ask(&follows("lost", Some(999), None)).await.unwrap_err().starts_with("404"));
+
+  ground.app.store.start_try("it", &[parent.id]).unwrap();
+  let filed = research_server::store::Filed {
+    document_id: 812,
+    title: "Parent manual".into(),
+    share_url: "https://share.example/d812".into(),
+    ..Default::default()
+  };
+  ground.app.store.file(parent.id, &filed, None).unwrap();
+  let mismatched = client.ask(&follows("mixed", Some(parent.id), Some(900))).await.unwrap_err();
+  assert!(mismatched.starts_with("400"), "{mismatched}");
+  let child = client.ask(&follows("child", None, Some(812))).await.unwrap();
+  let origin = client.item(child.id).await.unwrap().origin;
+  assert_eq!(origin.kind, OriginKind::FollowUp);
+  assert_eq!(
+    (origin.item_id, origin.document_id, origin.title.as_deref(), origin.share_url.as_deref()),
+    (Some(parent.id), Some(812), Some("Parent manual"), Some("https://share.example/d812"))
+  );
+  assert_eq!(origin.because.as_deref(), Some("why child"));
+  let listed = client.queue(Some("it"), &[ItemState::Waiting], None, 50).await.unwrap().items;
+  assert_eq!(listed.iter().find(|item| item.id == child.id).map(|item| &item.origin), Some(&origin));
 }
 
 #[tokio::test]

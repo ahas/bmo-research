@@ -153,16 +153,24 @@ the one to read.
 - **An item** is `id`, `categoryName`, `key` (the canonical address, else the name lower-cased), `name`,
   `maker`, `address` (the maker's page for the thing), `kind` (`model`, `paper`, `release`, `entry`, or
   `asked` for an ask), `shape` (`manual`, `investigation`, `advisory` or `brief`), `sourceId`, `asked`,
-  `priority`, `state`, `tries`, `retryAt`, `runId` (the research run of the latest try), `documentId`,
-  `title` and `description` (the head the run gave its document, in English), `shareUrl` (the document's
-  live link), `languages` (the languages the document's page holds, Korean first: `["en"]` until the Korean
-  side is had, `["ko", "en"]` after, empty before a document is filed; 「The page」), `narrations` (the
-  languages whose narration the page plays, Korean first), `pending` (what the page still lacks before its
-  report is told: `korean` for its Korean side, `narration-ko` and `narration-en` for each narration its
-  script allows; empty where it lacks nothing), `pendingRetryAt` (when that is asked again, null where
-  nothing is pending), `fit`, `touches` (the hosts and repositories an advisory names), `plan`
-  (the heading of the document's plan section, as the document holds it), `jobItemId` (the job item the
-  chat agent filed for it), `error`, `foundAt`, `createdAt` and `changedAt`.
+  `origin` (where it came from, below), `priority`, `state`, `tries`, `retryAt`, `runId` (the research run
+  of the latest try), `documentId`, `title` and `description` (the head the run gave its document, in
+  English), `shareUrl` (the document's live link), `languages` (the languages the document's page holds,
+  Korean first: `["en"]` until the Korean side is had, `["ko", "en"]` after, empty before a document is
+  filed; 「The page」), `narrations` (the languages whose narration the page plays, Korean first), `pending`
+  (what the page still lacks before its report is told: `korean` for its Korean side, `narration-ko` and
+  `narration-en` for each narration its script allows; empty where it lacks nothing), `pendingRetryAt` (when
+  that is asked again, null where nothing is pending), `fit`, `touches` (the hosts and repositories an
+  advisory names), `plan` (the heading of the document's plan section, as the document holds it),
+  `jobItemId` (the job item the chat agent filed for it), `error`, `foundAt`, `createdAt` and `changedAt`.
+- **Where an item came from** is its `origin`, an object whose `kind` is one of three:
+  - `source`, an item a scan took in: `source` names the source that found it, by its kind and what it
+    reads (its query, else its address), null where that source no longer stands;
+  - `asked`, the owner's ask: `because` holds the words the ask was made with, null where it named none;
+  - `follow-up`, an ask made from an earlier research: `itemId` and `documentId` name the item and the
+    document it follows from, `title` that document's title and `shareUrl` its live link, as they stood when
+    the ask was made, and `because` the sentence saying why this one was asked.
+  The fields a kind does not use are null.
 - **Its states:** `waiting` until a run is asked for it; `running` while one is under way; `finishing` once
   its run has filed its document and while its page is not yet whole, `pending` naming what it waits on and
   nobody told of it yet (「The page」); `reported` once its whole page is told to its category's
@@ -183,6 +191,14 @@ the one to read.
   An empty name or address, or a shape the category does not take, is 400 `bad-request`; a category that
   does not stand is 404 `not-found`; a key an item still `waiting` or `running` holds is 409 `conflict`.
   The archive is not asked: the owner's word stands over it.
+- **An ask may say why and from what:** `because`, the words it is made with, kept as its origin's; and,
+  for a follow-up of an earlier research, `followsItemId`, the item it follows from, or
+  `followsDocumentId`, the document. An ask naming either is a `follow-up`, any other an `asked`. The parent
+  is read as the ask is made: a named item gives its document, its title (its name where it has none) and its
+  live link; a named document gives those of the item that filed it, else those of the research run that
+  filed it, else its number alone. An item that does not stand is 404 `not-found`, an item that has filed
+  no document yet is 409 `conflict`, and an item and a document that are not each other's are 400
+  `bad-request`.
 - **A change** is a merge patch of `state` or `front`; the daemon files nothing and launches nothing, so a
   change only records what was decided elsewhere:
   - `state` `dismissed` dismisses an item in any state but `taken` and `dismissed`; a run under way goes
@@ -325,9 +341,11 @@ the one to read.
   `poll_seconds` until its `state` is `closed`. A run the deep dive asks tells no room itself.
 - **The run is held to its shape:** the try hands the runner the section headings its item's shape holds
   (`prompts/document.toml`, `[sections]`), and the runner files the result as a page only where it is whole:
-  its head lines, its body opening with the answer and at least half of those headings in one language, the
-  run's session asked once more for the whole document where they are short (`docs/runner.md`, 「The deep
-  dive's page」).
+  its head lines, its body opening with the answer, the opening section saying what the subject is where
+  its shape holds one (`prompts/document.toml`, `[opening]`), and at least half of those headings in one
+  language, the run's session asked once more for the whole document where they are short
+  (`docs/runner.md`, 「The deep dive's page」). The try hands the runner the item's origin too, which the
+  page prints under its title.
 - **A run that closed** with the outcome `cut` is a failed try. Any other outcome ends the try once the run's
   row names the document it filed; a closed run with no document is a failed try, its error the run's, which
   names what the result was missing where its shape held it back.
@@ -382,11 +400,17 @@ search runner applies it, and the run writes its document in English, the questi
 
 - `manual.md` and `investigation.md`, a `manual-or-investigation` category's: a `model` item is asked as a
   manual (the rulebook `research.md`, 「The manual」), and a `paper`, `release` or `entry` item as an
-  investigation (`research.md`, 「The investigation」); an ask names its own. The item's `{name}` and
-  `{address}` are set in. The manual's question names the headings and the label the fit is read by.
-- `advisory.md`, an `advisory` category's (`security-advisory.md`): the item's `{name}` and `{address}`,
-  and `{stack}`, the stack inventory a row a line. It asks for the exposure as a table naming each
-  component's repository.
+  investigation (`research.md`, 「The investigation」); an ask names its own. The item's `{name}`,
+  `{address}` and `{origin}` are set in. The manual's question names the headings and the label the fit is
+  read by; both name the opening section saying what the subject is and what it is for.
+- `advisory.md`, an `advisory` category's (`security-advisory.md`): the item's `{name}`, `{address}` and
+  `{origin}`, and `{stack}`, the stack inventory a row a line. It asks for the exposure as a table naming
+  each component's repository.
+- **`{origin}`** is the item's origin in one English line, the words the page prints it in
+  (`prompts/page.toml`): the source that found it by its kind and what it reads; the owner's ask, with
+  the words it was made with quoted; or, for a follow-up, the document it follows from by its number and
+  title, linked where its live link is known, with the sentence saying why it was asked quoted. A brief,
+  gathered from its category's sources, is handed none.
 - `brief.md`, a `brief` category's (`economy-brief.md`): `{items}`, every gathered item's name and address
   a line.
 
@@ -424,6 +448,10 @@ search runner applies it, and the run writes its document in English, the questi
   `PATCH /documents/{id}`: `title` the Korean title where the Korean side is had, `html` the page, and
   `labels` the run's document's labels with `languages` naming the languages the page holds, comma-separated.
   Every item the document was filed for keeps the languages as `languages` and the narrations as `narrations`.
+- **Each side prints where the research came from** under its title, from the item's `origin` in the side's
+  own words (`prompts/page.toml`; `docs/runner.md`, 「The page」): the Korean side names a parent document
+  by the Korean title its page holds where it has one, else by the title the item keeps. The line is drawn
+  from the item, not translated.
 - **The Korean side is rendered by agency's translator** (`POST /translation-runs`) with `purpose` `document`
   and `language` the one `prompts/translation.toml` names, `Korean`, one text at a time: the description,
   where it has one, then the body with the title set over it as its top-level heading, so the Korean title is
@@ -479,8 +507,11 @@ search runner applies it, and the run writes its document in English, the questi
 
 - **Every recipient of the category is told every notice:** a report, once the item's page is whole (「The
   page」), with the words `prompts/report.toml` holds as `line`, the Korean title, the first sentence of the
-  Korean description and the document's one share link set in; or a failed try's last, `failed`, with the
-  name and the tries set in. The narration is never named.
+  Korean description and the document's one share link set in, and, for a follow-up, `follows` with the
+  title of the document it follows from set in (its Korean title where its page has one, else the title
+  the item keeps), or `follows_document` with its number where no title is known; or a failed try's last,
+  `failed`, with the name and the tries set in. The narration is never named, and the parent's link stands
+  on the page, not in the notice.
 - **A report is told once, whole.** While its page lacks a part, its recipients hear nothing of the item:
   it stands `finishing`, its `pending` naming what it waits on, and its run's log says the same under
   `filed`. The report goes out on the try that makes the page whole, the run's log saying so under `told`.
@@ -516,7 +547,7 @@ daemon's settings name, read under the data root the session record's `BMO_DATA_
 
 | Entry | Arguments | Calls | Capability |
 |---|---|---|---|
-| `research/ask` | `name`, `address`, `category?`, `shape?` | `POST /queue` | `research.ask` |
+| `research/ask` | `name`, `address`, `category?`, `shape?`, `because?`, `follows?`, `document?` | `POST /queue` | `research.ask` |
 | `research/queue` | `category?`, `state?` | `GET /queue`, and `GET /state` for its `holds`, said first | `research.ask` |
 | `research/taken` | `item`, `job` | `PATCH /queue/{itemId}` | `research.owner` |
 | `research/dismiss` | `item` | `PATCH /queue/{itemId}` | `research.owner` |
@@ -541,6 +572,8 @@ daemon's settings name, read under the data root the session record's `BMO_DATA_
   one is meant, is named only where the owner named one for this research, and none otherwise, so the seat's
   own road carries it; the result comes back to the room as an instruction once the run ends, the answer in a
   line or two with its document's link.
+- **`research/ask` says why and from what:** `because` is the ask's words, and `follows` the item or
+  `document` the document an ask made from an earlier research follows from (「queue」).
 - **`research/rulebook` answers one rulebook whole,** read from `prompts/rules/<name>.md` under the first
   folder, from the tool's working folder upward, that holds `prompts/rules`: the deployment places the
   rulebooks beside the tool's executable. Only a name the session record's `labels.research.rulebooks` holds is

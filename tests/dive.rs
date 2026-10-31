@@ -5,7 +5,9 @@
 //! missing one logged and asked again on every retry wait, a synthesis waited on however long with its
 //! reasons logged, and a long script cut to what the voice speaks, the pending Korean side drawn into the
 //! same page, the report held until the page is whole and told once, across a restart too, an advisory's
-//! parts to the workers of its repositories, and a brief's gathering with its facts. The filed documents are
+//! parts to the workers of its repositories, a brief's gathering with its facts, the page opening with what
+//! its subject is and saying under its title where the research came from, and a result with no opening
+//! asked again whole. The filed documents are
 //! composed from the English words `prompts/document.toml` holds, so this file holds none of them.
 
 mod support;
@@ -15,8 +17,8 @@ use research_server::App;
 use research_server::dive::{VOICE_MOST_CHARACTERS, give_owner_room, speakable, take_up, tick};
 use research_server::document::{draw, page_body};
 use research_server::runner::narration_script;
-use research_server::store::{NewResearchRun, Store, now_ms};
-use research_server::translation::{cut, narration_note, note};
+use research_server::store::{Asked, NewResearchRun, Parent, Store, now_ms};
+use research_server::translation::{Rendering, cut, narration_note, note};
 use research_server::words;
 use serde_json::Value;
 use support::{Filed, Ground, KO, result_text, spoken, translated};
@@ -57,7 +59,7 @@ fn english_body(id: i64, content: &str) -> String {
     content: content.to_string(),
   });
   let drawn = draw(&result, words::search_document("en"));
-  page_body(&drawn, &format!("Report {id}"))
+  page_body(&drawn, &format!("Report {id}"), &words::document().opening.manual)
 }
 
 /// Prose of at least `size` characters, in sentences.
@@ -705,6 +707,167 @@ async fn a_result_holding_none_of_its_shape_s_sections_is_not_filed_or_told_and_
   assert!(orders(&ground).is_empty(), "no notice goes out");
 }
 
+/// The words a follow-up of document 812 is asked with.
+const BECAUSE: &str = "The manual names a lighter variant; what is it for?";
+
+#[tokio::test]
+async fn a_follow_up_is_asked_and_drawn_with_the_document_it_follows_and_told_naming_it() {
+  let ground = support::ground(|_| {}).await;
+  give_owner_room(&ground.app).await;
+  let parent_korean = format!("{KO}Parent-7B manual");
+  ground
+    .app
+    .store
+    .keep_rendering(
+      812,
+      &Rendering {
+        title: parent_korean.clone(),
+        description: None,
+        body: String::new(),
+      },
+    )
+    .unwrap();
+  let asked = Asked {
+    because: Some(BECAUSE.into()),
+    parent: Some(Parent {
+      item_id: Some(40),
+      document_id: Some(812),
+      title: Some("Parent-7B manual".into()),
+      share_url: Some("https://share.example/d812".into()),
+    }),
+  };
+  let item = ground
+    .app
+    .store
+    .ask_from(
+      "it",
+      "example.org/thing",
+      "Thing-7B",
+      "https://example.org/thing",
+      Shape::Manual,
+      &asked,
+    )
+    .unwrap();
+  file(&ground, 1, 501, manual_document());
+
+  settle(&ground).await;
+
+  let english = research_server::page::origin_line(&item, "en", None).unwrap();
+  for part in ["812", "Parent-7B manual", "https://share.example/d812", BECAUSE] {
+    assert!(english.contains(part), "{part} missing from {english}");
+  }
+  let query = ground.turns_named("research-1")[0]["prompt"].as_str().unwrap().to_string();
+  assert!(query.contains(&english), "the question hands the run the origin: {query}");
+  let asked_line = ground
+    .app
+    .store
+    .research_log(1)
+    .unwrap()
+    .into_iter()
+    .find(|l| l.kind == "asked")
+    .unwrap();
+  assert!(asked_line.text.contains(&english), "the log's asked line says it: {}", asked_line.text);
+
+  let filed = ground.run_documents();
+  let html = filed[0]["html"].as_str().unwrap();
+  let label = &words::page().language("en").unwrap().origin;
+  let origin_at = html.find("<div class=\"origin\">").expect("the English page prints the origin");
+  assert!(origin_at < html.find("</header>").unwrap(), "under the title, in the head");
+  assert!(html.contains(&format!("<strong>{label}:</strong>")));
+  assert!(html.contains("<a href=\"https://share.example/d812\">Parent-7B manual</a>"), "{html}");
+  let opening = html.find(support::OPENING).unwrap();
+  assert!(opening < html.find(support::VERDICT).unwrap(), "the page opens with what it is");
+
+  let rewrites = ground.rewrites(501);
+  let page = rewrites[0]["html"].as_str().unwrap();
+  assert!(page.contains("<div class=\"origin\" data-language=\"ko\" lang=\"ko\">"));
+  assert!(page.contains("<div class=\"origin\" data-language=\"en\" lang=\"en\">"));
+  assert!(
+    page.contains(&format!(">{parent_korean}</a>")),
+    "the Korean side names the parent's: {page}"
+  );
+
+  let told = orders(&ground);
+  assert_eq!(told.len(), 1);
+  let order = told[0]["said"]["order"].as_str().unwrap();
+  let follows = words::fill(&words::report().follows, &[("parent", &parent_korean)]);
+  assert!(order.starts_with(&format!("{KO}Report 501{follows} — ")), "{order}");
+  assert_eq!(order.matches("https://").count(), 1, "the parent's link stands on the page: {order}");
+  assert_eq!(ground.app.store.item(item.id).unwrap().state, ItemState::Fit);
+}
+
+#[tokio::test]
+async fn a_result_with_no_opening_is_asked_again_whole_and_filed_once_it_says_what_its_subject_is() {
+  let ground = support::ground(|_| {}).await;
+  give_owner_room(&ground.app).await;
+  ground
+    .app
+    .store
+    .ask("it", "example.org/thing", "Thing-7B", "https://example.org/thing", Shape::Manual)
+    .unwrap();
+  file(&ground, 1, 501, narrated(manual_document()));
+  let whole = result_text(&ground.world.lock().unwrap().filed[&1]);
+  let headless = format!(
+    "ANSWERED: yes :: the document\nTITLE: Report 501\nTOPIC: It is a thing.\n\nVERDICT:\n{}\n\n{}",
+    support::VERDICT,
+    narrated(manual_document())
+  );
+  {
+    let mut world = ground.world.lock().unwrap();
+    world.raw.insert(1, headless);
+    world.whole = Some(whole);
+  }
+
+  settle(&ground).await;
+
+  let asked = ground.turns_named("research-1-whole");
+  assert_eq!(asked.len(), 1, "the whole document is asked once");
+  let prompt = asked[0]["prompt"].as_str().unwrap();
+  let opening = &words::document().opening.manual;
+  assert!(
+    prompt.contains("opening section") && prompt.contains(&opening[0]),
+    "what it lacks: {prompt}"
+  );
+  assert!(!prompt.contains("ANSWERED: line"), "its head stands: {prompt}");
+  let filed = ground.run_documents();
+  assert_eq!(filed.len(), 1, "the whole answer is filed");
+  assert!(filed[0]["html"].as_str().unwrap().contains(support::OPENING));
+}
+
+#[test]
+fn a_result_without_its_opening_is_short_and_one_holding_it_in_either_language_is_not() {
+  let opening = &words::document().opening.manual;
+  let sections = words::document().sections.manual.clone();
+  let answer = &words::search_document("en").answer;
+  let w = &words::document().manual[0];
+  let result = |opening_heading: Option<&str>| {
+    let open = opening_heading.map(|h| format!("SECTION: {h}\nIt is a model.\n\n")).unwrap_or_default();
+    format!(
+      "ANSWERED: yes :: x\nTITLE: T\n\nVERDICT:\nIt works.\n\n{open}SECTION: 7. {}\n- {} n3\n\nSECTION: 9. {}\n- re-measure\n",
+      w.heading, w.label, w.plan_heading
+    )
+  };
+  let short = |text: String| {
+    research_server::document::short_of(
+      &draw(&text, words::search_document("en")),
+      &sections,
+      opening,
+      answer,
+    )
+  };
+  let lacking = short(result(None)).expect("a result with no opening is short");
+  assert!(lacking.contains("opening section") && lacking.contains(&opening[1]), "{lacking}");
+  assert_eq!(short(result(Some(&format!("0. {}", opening[0])))), None);
+  assert_eq!(short(result(Some(&opening[1]))), None);
+  let advisory = research_server::document::short_of(
+    &draw(&result(None), words::search_document("en")),
+    &[],
+    words::document().opening.of(Shape::Advisory),
+    answer,
+  );
+  assert_eq!(advisory, None, "a shape listing no opening asks for none");
+}
+
 /// The tail of a manual: its plan's continuation alone, with no head and no answer.
 fn tail_only() -> String {
   let w = &words::document().manual[0];
@@ -843,7 +1006,7 @@ async fn a_part_the_translator_finds_too_large_is_halved_and_asked_again() {
     .store
     .ask("it", "example.org/h", "H", "https://example.org/h", Shape::Investigation)
     .unwrap();
-  let content = format!("## {}\n\n{}\n", answer_heading(), prose(300));
+  let content = format!("## {}\n\n{}\n", answer_heading(), prose(150));
   file(&ground, 1, 60, content.clone());
   ground.world.lock().unwrap().too_large_over = Some(200);
 
@@ -870,7 +1033,7 @@ async fn a_part_the_translator_cuts_short_is_halved_and_asked_again() {
     .store
     .ask("it", "example.org/h", "H", "https://example.org/h", Shape::Investigation)
     .unwrap();
-  let content = format!("## {}\n\n{}\n", answer_heading(), prose(300));
+  let content = format!("## {}\n\n{}\n", answer_heading(), prose(150));
   file(&ground, 1, 60, content.clone());
   ground.world.lock().unwrap().cut_over = Some(200);
 

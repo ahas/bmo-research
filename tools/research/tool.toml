@@ -14,7 +14,7 @@ timeout = 60
 namespace = "research"
 name = "ask"
 title = "Ask for research"
-description = "Queue a thing for the research daemon by its name and its maker's address; it is researched before anything the sources turned up, and its report comes back to the room."
+description = "Queue a thing for the research daemon by its name and its maker's address; it is researched before anything the sources turned up, and its report comes back to the room. Say why it is asked in because; where it follows from an earlier research, name that item in follows, or its document in document, so the report names the step it followed from."
 input = "ask.json"
 capabilities = ["research.ask"]
 

@@ -7,8 +7,8 @@ use std::sync::{Arc, Mutex};
 
 use bmo_research_client::{
   Category, CategoryChange, CategoryShape, CategoryState, DaemonState, Fact, Filter, Item, ItemState,
-  NewCategory, NewSource, NewStackRow, Page, Recipient, RecipientKind, ResearchLogLine, ResearchRunState,
-  ResearchRunView, Run, Running, Shape, Source, SourceChange, StackRow,
+  NewCategory, NewSource, NewStackRow, Origin, OriginKind, Page, Recipient, RecipientKind, ResearchLogLine,
+  ResearchRunState, ResearchRunView, Run, Running, Shape, Source, SourceChange, StackRow,
 };
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
@@ -25,7 +25,9 @@ use crate::translation::Rendering;
 /// the sixth holds a `page` source's link pattern and strategy; the seventh keeps the arbiter demands the daemon
 /// holds and takes the fit's node list away; the eighth keeps what a page still lacks before its report is
 /// told, stands an item whose page was being finished and whose report was never told `finishing`, and sets
-/// every page finished since the fourth that still lacks a part due on the retry wait.
+/// every page finished since the fourth that still lacks a part due on the retry wait; the ninth keeps where
+/// an item came from — a source, an ask with its words, or a follow-up with the document it follows from —
+/// an item standing before it a source's where no ask made it, and an ask's with no words otherwise.
 const MIGRATIONS: &[&str] = &[
   "
   create table categories (
@@ -139,7 +141,34 @@ const MIGRATIONS: &[&str] = &[
       and (translation_tries > 0 or narration_tries > 0)
       and (languages <> '[\"ko\",\"en\"]' or narrations <> '[\"ko\",\"en\"]');
 ",
+  "
+  alter table queue add column origin text not null default 'source';
+  alter table queue add column because text;
+  alter table queue add column parent_item_id integer;
+  alter table queue add column parent_document_id integer;
+  alter table queue add column parent_title text;
+  alter table queue add column parent_share_url text;
+  update queue set origin = 'asked' where asked = 1;
+",
 ];
+
+/// What an ask says of where it came from: the words it was made with, and for a follow-up, the earlier
+/// research it follows from.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Asked {
+  pub because: Option<String>,
+  pub parent: Option<Parent>,
+}
+
+/// The earlier research a follow-up follows from: its item where one filed it, its document, and that
+/// document's title and live link.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Parent {
+  pub item_id: Option<i64>,
+  pub document_id: Option<i64>,
+  pub title: Option<String>,
+  pub share_url: Option<String>,
+}
 
 /// The schema version this binary holds.
 pub fn schema_version() -> i64 {
@@ -158,7 +187,10 @@ const CATEGORY_COLUMNS: &str = "name, purpose, shape, cap, cadence_minutes, gath
 const ITEM_COLUMNS: &str =
   "id, category, key, name, maker, address, kind, shape, source_id, asked, priority,
   state, tries, retry_at, run_id, document_id, title, description, share_url, fit, touches, plan,
-  job_item_id, error, found_at, created_at, changed_at, languages, narrations, pending, pending_retry_at";
+  job_item_id, error, found_at, created_at, changed_at, languages, narrations, pending, pending_retry_at,
+  origin, because, parent_item_id, parent_document_id, parent_title, parent_share_url,
+  (select sources.kind || ' (' || coalesce(sources.query, sources.address) || ')' from sources
+    where sources.id = queue.source_id)";
 
 const SOURCE_COLUMNS: &str =
   "id, category, kind, address, query, require, exclude, every_minutes, item_limit,
@@ -771,8 +803,8 @@ impl Store {
 
   // The queue.
 
-  /// An ask queued at once, above every item the scan took in; refused where an item of its key still waits
-  /// or runs.
+  /// An ask queued at once, above every item the scan took in, naming no words and no parent; refused where an
+  /// item of its key still waits or runs.
   pub fn ask(
     &self,
     category: &str,
@@ -781,7 +813,72 @@ impl Store {
     address: &str,
     shape: Shape,
   ) -> Result<Item, Refusal> {
+    self.ask_from(category, key, name, address, shape, &Asked::default())
+  }
+
+  /// The earlier research a follow-up follows from, read as it stands now: a named item's document, title (its
+  /// name where it has none) and live link; a named document's from the item that filed it, else from the
+  /// research run that filed it, else its number alone. An item that does not stand, or has filed no document
+  /// yet, is refused.
+  pub fn parent(&self, item: Option<i64>, document: Option<i64>) -> Result<Parent, Refusal> {
+    let of_item = |item: Item| Parent {
+      item_id: Some(item.id),
+      document_id: item.document_id,
+      title: item.title.clone().filter(|t| !t.trim().is_empty()).or(Some(item.name.clone())),
+      share_url: item.share_url.clone(),
+    };
+    if let Some(id) = item {
+      let item = self.item(id)?;
+      if item.document_id.is_none() {
+        return Err(Refusal::Conflict(format!("item {id} has filed no document yet")));
+      }
+      return Ok(of_item(item));
+    }
+    let Some(document) = document else {
+      return Ok(Parent::default());
+    };
+    let filer: Option<i64> = self
+      .lock()
+      .query_row(
+        "select id from queue where document_id = ?1 order by id desc limit 1",
+        params![document],
+        |r| r.get(0),
+      )
+      .optional()?;
+    if let Some(id) = filer {
+      return Ok(of_item(self.item(id)?));
+    }
+    let run: Option<(Option<String>, Option<String>)> = self
+      .lock()
+      .query_row(
+        "select title, link from research_runs where document_id = ?1 order by id desc limit 1",
+        params![document],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+      )
+      .optional()?;
+    let (title, share_url) = run.unwrap_or_default();
+    Ok(Parent {
+      item_id: None,
+      document_id: Some(document),
+      title: title.filter(|t| !t.trim().is_empty()),
+      share_url,
+    })
+  }
+
+  /// An ask queued at once, above every item the scan took in, with the words it was made with and, for a
+  /// follow-up, the earlier research it follows from; refused where an item of its key still waits or runs.
+  pub fn ask_from(
+    &self,
+    category: &str,
+    key: &str,
+    name: &str,
+    address: &str,
+    shape: Shape,
+    asked: &Asked,
+  ) -> Result<Item, Refusal> {
     let now = now_ms();
+    let parent = asked.parent.clone().unwrap_or_default();
+    let origin = if asked.parent.is_some() { OriginKind::FollowUp } else { OriginKind::Asked };
     let mut conn = self.lock();
     let tx = conn.transaction()?;
     let standing: Option<i64> = tx
@@ -796,8 +893,23 @@ impl Store {
     }
     tx.execute(
       "insert into queue (category, key, name, address, kind, shape, asked, priority, state, found_at,
-         created_at, changed_at) values (?1, ?2, ?3, ?4, 'asked', ?5, 1, 1, 'waiting', ?6, ?6, ?6)",
-      params![category, key, name, address, shape.as_str(), now],
+         created_at, changed_at, origin, because, parent_item_id, parent_document_id, parent_title,
+         parent_share_url)
+       values (?1, ?2, ?3, ?4, 'asked', ?5, 1, 1, 'waiting', ?6, ?6, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+      params![
+        category,
+        key,
+        name,
+        address,
+        shape.as_str(),
+        now,
+        origin.as_str(),
+        asked.because,
+        parent.item_id,
+        parent.document_id,
+        parent.title,
+        parent.share_url
+      ],
     )?;
     let id = tx.last_insert_rowid();
     tx.execute(
@@ -1914,6 +2026,7 @@ fn read_item(r: &rusqlite::Row<'_>) -> rusqlite::Result<Item> {
   let languages: String = r.get(27)?;
   let narrations: String = r.get(28)?;
   let pending: String = r.get(29)?;
+  let origin: String = r.get(31)?;
   Ok(Item {
     id: r.get(0)?,
     category_name: r.get(1)?,
@@ -1946,6 +2059,15 @@ fn read_item(r: &rusqlite::Row<'_>) -> rusqlite::Result<Item> {
     narrations: serde_json::from_str(&narrations).unwrap_or_default(),
     pending: serde_json::from_str(&pending).unwrap_or_default(),
     pending_retry_at: r.get(30)?,
+    origin: Origin {
+      kind: OriginKind::parse(&origin).unwrap_or(OriginKind::Source),
+      source: r.get(37)?,
+      because: r.get(32)?,
+      item_id: r.get(33)?,
+      document_id: r.get(34)?,
+      title: r.get(35)?,
+      share_url: r.get(36)?,
+    },
   })
 }
 

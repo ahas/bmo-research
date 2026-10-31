@@ -103,6 +103,30 @@ pub fn without_opening_heading<'a>(content: &'a str, title: &str) -> &'a str {
   }
 }
 
+/// The document with the first section whose heading holds one of `words` set before the rest, the heading's
+/// line among it; the document as it stands where none holds one, or that section opens it already.
+pub fn lifted(content: &str, words: &[String]) -> String {
+  let found = headings(content);
+  let Some(at) = found.iter().position(|h| words.iter().any(|word| holds(&h.text, word))) else {
+    return content.to_owned();
+  };
+  let section = &found[at];
+  if content[..section.start].trim().is_empty() {
+    return content.to_owned();
+  }
+  let before = content[..section.start].trim_end();
+  let after = content[section.end..].trim_start();
+  let mut out = format!("{}\n\n{before}", content[section.start..section.end].trim_end());
+  if !after.is_empty() {
+    out.push_str("\n\n");
+    out.push_str(after);
+  }
+  if content.ends_with('\n') {
+    out.push('\n');
+  }
+  out
+}
+
 /// Whether `text` holds `word`, regardless of case.
 fn holds(text: &str, word: &str) -> bool {
   text.to_lowercase().contains(&word.to_lowercase())

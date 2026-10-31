@@ -189,10 +189,18 @@ pub async fn call(
           address: need_text(arguments, "address")?,
           category_name: text(arguments, "category"),
           shape,
+          because: text(arguments, "because"),
+          follows_item_id: arguments.get("follows").and_then(Value::as_i64),
+          follows_document_id: arguments.get("document").and_then(Value::as_i64),
         })
         .await?;
+      let follows = match (item.origin.item_id, item.origin.document_id) {
+        (Some(parent), _) => format!(", a follow-up of #{parent}"),
+        (None, Some(document)) => format!(", a follow-up of document {document}"),
+        (None, None) => String::new(),
+      };
       Ok(format!(
-        "Queued #{} {} in {} as a {}.",
+        "Queued #{} {} in {} as a {}{follows}.",
         item.id,
         item.name,
         item.category_name,

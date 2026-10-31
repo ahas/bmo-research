@@ -74,6 +74,15 @@ enum Verb {
     category: Option<String>,
     #[arg(long)]
     shape: Option<String>,
+    /// The words the ask is made with: why it is asked.
+    #[arg(long)]
+    because: Option<String>,
+    /// For a follow-up: the item it follows from.
+    #[arg(long)]
+    follows: Option<i64>,
+    /// For a follow-up: the document it follows from.
+    #[arg(long)]
+    document: Option<i64>,
   },
   /// Marks an item taken by the job item filed for it.
   Taken { item: i64, job: i64 },
@@ -314,6 +323,9 @@ async fn command(verb: Verb) -> Result<(), String> {
       address,
       category,
       shape,
+      because,
+      follows,
+      document,
     } => {
       let shape = match shape {
         Some(word) => Some(Shape::parse(&word).ok_or_else(|| format!("{word} is no shape"))?),
@@ -325,6 +337,9 @@ async fn command(verb: Verb) -> Result<(), String> {
           address,
           category_name: category,
           shape,
+          because,
+          follows_item_id: follows,
+          follows_document_id: document,
         })
         .await?;
       println!("#{} queued in {} as a {}", item.id, item.category_name, item.shape.as_str());

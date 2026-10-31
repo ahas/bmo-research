@@ -9,7 +9,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use bmo_research_client::{
-  Category, CategoryShape, Item, ItemState, RecipientKind, ResearchRunAsk, ResearchRunState, Running, Shape,
+  Category, CategoryShape, Item, ItemState, OriginKind, RecipientKind, ResearchRunAsk, ResearchRunState,
+  Running, Shape,
 };
 use serde_json::{Value, json};
 use tokio::task::JoinHandle;
@@ -235,11 +236,28 @@ pub fn road(app: &App, category: &Category) -> (String, String) {
   )
 }
 
-/// The question a try is asked: one item's shape with its name and address, an advisory's with the stack,
-/// a brief's with every item it gathers.
+/// The Korean title of the document a follow-up follows from, where its page has a Korean side.
+fn parent_korean_title(app: &App, item: &Item) -> Option<String> {
+  let document = item.origin.document_id?;
+  app.store.rendering(document).ok().flatten().map(|rendering| rendering.title)
+}
+
+/// The line under an item's page's title saying where its research came from, in one language, the parent's
+/// Korean title named on the Korean side; none for a brief, which its category's sources gather.
+fn origin_of(app: &App, item: &Item, code: &str) -> Option<String> {
+  if item.shape == Shape::Brief {
+    return None;
+  }
+  let title = if code == LANGUAGES[0] { parent_korean_title(app, item) } else { None };
+  page::origin_line(item, code, title.as_deref())
+}
+
+/// The question a try is asked: one item's shape with its name, address and origin, an advisory's with the
+/// stack, a brief's with every item it gathers.
 fn question(app: &App, items: &[Item]) -> String {
   let lead = &items[0];
   let address = lead.address.clone().unwrap_or_default();
+  let origin = origin_of(app, lead, LANGUAGES[1]).unwrap_or_default();
   match lead.shape {
     Shape::Brief => {
       let lines: Vec<String> = items
@@ -261,10 +279,15 @@ fn question(app: &App, items: &[Item]) -> String {
         .collect();
       words::question(
         Shape::Advisory,
-        &[("name", &lead.name), ("address", &address), ("stack", &stack.join("\n"))],
+        &[
+          ("name", &lead.name),
+          ("address", &address),
+          ("origin", &origin),
+          ("stack", &stack.join("\n")),
+        ],
       )
     }
-    shape => words::question(shape, &[("name", &lead.name), ("address", &address)]),
+    shape => words::question(shape, &[("name", &lead.name), ("address", &address), ("origin", &origin)]),
   }
 }
 
@@ -315,6 +338,8 @@ async fn carried(app: Arc<App>, run: i64, asked: Option<i64>) {
       };
       let filing = Filing::Page(PageAsk {
         sections: words::document().sections.of(lead.shape).to_vec(),
+        opening: words::document().opening.of(lead.shape).to_vec(),
+        origin: origin_of(&app, &lead, LANGUAGES[1]),
       });
       match runner::launch(app.clone(), ask, filing, demand).await {
         Ok(launched) => {
@@ -498,18 +523,21 @@ async fn narration(
 /// attached, and set in the archive.
 async fn redraw(
   app: &App,
+  lead: &Item,
   document_id: i64,
   source: &Source,
   rendering: Option<&Rendering>,
   narrations: &[String],
 ) -> Result<(), String> {
-  let english = document::page_body(&source.drawn, &source.title);
+  let english = document::page_body(&source.drawn, &source.title, words::document().opening.of(lead.shape));
+  let origins = LANGUAGES.map(|code| origin_of(app, lead, code));
   let mut sides = Vec::new();
   if let Some(korean) = rendering {
     sides.push(Side {
       code: LANGUAGES[0],
       title: &korean.title,
       description: korean.description.as_deref(),
+      origin: origins[0].as_deref(),
       body: &korean.body,
     });
   }
@@ -517,6 +545,7 @@ async fn redraw(
     code: LANGUAGES[1],
     title: &source.title,
     description: source.drawn.description.as_deref(),
+    origin: origins[1].as_deref(),
     body: &english,
   });
   let names: Vec<(&str, String)> = LANGUAGES
@@ -563,7 +592,7 @@ async fn finish(app: &App, run: i64, lead: &Item, filed: &Filed, source: &Source
     .ok()?;
   let mut fresh = false;
   if ask_korean {
-    let body = document::page_body(&source.drawn, &source.title);
+    let body = document::page_body(&source.drawn, &source.title, words::document().opening.of(lead.shape));
     let english = English {
       name: &lead.name,
       title: &source.title,
@@ -602,7 +631,7 @@ async fn finish(app: &App, run: i64, lead: &Item, filed: &Filed, source: &Source
     }
   }
   if fresh || heard {
-    match redraw(app, document_id, source, rendering.as_ref(), &sounds).await {
+    match redraw(app, lead, document_id, source, rendering.as_ref(), &sounds).await {
       Ok(()) => {
         if let Some(korean) = rendering.as_ref().filter(|_| fresh) {
           let _ = app.store.keep_rendering(document_id, korean);
@@ -754,14 +783,30 @@ async fn fail(app: &App, run: i64, lead: &Item, state: &str, outcome: Option<&st
   }
 }
 
-/// The notice a whole page's recipients hear: the line of the page's Korean side and its one link, then for
-/// a `fit` item what its recipient needs to act.
-pub fn notice(lead: &Item, filed: &Filed, korean: &Rendering) -> String {
+/// The notice a whole page's recipients hear: the line of the page's Korean side and its one link, naming the
+/// document a follow-up follows from by `parent`, its Korean title, else the title the item keeps, else its
+/// number; then for a `fit` item what its recipient needs to act.
+pub fn notice(lead: &Item, filed: &Filed, korean: &Rendering, parent: Option<&str>) -> String {
   let words = words::report();
   let summary = reading::first_sentence(korean.description.as_deref().unwrap_or_default());
+  let origin = &lead.origin;
+  let follows = match (origin.kind, parent.or(origin.title.as_deref()), origin.document_id) {
+    (OriginKind::FollowUp, Some(title), _) if !title.trim().is_empty() => {
+      fill(&words.follows, &[("parent", title.trim())])
+    }
+    (OriginKind::FollowUp, _, Some(document)) => {
+      fill(&words.follows_document, &[("document", &document.to_string())])
+    }
+    _ => String::new(),
+  };
   let mut lines = vec![fill(
     &words.line,
-    &[("title", &korean.title), ("summary", &summary), ("link", &filed.share_url)],
+    &[
+      ("title", &korean.title),
+      ("follows", &follows),
+      ("summary", &summary),
+      ("link", &filed.share_url),
+    ],
   )];
   lines.extend(acting(lead, filed));
   lines.join("\n")
@@ -795,7 +840,8 @@ async fn tell(
   korean: &Rendering,
   exposure: &Exposure,
 ) {
-  notify(app, category, lead, &notice(lead, filed, korean), "report").await;
+  let parent = parent_korean_title(app, lead);
+  notify(app, category, lead, &notice(lead, filed, korean, parent.as_deref()), "report").await;
   if lead.shape != Shape::Advisory {
     return;
   }

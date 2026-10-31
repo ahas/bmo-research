@@ -274,16 +274,25 @@ pub fn run_of(name: &str) -> Option<i64> {
   name.strip_prefix("research-")?.split('-').next()?.parse().ok()
 }
 
-/// The whole result a document is filed from: the head, the verdict, then the document's text.
+/// The whole result a document is filed from: the head, the verdict, the opening saying what the subject is,
+/// then the document's text.
 pub fn result_text(doc: &Filed) -> String {
   format!(
-    "ANSWERED: yes :: the document\nTITLE: {}\nTOPIC: {}\n\nVERDICT:\n{}\n\n{}",
-    doc.title, doc.description, VERDICT, doc.content
+    "ANSWERED: yes :: the document\nTITLE: {}\nTOPIC: {}\n\nVERDICT:\n{}\n\nSECTION: {}\n{}\n\n{}",
+    doc.title,
+    doc.description,
+    VERDICT,
+    research_server::words::document().opening.manual[0],
+    OPENING,
+    doc.content
   )
 }
 
 /// The verdict a filed result writes.
 pub const VERDICT: &str = "It does what its maker says.";
+
+/// What a filed result's opening says of its subject.
+pub const OPENING: &str = "It is a small model that answers questions.";
 
 /// What a research turn writes: what it writes as it stands, the run's filed result, or a result of its own
 /// naming the run.

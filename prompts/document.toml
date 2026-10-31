@@ -106,3 +106,14 @@ brief = [
   "오늘의 항목",
   "수치표",
 ]
+
+# The headings of the opening section a deep dive's result holds by its item's shape, saying what the subject
+# is and what it is for (the research rulebook's 「The opening」; docs/runner.md, "The deep dive's page"): the
+# English one its question names and the Korean one its rulebook names. A result of a shape listing any, none
+# of whose headings holds one, is not filed; its first section holding one opens the page's body. A shape
+# listing none holds no opening.
+[opening]
+manual = ["What it is and what it is for", "무엇이고 어디에 쓰나"]
+investigation = ["What it is and what it is for", "무엇이고 어디에 쓰나"]
+advisory = []
+brief = []

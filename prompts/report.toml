@@ -1,6 +1,8 @@
 # The words of the notices the daemon hands a category's recipients (docs/api.md, "The notices").
 # {title}, {summary} and {link} are the page's Korean title, the first sentence of its Korean description and
-# the document's one share link, told once the page is whole; {name} and {tries} are the item's name and the
+# the document's one share link, told once the page is whole; {follows} is, for a follow-up, `follows` with
+# {parent} the title of the document it follows from, or `follows_document` with {document} its number where
+# no title is known, and empty for any other item; {name} and {tries} are the item's name and the
 # tries it took; {touches} is what an advisory names
 # as touched; {plan} is the heading of the document's plan section; {repository} and {rows} a touched
 # repository and its rows of the exposure table. In `restore`, {model} is a watched registration,
@@ -8,7 +10,9 @@
 # readings with: {minutes} is how long ago it was last read, {taken} how many candidates its last reading
 # that succeeded kept as new and {candidates} how many it turned up past the filter.
 
-line = "{title} — {summary} {link}"
+line = "{title}{follows} — {summary} {link}"
+follows = " (「{parent}」의 후속 조사)"
+follows_document = " (문서 {document}의 후속 조사)"
 fit = "우리 카드에 들어간다고 적혀 있습니다. 사장님께 검수 여부를 여쭤 주세요."
 touches = "우리 플랫폼의 {touches}에 닿는다고 적혀 있습니다. 저장소를 맡은 워커가 있으면 그 워커에게 따로 알렸습니다."
 name = "대상: {name}"

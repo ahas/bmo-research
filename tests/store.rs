@@ -1,13 +1,13 @@
 //! The store and the queue's rules (`docs/store.md`, `docs/api.md` 「queue」): the categories it starts with,
-//! the cap per category, the queue's order, and a candidate judged once.
+//! the cap per category, the queue's order, a candidate judged once, and where each item came from.
 
 mod support;
 
 use bmo_research_client::{
-  CategoryShape, ItemState, NewCategory, NewSource, RecipientKind, Running, Shape,
+  CategoryShape, ItemState, NewCategory, NewSource, OriginKind, RecipientKind, Running, Shape,
 };
 use research_server::sources::{Candidate, ItemKind};
-use research_server::store::{Refusal, Store, schema_version};
+use research_server::store::{Asked, Filed, Refusal, Store, schema_version};
 
 fn store() -> Store {
   Store::open(&support::scratch().join("research")).unwrap()
@@ -228,4 +228,99 @@ fn a_category_with_sources_is_not_taken_away_and_stopping_one_leaves_the_others(
   assert_eq!(store.daemon_state().unwrap().state, Running::Stopped);
   store.remove_category("health").unwrap();
   assert!(store.recipients("health").unwrap().is_empty());
+}
+
+#[test]
+fn an_item_keeps_where_it_came_from_a_source_an_ask_or_the_document_it_follows() {
+  let store = store();
+  let source = store
+    .add_source(
+      &NewSource {
+        category_name: "it".into(),
+        kind: "huggingface-trending".into(),
+        ..NewSource::default()
+      },
+      "https://example.org/api/models",
+      5,
+    )
+    .unwrap();
+  store
+    .keep_seen(&candidate("found", ItemKind::Model), "it", Some(source.id), false)
+    .unwrap();
+  let found = store.item(store.fill(&store.category("it").unwrap()).unwrap()[0]).unwrap();
+  assert_eq!(found.origin.kind, OriginKind::Source);
+  assert_eq!(
+    found.origin.source.as_deref(),
+    Some("huggingface-trending (https://example.org/api/models)")
+  );
+  assert_eq!((found.origin.because.as_deref(), found.origin.document_id), (None, None));
+
+  let asked = Asked {
+    because: Some("Which small model answers on one card?".into()),
+    parent: None,
+  };
+  let parent = store
+    .ask_from(
+      "it",
+      "example.org/parent",
+      "Parent-7B",
+      "https://example.org/parent",
+      Shape::Manual,
+      &asked,
+    )
+    .unwrap();
+  assert_eq!(parent.origin.kind, OriginKind::Asked);
+  assert_eq!(parent.origin.because.as_deref(), Some("Which small model answers on one card?"));
+  assert!(
+    matches!(store.parent(Some(parent.id), None), Err(Refusal::Conflict(_))),
+    "nothing filed yet"
+  );
+  assert!(matches!(store.parent(Some(9999), None), Err(Refusal::NotFound(_))));
+
+  store.start_try("it", &[parent.id]).unwrap();
+  let filed = Filed {
+    document_id: 812,
+    title: "Parent-7B manual".into(),
+    share_url: "https://share.example/d812".into(),
+    ..Filed::default()
+  };
+  assert!(store.file(parent.id, &filed, None).unwrap());
+  let from_document = store.parent(None, Some(812)).unwrap();
+  assert_eq!(from_document, store.parent(Some(parent.id), None).unwrap());
+  assert_eq!(
+    (
+      from_document.item_id,
+      from_document.title.as_deref(),
+      from_document.share_url.as_deref()
+    ),
+    (Some(parent.id), Some("Parent-7B manual"), Some("https://share.example/d812"))
+  );
+  let unknown = store.parent(None, Some(900)).unwrap();
+  assert_eq!((unknown.item_id, unknown.document_id, unknown.title), (None, Some(900), None));
+
+  let follow = Asked {
+    because: Some("The manual names a lighter variant; what is it?".into()),
+    parent: Some(from_document),
+  };
+  let child = store
+    .ask_from(
+      "it",
+      "example.org/child",
+      "Child-2B",
+      "https://example.org/child",
+      Shape::Manual,
+      &follow,
+    )
+    .unwrap();
+  let read = store.item(child.id).unwrap();
+  assert_eq!(read.origin.kind, OriginKind::FollowUp);
+  assert_eq!(
+    (read.origin.item_id, read.origin.document_id, read.origin.title.as_deref()),
+    (Some(parent.id), Some(812), Some("Parent-7B manual"))
+  );
+  assert_eq!(read.origin.share_url.as_deref(), Some("https://share.example/d812"));
+  assert_eq!(read.origin.because.as_deref(), Some("The manual names a lighter variant; what is it?"));
+  assert_eq!(read.origin.source, None);
+  let listed = store.queue(None, &[ItemState::Waiting], None, 50).unwrap().items;
+  assert!(listed.iter().any(|item| item.id == child.id && item.origin == read.origin));
 }

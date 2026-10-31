@@ -69,6 +69,10 @@ The items (`docs/api.md`, 「queue」).
 | `key`, `name`, `maker`, `address`, `kind`, `shape` | The thing, as its candidate or the ask named it |
 | `source_id` | The source it came from, or null for an ask |
 | `asked` | 1 for an ask, 0 for an item the scan took in |
+| `origin` | Where it came from: `source`, `asked` or `follow-up` |
+| `because` | The words its ask was made with, or null |
+| `parent_item_id`, `parent_document_id` | The item and the document a follow-up follows from, or null |
+| `parent_title`, `parent_share_url` | That document's title and live link as they stood when it was asked, or null |
 | `priority` | Its place in its category's queue, highest first |
 | `state` | Its state |
 | `tries`, `retry_at` | The tries made, and when the next may be made |

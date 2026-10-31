@@ -6,9 +6,21 @@
       "minLength": 1,
       "type": "string"
     },
+    "because": {
+      "description": "Why it is asked, in the asker's words; the page and the report say it.",
+      "type": "string"
+    },
     "category": {
       "description": "The category it is researched in; it where none is named.",
       "type": "string"
+    },
+    "document": {
+      "description": "For a follow-up of an earlier research: the document it follows from, where no item is named.",
+      "type": "integer"
+    },
+    "follows": {
+      "description": "For a follow-up of an earlier research: the item it follows from.",
+      "type": "integer"
     },
     "name": {
       "description": "The thing's name.",

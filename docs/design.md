@@ -75,12 +75,14 @@ sources ──scan──▶ candidates ──new?──▶ queue (cap) ──slo
 4. **The deep dive.** As many runs at once as the arbiter grants engines for, up to `concurrency`
    (「The engine a run needs」): the item becomes a research run on kakia's road at the exhaustive depth, asked as a manual where the thing is a model, an engine, a
    dataset or a tool, and as an investigation where it is a claim or an event. The run's question is the
-   item's name and its maker's address, with the shape named, so the runner's research rulebook
+   item's name, its maker's address and where it came from — the source that found it, the owner's ask, or
+   the earlier research a follow-up continues — with the shape named, so the runner's research rulebook
    applies. A run that is refused (no road carries it) or cut is retried after `retry_minutes`, three
    times, then marked failed and reported once.
-5. **The report.** The document the run filed is the report. The daemon tells every report room: the
-   share link and one line saying what the thing is, nothing else — never the grounds, never the
-   sources. The first room is the owner's private room, read from the receiver at start; rooms are added
+5. **The report.** The document the run filed is the report: it opens by saying what the thing is and
+   what it is for, and under its title says where the research came from. The daemon tells every report
+   room: the share link and one line saying what the thing is, naming the earlier document a follow-up
+   continues, nothing else — never the grounds, never the sources. The first room is the owner's private room, read from the receiver at start; rooms are added
    and removed through the routes and the tools.
 6. **The word.** A report whose document says the thing fits the lab (the manual's section on running it in
    the lab, under the heading `prompts/document.toml` names, names a card it fits) is marked `fit`, and its notice says so and asks for the owner's word. The notice

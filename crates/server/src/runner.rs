@@ -634,11 +634,14 @@ pub enum Filing {
   Page(PageAsk),
 }
 
-/// What a deep dive asks of its run's page: the section headings its shape holds, in every language a result
-/// may be written in.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// What a deep dive asks of its run's page: the section headings its shape holds and its opening's, in every
+/// language a result may be written in, and the line under its title saying where the research came from, in
+/// English markdown.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PageAsk {
   pub sections: Vec<String>,
+  pub opening: Vec<String>,
+  pub origin: Option<String>,
 }
 
 /// A run under way: what it was composed of and what it holds.
@@ -1083,7 +1086,7 @@ async fn narrated(app: &App, going: &Going, session: &str, seat: &Seat, result: 
 /// the answer's heading read in the question's language; none where it is whole.
 fn short_of_shape(ask: &ResearchRunAsk, page: &PageAsk, result: &str) -> Option<String> {
   let words = words::search_document(document::language_of(&ask.query));
-  document::short_of(&document::draw(result, words), &page.sections, &words.answer)
+  document::short_of(&document::draw(result, words), &page.sections, &page.opening, &words.answer)
 }
 
 /// The prompt a deep dive's result short of its shape is asked again with: the whole-document question with
@@ -1139,7 +1142,7 @@ async fn file_page(
   }
   let drawn = document::draw(text, words::search_document(document::language_of(&ask.query)));
   let title = drawn.title.clone().unwrap_or_default();
-  let filing = document::page_filing(&drawn, run, &ask.key, &ask.query, &title);
+  let filing = document::page_filing(&drawn, run, &ask.key, &ask.query, &title, page);
   match document::file_page(app, &drawn, &filing).await {
     Ok(filed) => {
       note(app, run, "filed", &format!("The result was filed as page {}: {}", filed.id, filed.link));
