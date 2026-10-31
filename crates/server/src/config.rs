@@ -1,8 +1,8 @@
 //! The daemon's settings (`docs/settings.md`): where it listens, the loop's numbers, the road its runs go out
 //! on where a category names none, how a document is cut for the translator, the models the engine watch
 //! asks the arbiter's cards for, how the runner seats a run and what it is held to where the owner changed nothing, where the
-//! tool host answers, the voice a narration is spoken in, and the files its peers' addresses and tokens are
-//! read from.
+//! tool host answers, the voice a narration is spoken in, where a stuck item's repair is filed, and the files
+//! its peers' addresses and tokens are read from.
 
 use std::collections::BTreeMap;
 
@@ -34,6 +34,7 @@ pub struct Settings {
   pub receiver: Receiver,
   pub artifact: Artifact,
   pub voice: Voice,
+  pub job: Job,
   /// The data root, read from the environment as the settings are loaded; never a key of the file.
   #[serde(skip)]
   pub data_root: PathBuf,
@@ -48,7 +49,7 @@ impl Default for Settings {
       tick_seconds: 30,
       concurrency: 4,
       retries: 3,
-      retry_minutes: 30,
+      retry_minutes: 5,
       restore_wait_minutes: 20,
       poll_seconds: 30,
       turn_wait_seconds: 20,
@@ -63,6 +64,7 @@ impl Default for Settings {
       receiver: Receiver::default(),
       artifact: Artifact::default(),
       voice: Voice::default(),
+      job: Job::default(),
       data_root: data_root(),
     }
   }
@@ -289,6 +291,28 @@ impl Default for Voice {
     Voice {
       settings: "voice.toml".into(),
       name: String::new(),
+    }
+  }
+}
+
+/// The job service a stuck item's repair is filed in: its own settings file, which names where it listens and
+/// its token's file, and the queue, the worker and the labels a repair is filed with.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Job {
+  pub settings: String,
+  pub queue: String,
+  pub assignee: String,
+  pub labels: Vec<String>,
+}
+
+impl Default for Job {
+  fn default() -> Self {
+    Job {
+      settings: "bmo-job.toml".into(),
+      queue: "todo".into(),
+      assignee: "helper".into(),
+      labels: vec!["lane=repair".into()],
     }
   }
 }

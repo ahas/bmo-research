@@ -169,7 +169,7 @@ fn every_template_reads_and_fills_what_it_names() {
     &report.plan,
     &report.restore,
     &report.worker,
-    &report.failed,
+    &report.stuck,
   ] {
     assert!(!template.is_empty());
   }

@@ -75,7 +75,7 @@ The items (`docs/api.md`, 「queue」).
 | `parent_title`, `parent_share_url` | That document's title and live link as they stood when it was asked, or null |
 | `priority` | Its place in its category's queue, highest first |
 | `state` | Its state |
-| `tries`, `retry_at` | The tries made, and when the next may be made |
+| `tries`, `retry_at` | The tries counted — each failed one and the one under way, an interrupted one taken off — and when the next may be made |
 | `run_id` | The research run of the latest try |
 | `document_id`, `title`, `description`, `share_url` | The document the run filed, and its live link |
 | `languages`, `narrations` | The languages its document's page holds, and those whose narration it plays, JSON lists, Korean first |
@@ -85,7 +85,8 @@ The items (`docs/api.md`, 「queue」).
 | `fit`, `touches` | Whether the document asks the owner's word, and what an advisory touches |
 | `plan` | The heading of the document's plan section |
 | `job_item_id` | The job item the chat agent filed for it |
-| `error` | Why the latest try failed |
+| `repair_item_id` | The job item filed for the helper while it is stuck, or null; cleared as it is asked again |
+| `error` | Why the latest try failed or was interrupted |
 | `found_at`, `created_at`, `changed_at` | When its candidate was found, when it was queued and last changed |
 
 ## `runs`
@@ -107,7 +108,7 @@ The items (`docs/api.md`, 「queue」).
 | `id` | The report's key |
 | `item_id` | The item told |
 | `recipient` | Who was told: `room:<roomId>` or `agent:<agentName>` |
-| `kind` | `report`, told once its page is whole; `failed`, a failed item's notice; `part`, a touched repository's part to its worker |
+| `kind` | `report`, told once its page is whole; `stuck`, the notice of an item that became stuck; `part`, a touched repository's part to its worker |
 | `instruction_id` | The receiver's instruction, or null for a turn |
 | `state`, `error` | `sent` or `refused`, and why |
 | `at` | When it was sent |

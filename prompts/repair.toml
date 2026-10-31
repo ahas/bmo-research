@@ -1,0 +1,31 @@
+# The words of a stuck item's repair, the job item filed for the helper (docs/api.md, "The repair").
+# In `title`, {id} and {name} are the lead item's number and name. In `brief`, {items} is an `item` line for
+# each stuck item, {tries} the lead's tries, {runs} a `try` line for each of the lead's tries newest first,
+# {run} the latest research run's number, {log} a `line` for each of that run's last log lines (`no_log`
+# where none was kept), {id} the lead's number and {address} where the research unit answers. In `item`,
+# {id}, {name}, {address}, {category}, {shape}, {tries} and {error} are the item's; in `try`, {try},
+# {run}, {state} and {error} are a try's, {run} `none` where the ask was refused; in `line`, {kind} and
+# {text} are a log line's.
+
+title = "Fix what keeps research item #{id} ({name}) from finishing"
+brief = """The research unit (bmo-research) could not finish the research below. Each try failed on what it asked or wrote, not on a unit being away: {tries} tries so far. The item stands `stuck`: it is still tried again on every retry wait, but the same cause will keep failing it. Find that cause and fix it where it lies.
+
+The stuck items:
+{items}
+
+The tries, newest first:
+{runs}
+
+The last lines of research run {run}'s log:
+{log}
+
+What to do:
+1. Read the item as it stands now with `GET /queue/{id}` on the research unit at {address} (bmo-research's API, its docs/api.md, "queue"), the bearer token being the file env/research.token under the data root. If it is no longer `stuck`, a later try has finished it or someone asked it again: end this item saying so.
+2. Read the errors and the log above, and the run's whole log with `GET /research-runs/{run}/log-lines`. Find why the result failed: the question template under prompts/, a rulebook under prompts/rules/, the runner (docs/runner.md), the page's shape (prompts/document.toml), or the engine's road (the settings' [road] and [engine]).
+3. Fix the cause in the repository that holds it, with that repository's own checks, and deploy it as its rules say.
+4. Ask the item again with `PATCH /queue/{id}` and the body {"state": "waiting"}, or {"front": true} to have it next, and see its next try file its document.
+5. Report what the cause was and what you changed."""
+item = "- #{id} {name}, {address} (category {category}, shape {shape}, {tries} tries); last error: {error}"
+try = "- try {try}: research run {run}, {state}: {error}"
+line = "- {kind}: {text}"
+no_log = "- (no log kept)"

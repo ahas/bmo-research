@@ -64,6 +64,8 @@ pub struct CategoryState {
   pub running_count: i64,
   /// its items whose page is finished before they are told
   pub finishing_count: i64,
+  /// its items stuck past their retries, still asked on every retry wait
+  pub stuck_count: i64,
   pub cap: i64,
 }
 
@@ -434,7 +436,7 @@ pub enum ItemState {
   Finishing,
   Reported,
   Fit,
-  Failed,
+  Stuck,
   Taken,
   Dismissed,
 }
@@ -446,7 +448,7 @@ impl ItemState {
     ItemState::Finishing,
     ItemState::Reported,
     ItemState::Fit,
-    ItemState::Failed,
+    ItemState::Stuck,
     ItemState::Taken,
     ItemState::Dismissed,
   ];
@@ -458,7 +460,7 @@ impl ItemState {
       ItemState::Finishing => "finishing",
       ItemState::Reported => "reported",
       ItemState::Fit => "fit",
-      ItemState::Failed => "failed",
+      ItemState::Stuck => "stuck",
       ItemState::Taken => "taken",
       ItemState::Dismissed => "dismissed",
     }
@@ -559,6 +561,9 @@ pub struct Item {
   pub plan: Option<String>,
   /// the job item the chat agent filed for it
   pub job_item_id: Option<i64>,
+  /// the job item filed for the helper while it is stuck, to fix the cause
+  pub repair_item_id: Option<i64>,
+  /// why its latest try failed or was interrupted
   pub error: Option<String>,
   pub found_at: i64,
   pub created_at: i64,
@@ -587,7 +592,7 @@ pub struct Ask {
   pub follows_document_id: Option<i64>,
 }
 
-/// A change of an item: dismiss it or mark it taken by `state`, or move it to the front.
+/// A change of an item: dismiss it, mark it taken, or ask a stuck one again by `state`, or move it to the front.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ItemChange {

@@ -35,6 +35,8 @@ pub struct App {
   pub waits: engine::Waits,
   /// The pages being finished now.
   pub pages: dive::Pages,
+  /// The last failure to file a stuck item's repair.
+  pub repairs: dive::Repairs,
 }
 
 impl App {
@@ -52,6 +54,7 @@ impl App {
       token,
       waits: engine::Waits::default(),
       pages: dive::Pages::default(),
+      repairs: dive::Repairs::default(),
     })
   }
 }

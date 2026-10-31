@@ -341,6 +341,11 @@
           "state": {
             "$ref": "#/components/schemas/Running"
           },
+          "stuckCount": {
+            "description": "its items stuck past their retries, still asked on every retry wait",
+            "format": "int64",
+            "type": "integer"
+          },
           "waitingCount": {
             "format": "int64",
             "type": "integer"
@@ -352,6 +357,7 @@
           "waitingCount",
           "runningCount",
           "finishingCount",
+          "stuckCount",
           "cap"
         ],
         "type": "object"
@@ -630,6 +636,7 @@
             ]
           },
           "error": {
+            "description": "why its latest try failed or was interrupted",
             "type": [
               "string",
               "null"
@@ -712,6 +719,14 @@
           "priority": {
             "format": "int64",
             "type": "integer"
+          },
+          "repairItemId": {
+            "description": "the job item filed for the helper while it is stuck, to fix the cause",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
           },
           "retryAt": {
             "format": "int64",
@@ -796,6 +811,7 @@
           "touches",
           "plan",
           "jobItemId",
+          "repairItemId",
           "error",
           "foundAt",
           "createdAt",
@@ -804,7 +820,7 @@
         "type": "object"
       },
       "ItemChange": {
-        "description": "A change of an item: dismiss it or mark it taken by `state`, or move it to the front.",
+        "description": "A change of an item: dismiss it, mark it taken, or ask a stuck one again by `state`, or move it to the front.",
         "properties": {
           "front": {
             "type": [
@@ -841,7 +857,7 @@
           "finishing",
           "reported",
           "fit",
-          "failed",
+          "stuck",
           "taken",
           "dismissed"
         ],
@@ -2099,7 +2115,7 @@
   "info": {
     "description": "The research unit: a daemon that keeps a queue of things to research by category, reads the sources the owner registers, has each item researched by its own runner in its category's shape, and tells the category's recipients. It files no job and launches nothing.",
     "title": "bmo-research",
-    "version": "0.1.0-rev.15"
+    "version": "0.1.0-rev.16"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -2853,7 +2869,7 @@
             "$ref": "#/components/responses/Failed"
           }
         },
-        "summary": "Dismiss an item, mark it taken, or move it to the front.",
+        "summary": "Dismiss an item, mark it taken, ask a stuck one again, or move it to the front.",
         "tags": [
           "queue"
         ],

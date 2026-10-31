@@ -14,8 +14,8 @@ the daemon does not know is refused, naming it. A path may open with `~/`, the h
 | `store` | `research` | The folder under the data root the store `research.db` stands in |
 | `tick_seconds` | 30 | How often the loop looks for a source due, a slot free and an item to run |
 | `concurrency` | 4 | How many runs the daemon asks for at once, across every category; how many run is how many cards the arbiter grants them (`docs/design.md`, 「The engine a run needs」) |
-| `retries` | 3 | How many times a failed try is tried again before the item is `failed` |
-| `retry_minutes` | 30 | How long a failed try, or what a page still lacks, waits before it is tried again; what a page lacks is asked on every such wait until it is had |
+| `retries` | 3 | How many times a failed try is tried again before the item is `stuck` and the helper is asked to fix the cause; a stuck item is still tried on every retry wait, and an interrupted try is not counted (`docs/api.md`, 「The deep dive」) |
+| `retry_minutes` | 5 | How long a failed try, or what a page still lacks, waits before it is tried again; what a page lacks is asked on every such wait until it is had, and an interrupted try waits for none |
 | `restore_wait_minutes` | 20 | How long a run's demand for its engine waits before the owner's private room is told, once, that the engine has not come back; the demand goes on waiting |
 | `poll_seconds` | 30 | How long the daemon waits between two readings of a run under way |
 | `turn_wait_seconds` | 20 | How long a notice to an agent waits on its turn's answer before it is counted as handed |
@@ -117,6 +117,10 @@ Every peer's address and token are read from the files that peer already keeps u
 | `[artifact] address` | `http://127.0.0.1:3230` | The artifact service's address |
 | `[artifact] token` | `artifact.token` | The file whose text is the artifact service's token |
 | `[voice] settings` | `voice.toml` | The voice unit's own settings file, whose `address` is where it answers and whose `token_file` names the file under `env/` holding its token |
+| `[job] settings` | `bmo-job.toml` | The job service's own settings file, whose `[server] listen` is where it answers (on the loopback where it listens on every address) and whose `[server] token_file` names the file holding its token, under `env/` where the name is not absolute |
+| `[job] queue` | `todo` | The job queue a stuck item's repair is filed in (`docs/api.md`, 「The repair」) |
+| `[job] assignee` | `helper` | The worker a repair is filed for |
+| `[job] labels` | `["lane=repair"]` | The labels a repair carries, each `key=value`; the deployment's job service names the lane unattended, so the repair opens without an approval |
 
 An env file is read as `KEY=value` lines, as the unit that keeps it writes it.
 

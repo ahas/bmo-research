@@ -27,7 +27,9 @@ use crate::translation::Rendering;
 /// told, stands an item whose page was being finished and whose report was never told `finishing`, and sets
 /// every page finished since the fourth that still lacks a part due on the retry wait; the ninth keeps where
 /// an item came from — a source, an ask with its words, or a follow-up with the document it follows from —
-/// an item standing before it a source's where no ask made it, and an ask's with no words otherwise.
+/// an item standing before it a source's where no ask made it, and an ask's with no words otherwise; the
+/// tenth keeps the repair a stuck item's helper is asked for, stands every item the store held given up
+/// `stuck` with its retry due and no repair yet, and names their notices `stuck`.
 const MIGRATIONS: &[&str] = &[
   "
   create table categories (
@@ -150,6 +152,11 @@ const MIGRATIONS: &[&str] = &[
   alter table queue add column parent_share_url text;
   update queue set origin = 'asked' where asked = 1;
 ",
+  "
+  alter table queue add column repair_item_id integer;
+  update queue set state = 'stuck', retry_at = 0 where state = 'failed';
+  update reports set kind = 'stuck' where kind = 'failed';
+",
 ];
 
 /// What an ask says of where it came from: the words it was made with, and for a follow-up, the earlier
@@ -190,7 +197,7 @@ const ITEM_COLUMNS: &str =
   job_item_id, error, found_at, created_at, changed_at, languages, narrations, pending, pending_retry_at,
   origin, because, parent_item_id, parent_document_id, parent_title, parent_share_url,
   (select sources.kind || ' (' || coalesce(sources.query, sources.address) || ')' from sources
-    where sources.id = queue.source_id)";
+    where sources.id = queue.source_id), repair_item_id";
 
 const SOURCE_COLUMNS: &str =
   "id, category, kind, address, query, require, exclude, every_minutes, item_limit,
@@ -467,14 +474,15 @@ impl Store {
     self.category(name)
   }
 
-  /// A category taken away with its recipients, where no source and no waiting or running item names it.
+  /// A category taken away with its recipients, where no source and no waiting, running or stuck item names
+  /// it.
   pub fn remove_category(&self, name: &str) -> Result<(), Refusal> {
     self.category(name)?;
     let mut conn = self.lock();
     let tx = conn.transaction()?;
     let named: i64 = tx.query_row(
       "select (select count(*) from sources where category = ?1)
-            + (select count(*) from queue where category = ?1 and state in ('waiting', 'running'))",
+            + (select count(*) from queue where category = ?1 and state in ('waiting', 'running', 'stuck'))",
       params![name],
       |r| r.get(0),
     )?;
@@ -519,6 +527,7 @@ impl Store {
         waiting_count: count(&c.name, "waiting")?,
         running_count: count(&c.name, "running")?,
         finishing_count: count(&c.name, "finishing")?,
+        stuck_count: count(&c.name, "stuck")?,
         cap: c.cap,
       });
     }
@@ -883,7 +892,7 @@ impl Store {
     let tx = conn.transaction()?;
     let standing: Option<i64> = tx
       .query_row(
-        "select id from queue where key = ?1 and state in ('waiting', 'running') limit 1",
+        "select id from queue where key = ?1 and state in ('waiting', 'running', 'stuck') limit 1",
         params![key],
         |r| r.get(0),
       )
@@ -931,8 +940,8 @@ impl Store {
       .ok_or_else(|| Refusal::NotFound(format!("no item {id}")))
   }
 
-  /// The items in the queue's order: the running ones, the waiting ones in their category's order, then the
-  /// rest newest first; narrowed to a category and to `states` where named, continued past `after`.
+  /// The items in the queue's order: the running ones, the waiting and stuck ones in their category's order,
+  /// then the rest newest first; narrowed to a category and to `states` where named, continued past `after`.
   pub fn queue(
     &self,
     category: Option<&str>,
@@ -944,9 +953,9 @@ impl Store {
     let mut stmt = conn
       .prepare(&format!(
         "select {ITEM_COLUMNS} from queue where ?1 is null or category = ?1 order by
-           case state when 'running' then 0 when 'waiting' then 1 else 2 end,
-           case when state in ('running', 'waiting') then -priority else 0 end,
-           case when state in ('running', 'waiting') then found_at else -id end,
+           case state when 'running' then 0 when 'waiting' then 1 when 'stuck' then 1 else 2 end,
+           case when state in ('running', 'waiting', 'stuck') then -priority else 0 end,
+           case when state in ('running', 'waiting', 'stuck') then found_at else -id end,
            id"
       ))
       .map_err(|e| e.to_string())?;
@@ -966,12 +975,12 @@ impl Store {
     Ok(page(named.into_iter().skip(start).collect(), limit))
   }
 
-  /// A category's waiting items whose retry is due, in its order, at most `limit`.
+  /// A category's waiting and stuck items whose retry is due, in its order, at most `limit`.
   pub fn waiting(&self, category: &str, now: i64, limit: i64) -> Result<Vec<Item>, String> {
     let conn = self.lock();
     let mut stmt = conn
       .prepare(&format!(
-        "select {ITEM_COLUMNS} from queue where category = ?1 and state = 'waiting'
+        "select {ITEM_COLUMNS} from queue where category = ?1 and state in ('waiting', 'stuck')
            and (retry_at is null or retry_at <= ?2)
          order by priority desc, found_at, id limit ?3"
       ))
@@ -983,12 +992,13 @@ impl Store {
       .map_err(|e| e.to_string())
   }
 
-  /// Whether a category holds a waiting item whose retry stands set and is due.
+  /// Whether a category holds a waiting or stuck item whose retry stands set and is due.
   pub fn retry_due(&self, category: &str, now: i64) -> Result<bool, String> {
     self
       .lock()
       .query_row(
-        "select exists (select 1 from queue where category = ?1 and state = 'waiting' and retry_at is not null
+        "select exists (select 1 from queue where category = ?1 and state in ('waiting', 'stuck')
+           and retry_at is not null
            and retry_at <= ?2)",
         params![category, now],
         |r| r.get(0),
@@ -1011,8 +1021,9 @@ impl Store {
       .map_err(|e| e.to_string())
   }
 
-  /// Waiting items taken for one try: each running with its tries counted, and a run row opened carrying
-  /// them all. Answers the run's id and the try's number, or none where the first item no longer waits.
+  /// Waiting or stuck items taken for one try: each running with its tries counted, and a run row opened
+  /// carrying them all. Answers the run's id and the try's number, or none where the first item no longer
+  /// waits.
   pub fn start_try(&self, category: &str, items: &[i64]) -> Result<Option<(i64, i64)>, String> {
     let Some(&lead) = items.first() else {
       return Ok(None);
@@ -1025,7 +1036,7 @@ impl Store {
       let n = tx
         .execute(
           "update queue set state = 'running', tries = tries + 1, retry_at = null, run_id = null, error = null,
-             changed_at = ?2 where id = ?1 and state = 'waiting'",
+             changed_at = ?2 where id = ?1 and state in ('waiting', 'stuck')",
           params![id, now],
         )
         .map_err(|e| e.to_string())?;
@@ -1085,9 +1096,9 @@ impl Store {
     Ok(())
   }
 
-  /// A failed try: its items still running wait again until `retry_at`, or are failed where `retry_at` is
-  /// none. Answers the items it moved, so a dismissed one is left as it stands.
-  pub fn fail_try(&self, run: i64, error: &str, retry_at: Option<i64>) -> Result<Vec<i64>, String> {
+  /// A failed try: its items still running wait again until `retry_at`, `stuck` where its tries passed the
+  /// retries. Answers the items it moved, so a dismissed one is left as it stands.
+  pub fn fail_try(&self, run: i64, error: &str, retry_at: i64, stuck: bool) -> Result<Vec<i64>, String> {
     let items = self.run(run).map_err(|e| e.to_string())?.item_ids;
     let conn = self.lock();
     let mut moved = Vec::new();
@@ -1096,7 +1107,7 @@ impl Store {
         .execute(
           "update queue set state = ?2, retry_at = ?3, error = ?4, changed_at = ?5
            where id = ?1 and state = 'running'",
-          params![id, if retry_at.is_some() { "waiting" } else { "failed" }, retry_at, error, now_ms()],
+          params![id, if stuck { "stuck" } else { "waiting" }, retry_at, error, now_ms()],
         )
         .map_err(|e| e.to_string())?;
       if n > 0 {
@@ -1294,18 +1305,72 @@ impl Store {
       .map_err(|e| e.to_string())
   }
 
-  /// A try that is not counted — one a stopped daemon never asked, or one the bench cut: ended in the state
-  /// given, and its items put back to wait at once with the try taken off their count.
-  pub fn requeue(&self, run: i64, state: &str, outcome: Option<&str>, error: &str) -> Result<(), String> {
+  /// A try that is not counted — an interrupted one, or one a stopped daemon never asked: ended in the state
+  /// given, and its items put back as they stood, to be asked at once with the try taken off their count:
+  /// `stuck` where their tries still pass `retries`, `waiting` otherwise.
+  pub fn requeue(
+    &self,
+    run: i64,
+    state: &str,
+    outcome: Option<&str>,
+    error: &str,
+    retries: i64,
+  ) -> Result<(), String> {
     let items = self.run(run).map_err(|e| e.to_string())?.item_ids;
     self.end_run(run, state, outcome, Some(error))?;
     let conn = self.lock();
     for id in items {
       conn
         .execute(
-          "update queue set state = 'waiting', tries = max(tries - 1, 0), retry_at = null, error = ?3,
-             changed_at = ?2 where id = ?1 and state = 'running'",
-          params![id, now_ms(), error],
+          "update queue set state = case when max(tries - 1, 0) > ?4 then 'stuck' else 'waiting' end,
+             tries = max(tries - 1, 0), retry_at = null, error = ?3, changed_at = ?2
+           where id = ?1 and state = 'running'",
+          params![id, now_ms(), error, retries],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+  }
+
+  /// A stuck item asked again once its cause is fixed: waiting, its tries counted from none, with no retry
+  /// wait and no repair item.
+  pub fn ask_again(&self, id: i64) -> Result<Item, Refusal> {
+    let item = self.item(id)?;
+    if item.state != ItemState::Stuck {
+      return Err(Refusal::Conflict(format!("item {id} is {}, not stuck", item.state.as_str())));
+    }
+    self.lock().execute(
+      "update queue set state = 'waiting', tries = 0, retry_at = null, repair_item_id = null, changed_at = ?2
+       where id = ?1 and state = 'stuck'",
+      params![id, now_ms()],
+    )?;
+    self.item(id)
+  }
+
+  /// The stuck items holding no repair yet, in the order they became stuck.
+  pub fn unrepaired(&self) -> Result<Vec<Item>, String> {
+    let conn = self.lock();
+    let mut stmt = conn
+      .prepare(&format!(
+        "select {ITEM_COLUMNS} from queue where state = 'stuck' and repair_item_id is null
+         order by changed_at, id"
+      ))
+      .map_err(|e| e.to_string())?;
+    stmt
+      .query_map([], read_item)
+      .map_err(|e| e.to_string())?
+      .collect::<Result<Vec<_>, _>>()
+      .map_err(|e| e.to_string())
+  }
+
+  /// The repair filed for stuck items kept on each that is still stuck.
+  pub fn keep_repair(&self, items: &[i64], job_item_id: i64) -> Result<(), String> {
+    let conn = self.lock();
+    for id in items {
+      conn
+        .execute(
+          "update queue set repair_item_id = ?2, changed_at = ?3 where id = ?1 and state = 'stuck'",
+          params![id, job_item_id, now_ms()],
         )
         .map_err(|e| e.to_string())?;
     }
@@ -1337,14 +1402,16 @@ impl Store {
     self.item(id)
   }
 
-  /// A waiting item given a priority one above the highest any item holds.
+  /// A waiting or stuck item given a priority one above the highest any item holds, a stuck one's retry wait
+  /// cleared with it.
   pub fn front(&self, id: i64) -> Result<Item, Refusal> {
     let item = self.item(id)?;
-    if item.state != ItemState::Waiting {
+    if !matches!(item.state, ItemState::Waiting | ItemState::Stuck) {
       return Err(Refusal::Conflict(format!("item {id} is {}, not waiting", item.state.as_str())));
     }
     self.lock().execute(
-      "update queue set priority = (select coalesce(max(priority), 0) + 1 from queue), changed_at = ?2
+      "update queue set priority = (select coalesce(max(priority), 0) + 1 from queue), changed_at = ?2,
+         retry_at = case when state = 'stuck' then null else retry_at end
        where id = ?1",
       params![id, now_ms()],
     )?;
@@ -2039,7 +2106,7 @@ fn read_item(r: &rusqlite::Row<'_>) -> rusqlite::Result<Item> {
     source_id: r.get(8)?,
     asked: r.get(9)?,
     priority: r.get(10)?,
-    state: ItemState::parse(&state).unwrap_or(ItemState::Failed),
+    state: ItemState::parse(&state).unwrap_or(ItemState::Stuck),
     tries: r.get(12)?,
     retry_at: r.get(13)?,
     run_id: r.get(14)?,
@@ -2051,6 +2118,7 @@ fn read_item(r: &rusqlite::Row<'_>) -> rusqlite::Result<Item> {
     touches: r.get(20)?,
     plan: r.get(21)?,
     job_item_id: r.get(22)?,
+    repair_item_id: r.get(38)?,
     error: r.get(23)?,
     found_at: r.get(24)?,
     created_at: r.get(25)?,

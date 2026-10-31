@@ -2,7 +2,7 @@
 //! (`docs/api.md`, 「The engine」): a try asks its card before its seat, its seat and sessions stand on the
 //! grant and the demand is given back at its end; a try waiting for its card asks no seat and the state says
 //! why; what a stopped daemon left held is given back; a branch asks its own card within its run's; a try
-//! failing after its card was taken waits again uncounted; a card that does not come is told to the owner's
+//! failing after its card was taken, or after the master stopped holding its demand, waits again uncounted; a card that does not come is told to the owner's
 //! room once; a stopped category takes its waiting try's demand back; and no master named asks no demand.
 
 mod support;
@@ -292,6 +292,37 @@ async fn a_try_failing_after_its_card_was_taken_waits_again_uncounted() {
   let counted = ground.app.store.item(item).unwrap();
   assert_eq!((counted.state, counted.tries), (ItemState::Waiting, 1));
   assert!(counted.retry_at.is_some());
+}
+
+#[tokio::test]
+async fn a_try_failing_after_the_master_stopped_holding_its_demand_waits_again_uncounted() {
+  let ground = support::ground(|s| s.retry_minutes = 60).await;
+  let item = ask(&ground, "a");
+  {
+    let mut world = ground.world.lock().unwrap();
+    world.failing.insert(1);
+    world.holding = true;
+  }
+  let handles = tick(&ground.app).await;
+  for _ in 0..500 {
+    if !ground.turns_named("research-1").is_empty() {
+      break;
+    }
+    tokio::time::sleep(Duration::from_millis(10)).await;
+  }
+  {
+    // The master restarted under the run: it holds no demand of it any longer.
+    let mut world = ground.world.lock().unwrap();
+    world.demands.clear();
+    world.holding = false;
+  }
+  for handle in handles {
+    handle.await.unwrap();
+  }
+  let waiting = ground.app.store.item(item).unwrap();
+  assert_eq!((waiting.state, waiting.tries, waiting.retry_at), (ItemState::Waiting, 0, None));
+  let error = waiting.error.unwrap();
+  assert!(error.contains("no longer holds") && error.contains("not counted"), "{error}");
 }
 
 #[tokio::test]

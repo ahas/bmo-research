@@ -2,8 +2,8 @@
 # {title}, {summary} and {link} are the page's Korean title, the first sentence of its Korean description and
 # the document's one share link, told once the page is whole; {follows} is, for a follow-up, `follows` with
 # {parent} the title of the document it follows from, or `follows_document` with {document} its number where
-# no title is known, and empty for any other item; {name} and {tries} are the item's name and the
-# tries it took; {touches} is what an advisory names
+# no title is known, and empty for any other item; in `stuck`, told as an item first becomes stuck, {name}
+# and {tries} are the item's name and the tries it took; {touches} is what an advisory names
 # as touched; {plan} is the heading of the document's plan section; {repository} and {rows} a touched
 # repository and its rows of the exposure table. In `restore`, {model} is a watched registration,
 # {service} the arbiter service its engine is and {minutes} how long a run has waited for its card. Under [sources] stand the columns `bmo-research research sources` lists a source's
@@ -23,7 +23,7 @@ worker = """Security notice: the advisory {name} touches the repository {reposit
 The report: {link}
 The patch steps stand in its section "{plan}".
 This is a notice, not an order: what you do with it is your own rules' to decide."""
-failed = "{name} 조사를 {tries}번 시도했지만 끝내지 못했습니다."
+stuck = "{name} 조사를 {tries}번 시도했지만 끝내지 못해, 헬퍼에게 원인을 고쳐 달라고 맡겼습니다. 고쳐질 때까지 계속 다시 시도합니다."
 restore = "조사에 쓰는 {model} 모델({service})이 {minutes}분이 지나도록 카드를 받지 못해, 조사 한 건이 그대로 기다리고 있습니다."
 
 [sources]

@@ -6,7 +6,7 @@ members = ["crates/client", "crates/server", "tools/research"]
 resolver = "3"
 
 [workspace.package]
-version = "0.1.0-rev.15"
+version = "0.1.0-rev.16"
 edition = "2024"
 license = "MIT"
 
@@ -68,6 +68,7 @@ regex.workspace = true
 research-server = { path = "crates/server" }
 research-tool = { path = "tools/research" }
 reqwest.workspace = true
+rusqlite.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 toml.workspace = true

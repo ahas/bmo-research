@@ -356,6 +356,14 @@ async fn the_queue_takes_asks_dismissals_takings_and_front_moves() {
   )
   .await;
   assert_eq!(status, StatusCode::CONFLICT);
+  let (status, _) = raw(
+    &base,
+    reqwest::Method::PATCH,
+    &format!("/queue/{}", one.id),
+    Some(json!({"state": "waiting"})),
+  )
+  .await;
+  assert_eq!(status, StatusCode::CONFLICT, "only a stuck item is asked again");
   let (status, _) =
     raw(&base, reqwest::Method::PATCH, &format!("/queue/{}", one.id), Some(json!({}))).await;
   assert_eq!(status, StatusCode::BAD_REQUEST);

@@ -1,7 +1,7 @@
 //! What the tests share: a scratch data root, the daemon's app over it, and stand-ins for agency (its seats,
 //! its thrown-away sessions and their turns), the artifact service, the receiver, the voice unit, the
-//! arbiter's master and its demands, the tool host on its Unix socket and the sources, each keeping every request it was
-//! asked.
+//! arbiter's master and its demands, the job service's items, the tool host on its Unix socket and the sources,
+//! each keeping every request it was asked.
 
 #![allow(dead_code)]
 
@@ -62,8 +62,15 @@ pub struct World {
   pub next_seat: i64,
   /// How many admission asks a seat waits through before it is let in.
   pub seat_waits: u32,
-  /// The research runs whose turns fail.
+  /// The research runs whose turns end failed, having written nothing.
   pub failing: BTreeSet<i64>,
+  /// The research runs whose turns agency cannot carry, answered 503 as agency failing on its side.
+  pub turns_lost: BTreeSet<i64>,
+  /// While set, a seat given back is one agency no longer held.
+  pub seats_dropped: bool,
+  /// The job items raised, with the next one's number.
+  pub job_items: Vec<Value>,
+  pub next_job_item: i64,
   /// While set, every research turn waits.
   pub holding: bool,
   /// How long a branch's turn takes, in milliseconds.
@@ -132,6 +139,7 @@ pub fn world() -> Shared {
     owner_room: 7,
     next_document: 900,
     next_demand: 4000,
+    next_job_item: 600,
     ..World::default()
   }))
 }
@@ -218,7 +226,7 @@ async fn agency_seat_move(
   let change: Value = serde_json::from_slice(&body).unwrap_or_default();
   let mut world = w.lock().unwrap();
   match change["state"].as_str() {
-    Some("finished") => axum::Json(json!({"held": true})).into_response(),
+    Some("finished") => axum::Json(json!({"held": !world.seats_dropped})).into_response(),
     Some("bound") => axum::Json(seat_of(&token, "bound", &json!({}))).into_response(),
     _ if world.seat_waits > 0 => {
       world.seat_waits -= 1;
@@ -328,11 +336,15 @@ async fn research_turn(w: &Shared, name: &str) -> Response {
     let script = world.narration.clone().unwrap_or_default();
     return axum::Json(json!({"outcome": "answered", "answer": script})).into_response();
   }
-  if world.failing.contains(&run) {
+  if world.turns_lost.contains(&run) {
     return (
-      StatusCode::INTERNAL_SERVER_ERROR,
-      axum::Json(json!({"code": "failed", "error": "the turn failed"})),
+      StatusCode::SERVICE_UNAVAILABLE,
+      axum::Json(json!({"code": "unreachable", "error": "the session's program cannot be reached"})),
     )
+      .into_response();
+  }
+  if world.failing.contains(&run) {
+    return axum::Json(json!({"state": "ended", "outcome": "failed", "answer": null, "text": []}))
       .into_response();
   }
   let result = match world.whole.clone().filter(|_| name.ends_with("-whole")) {
@@ -754,6 +766,22 @@ pub fn arbiter(world: Shared) -> Router {
     .with_state(world)
 }
 
+async fn job_items(State(w): State<Shared>, method: Method, uri: Uri, body: Bytes) -> Response {
+  keep(&w, "job", &method, &uri, &body);
+  let mut item: Value = serde_json::from_slice(&body).unwrap_or_default();
+  let mut world = w.lock().unwrap();
+  world.next_job_item += 1;
+  item["id"] = json!(world.next_job_item);
+  item["state"] = json!("open");
+  world.job_items.push(item.clone());
+  (StatusCode::CREATED, axum::Json(item)).into_response()
+}
+
+/// A stand-in for the job service: the items raised in it.
+pub fn job(world: Shared) -> Router {
+  Router::new().route("/items", post(job_items)).with_state(world)
+}
+
 /// The issuer token the stand-in tool host takes.
 pub const ISSUER: &str = "issuer-test";
 
@@ -967,6 +995,7 @@ pub async fn ground(change: impl FnOnce(&mut Settings)) -> Ground {
   let receiver = serve(receiver(world.clone())).await;
   let arbiter = serve(arbiter(world.clone())).await;
   let voice = serve(voice(world.clone())).await;
+  let job = serve(job(world.clone())).await;
   let sources = serve(sources(world.clone())).await;
   let root = scratch();
   let port = agency.rsplit(':').next().unwrap();
@@ -987,6 +1016,15 @@ pub async fn ground(change: impl FnOnce(&mut Settings)) -> Ground {
   )
   .unwrap();
   std::fs::write(root.join("env/voice.token"), "voice-test\n").unwrap();
+  std::fs::write(
+    root.join("env/bmo-job.toml"),
+    format!(
+      "[server]\nlisten = \"{}\"\ntoken_file = \"job.token\"\n\n[database]\nurl = \"sqlite::memory:\"\n",
+      job.trim_start_matches("http://")
+    ),
+  )
+  .unwrap();
+  std::fs::write(root.join("env/job.token"), "job-test\n").unwrap();
   std::fs::create_dir_all(root.join("tool-host")).unwrap();
   std::fs::write(root.join("tool-host/issuer-token"), format!("{ISSUER}\n")).unwrap();
   let socket = root.join("mcp-host.sock");

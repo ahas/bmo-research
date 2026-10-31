@@ -468,6 +468,7 @@ async fn patch_item(State(app): Shared, Path(id): Path<String>, bytes: Bytes) ->
       Some(job) => answered(app.store.take(id, job), StatusCode::OK),
       None => bad("taken names the jobItemId the chat agent filed"),
     },
+    (Some(ItemState::Waiting), None) => answered(app.store.ask_again(id), StatusCode::OK),
     (Some(state), None) => match app.store.item(id) {
       Ok(_) => {
         failure(StatusCode::CONFLICT, "conflict", format!("an item is not moved to {}", state.as_str()))
@@ -475,7 +476,7 @@ async fn patch_item(State(app): Shared, Path(id): Path<String>, bytes: Bytes) ->
       Err(refusal) => refused(refusal),
     },
     (None, Some(true)) => answered(app.store.front(id), StatusCode::OK),
-    _ => bad("a change names a state, dismissed or taken, or front"),
+    _ => bad("a change names a state, dismissed, taken or waiting, or front"),
   }
 }
 
@@ -546,6 +547,7 @@ async fn create_research_run(State(app): Shared, bytes: Bytes) -> Response {
     Ok(run) => (StatusCode::ACCEPTED, Json(run)).into_response(),
     Err(Launch::Ask(why)) => bad(why),
     Err(Launch::Unavailable(why)) => failure(StatusCode::SERVICE_UNAVAILABLE, "unavailable", why),
+    Err(Launch::Upstream(why)) => failure(StatusCode::BAD_GATEWAY, "upstream-failed", why),
     Err(Launch::Failed(why)) => failed(why),
   }
 }

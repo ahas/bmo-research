@@ -51,6 +51,48 @@ pub enum Untranslated {
   Failed(String),
 }
 
+/// Why a call into agency for a run's seat, its session or a turn brought no answer: the failure's sentence,
+/// and whether what the run stands on went away (`docs/runner.md`, 「A cut run」) — the call did not reach
+/// agency, agency answered with a failure of its own (5xx), or, for a call naming a seat or a session, agency
+/// answered that it no longer holds it (404).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Fault {
+  pub why: String,
+  pub lost: bool,
+}
+
+impl Fault {
+  fn kept(why: String) -> Fault {
+    Fault { why, lost: false }
+  }
+}
+
+impl std::fmt::Display for Fault {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.write_str(&self.why)
+  }
+}
+
+impl From<Fault> for String {
+  fn from(fault: Fault) -> String {
+    fault.why
+  }
+}
+
+/// The job service's own settings file, the part the daemon reads: where it listens and the file its token
+/// stands in.
+#[derive(Deserialize)]
+struct JobFile {
+  server: JobServer,
+}
+
+#[derive(Deserialize)]
+struct JobServer {
+  listen: String,
+  #[serde(default)]
+  token_file: Option<String>,
+}
+
 /// The voice unit's own settings file, the parts the daemon reads: where it answers and the file under `env/`
 /// its token stands in.
 #[derive(Deserialize)]
@@ -184,6 +226,28 @@ impl Peers {
     })
   }
 
+  /// The job service at the address its own settings file listens on, the loopback where it listens on every
+  /// address, with the token of the file it names.
+  pub fn job(&self) -> Result<Peer, String> {
+    let path = self.settings.env_file(&self.settings.job.settings);
+    let text = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let file: JobFile = toml::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+    let listen = file.server.listen.trim();
+    let address = match listen.rsplit_once(':') {
+      Some(("0.0.0.0" | "[::]", port)) => format!("http://127.0.0.1:{port}"),
+      _ => format!("http://{listen}"),
+    };
+    let token = match file.server.token_file.as_deref().map(str::trim).filter(|name| !name.is_empty()) {
+      Some(name) => Some(token_file(&self.settings.env_file(name))?),
+      None => None,
+    };
+    Ok(Peer {
+      name: "the job service",
+      address,
+      token,
+    })
+  }
+
   pub fn artifact(&self) -> Result<Peer, String> {
     Ok(Peer {
       name: "the artifact service",
@@ -205,16 +269,41 @@ impl Peers {
 
   /// One call answered with a success, its body read as JSON; any other answer is the failure's sentence.
   async fn call(&self, peer: &Peer, request: reqwest::RequestBuilder, what: &str) -> Result<Value, String> {
-    let answer = request.send().await.map_err(|e| format!("{} {what}: {e}", peer.name))?;
+    self.held_call(peer, request, what, false).await.map_err(String::from)
+  }
+
+  /// One call answered with a success, its body read as JSON; any other answer is the failure, lost where
+  /// the call or its answer did not come through, the unit answered 5xx, or — for a call that `names_held`,
+  /// naming something the unit holds — 404.
+  async fn held_call(
+    &self,
+    peer: &Peer,
+    request: reqwest::RequestBuilder,
+    what: &str,
+    names_held: bool,
+  ) -> Result<Value, Fault> {
+    let lost = |why: String| Fault { why, lost: true };
+    let answer = request.send().await.map_err(|e| lost(format!("{} {what}: {e}", peer.name)))?;
     let status = answer.status().as_u16();
-    let body = answer.text().await.unwrap_or_default();
-    if !(200..300).contains(&status) {
-      return Err(format!("{} {what} answered {status}: {body}", peer.name));
+    let succeeded = (200..300).contains(&status);
+    let body = match answer.text().await {
+      Ok(body) => body,
+      Err(e) if succeeded => {
+        return Err(lost(format!("{} {what}: the answer did not come: {e}", peer.name)));
+      }
+      Err(_) => String::new(),
+    };
+    if !succeeded {
+      return Err(Fault {
+        why: format!("{} {what} answered {status}: {body}", peer.name),
+        lost: status >= 500 || (names_held && status == 404),
+      });
     }
     if body.trim().is_empty() {
       return Ok(Value::Null);
     }
-    serde_json::from_str(&body).map_err(|e| format!("{} {what}: the answer did not read: {e}", peer.name))
+    serde_json::from_str(&body)
+      .map_err(|e| Fault::kept(format!("{} {what}: the answer did not read: {e}", peer.name)))
   }
 
   /// A demand asked of the arbiter's master, answered as it stands: granted, or waiting.
@@ -536,38 +625,48 @@ impl Peers {
   // Agency's seats and thrown-away sessions, as the runner asks them (`docs/runner.md`).
 
   /// A seat asked of the co-worker pool: the request as agency answers it.
-  pub async fn ask_seat(&self, ask: &Value) -> Result<Value, String> {
-    let agency = self.agency()?;
+  pub async fn ask_seat(&self, ask: &Value) -> Result<Value, Fault> {
+    let agency = self.agency().map_err(Fault::kept)?;
     let request = self.request(&agency, reqwest::Method::POST, "/seat-requests").timeout(WITHIN).json(ask);
-    self.call(&agency, request, "POST /seat-requests").await
+    self.held_call(&agency, request, "POST /seat-requests", false).await
   }
 
   /// A seat moved: asked for its place, bound to its session, or given back.
-  pub async fn move_seat(&self, token: &str, change: &Value) -> Result<Value, String> {
-    let agency = self.agency()?;
+  pub async fn move_seat(&self, token: &str, change: &Value) -> Result<Value, Fault> {
+    let agency = self.agency().map_err(Fault::kept)?;
     let path = format!("/seat-requests/{}", segment(token));
     let request = self.request(&agency, reqwest::Method::PATCH, &path).timeout(WITHIN).json(change);
-    self.call(&agency, request, &format!("PATCH {path}")).await
+    self.held_call(&agency, request, &format!("PATCH {path}"), true).await
   }
 
   /// A thrown-away session started: its id.
-  pub async fn start_session(&self, start: &Value) -> Result<String, String> {
-    let agency = self.agency()?;
+  pub async fn start_session(&self, start: &Value) -> Result<String, Fault> {
+    let agency = self.agency().map_err(Fault::kept)?;
     let request = self.request(&agency, reqwest::Method::POST, "/sessions").timeout(WITHIN).json(start);
-    let answer = self.call(&agency, request, "POST /sessions").await?;
+    let answer = self.held_call(&agency, request, "POST /sessions", false).await?;
     answer["id"]
       .as_str()
       .filter(|id| !id.is_empty())
       .map(str::to_string)
-      .ok_or_else(|| "agency answered the session with no id".to_string())
+      .ok_or_else(|| Fault::kept("agency answered the session with no id".to_string()))
   }
 
   /// One turn into a session, answered once it ends: the turn's end as agency answers it.
-  pub async fn send_turn(&self, session: &str, body: &Value, within: Duration) -> Result<Value, String> {
-    let agency = self.agency()?;
+  pub async fn send_turn(&self, session: &str, body: &Value, within: Duration) -> Result<Value, Fault> {
+    let agency = self.agency().map_err(Fault::kept)?;
     let path = format!("/sessions/{}/turns", segment(session));
     let request = self.request(&agency, reqwest::Method::POST, &path).timeout(within).json(body);
-    self.call(&agency, request, &format!("POST {path}")).await
+    self.held_call(&agency, request, &format!("POST {path}"), true).await
+  }
+
+  /// An item raised in the job service: its number.
+  pub async fn file_item(&self, item: &Value) -> Result<i64, String> {
+    let job = self.job()?;
+    let request = self.request(&job, reqwest::Method::POST, "/items").json(item);
+    let answer = self.call(&job, request, "POST /items").await?;
+    answer["id"]
+      .as_i64()
+      .ok_or_else(|| "the job service answered the item with no id".to_string())
   }
 
   /// A session ended; `Busy` while a turn of it still runs.

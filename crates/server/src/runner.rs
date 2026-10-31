@@ -5,7 +5,7 @@
 //! run's ledger and log. The research settings it is held to are kept here too.
 
 use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use bmo_research_client::{
@@ -18,7 +18,7 @@ use serde_json::{Value, json};
 use crate::App;
 use crate::config::KeyDefaults;
 use crate::document;
-use crate::peers::Ending;
+use crate::peers::{Ending, Fault};
 use crate::store::{NewResearchRun, ResearchRunRow, RunDocument, now_ms};
 use crate::tool_host::ToolHost;
 use crate::words::{self, FINAL, PastCeiling, fill};
@@ -478,17 +478,23 @@ impl Seat {
   }
 }
 
-/// A seat given back with what its work came to; cancelled where it never ran.
-pub async fn give_back(app: &App, run: i64, token: &str, outcome: &str, cancel: bool) {
+/// A seat given back with what its work came to; cancelled where it never ran. Answers whether agency still
+/// held it: false where its finish says it was no longer held, or the finish was lost on the way.
+pub async fn give_back(app: &App, run: i64, token: &str, outcome: &str, cancel: bool) -> bool {
   let outcome: String = outcome.chars().take(300).collect();
   let mut change = json!({ "state": "finished", "outcome": outcome });
   if cancel {
     change["cancel"] = json!(true);
   }
-  if let Err(why) = app.peers.move_seat(token, &change).await {
-    eprintln!("bmo-research: research {run}: a seat was not given back: {why}");
-  }
+  let held = match app.peers.move_seat(token, &change).await {
+    Ok(said) => said["held"].as_bool() != Some(false),
+    Err(fault) => {
+      eprintln!("bmo-research: research {run}: a seat was not given back: {fault}");
+      !fault.lost
+    }
+  };
   let _ = app.store.let_go(run, "seat", token);
+  held
 }
 
 /// A session ended once its turn is over: an end answered busy asked again until `until` (epoch
@@ -525,7 +531,7 @@ pub struct Start<'a> {
 }
 
 /// A thrown-away session started on agency's line, its id kept as the run's hold.
-pub async fn start_session(app: &App, run: i64, start: &Start<'_>) -> Result<String, String> {
+pub async fn start_session(app: &App, run: i64, start: &Start<'_>) -> Result<String, Fault> {
   let mut body = json!({
     "agent": start.line,
     "scope": "apart",
@@ -603,11 +609,13 @@ pub fn written(turn: &Value) -> String {
 
 // The run.
 
-/// Why a research is not sent out: the ask does not read, nothing can carry it now, or the runner failed.
+/// Why a research is not sent out: the ask does not read, nothing can carry it now (a unit it needs could not
+/// be reached or failed on its side), a unit it needs refused what it was asked, or the runner failed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Refused {
   Ask(String),
   Unavailable(String),
+  Upstream(String),
   Failed(String),
 }
 
@@ -661,6 +669,33 @@ struct Going {
   closes_at: i64,
   bound_ms: i64,
   demand: Option<i64>,
+  /// The first loss the run met, what it stands on going away (「A cut run」), or none.
+  lost: Mutex<Option<String>>,
+}
+
+impl Going {
+  /// A loss the run met, kept where it is the first.
+  fn lose(&self, why: &str) {
+    let mut lost = self.lost.lock().unwrap_or_else(|e| e.into_inner());
+    if lost.is_none() {
+      eprintln!("bmo-research: research {}: what it stands on went away: {why}", self.run);
+      *lost = Some(why.to_owned());
+    }
+  }
+
+  /// A failure of agency's said after what it stopped, kept as a loss where it is one; the sentence either
+  /// way.
+  fn met(&self, fault: Fault, what: &str) -> String {
+    let why = format!("{what}: {fault}");
+    if fault.lost {
+      self.lose(&why);
+    }
+    why
+  }
+
+  fn loss(&self) -> Option<String> {
+    self.lost.lock().unwrap_or_else(|e| e.into_inner()).clone()
+  }
 }
 
 /// The change that asks a waiting seat for its place, within the demand its run or branch holds where it holds
@@ -724,10 +759,10 @@ pub async fn launch(
   if let Some(demand) = demand {
     let _ = app.store.demand_ran(demand, run);
   }
-  let refuse = |why: String| {
+  let refuse = |why: String, lost: bool| {
     note(&app, run, "ended", &format!("The research was refused: {why}"));
     let _ = app.store.close_research_run(run, "failed", Some(&why), None);
-    Refused::Unavailable(why)
+    if lost { Refused::Unavailable(why) } else { Refused::Upstream(why) }
   };
   let mut asked = json!({
     "requestKey": format!("research:{run}"),
@@ -742,15 +777,15 @@ pub async fn launch(
   }
   let seat = match app.peers.ask_seat(&asked).await.map(|said| Seat::of(&said)) {
     Ok(Some(seat)) => seat,
-    Ok(None) => return Err(refuse("agency answered the run's seat with no token".into())),
-    Err(why) => return Err(refuse(format!("agency gave the run no seat: {why}"))),
+    Ok(None) => return Err(refuse("agency answered the run's seat with no token".into(), false)),
+    Err(fault) => return Err(refuse(format!("agency gave the run no seat: {fault}"), fault.lost)),
   };
   let _ = app.store.hold(run, "seat", &seat.token);
   let provider = said(&ask.provider).unwrap_or(&seat.provider).to_string();
   let model = said(&ask.model).unwrap_or(&seat.model).to_string();
   if model.is_empty() {
     give_back(&app, run, &seat.token, "cancelled: no model", true).await;
-    return Err(refuse("the run's seat was given no model".into()));
+    return Err(refuse("the run's seat was given no model".into(), false));
   }
   let record = record(
     &app,
@@ -784,9 +819,9 @@ pub async fn launch(
   .await;
   let session = match started {
     Ok(session) => session,
-    Err(why) => {
+    Err(fault) => {
       give_back(&app, run, &seat.token, "cancelled: no session", true).await;
-      return Err(refuse(format!("agency started no session for the run: {why}")));
+      return Err(refuse(format!("agency started no session for the run: {fault}"), fault.lost));
     }
   };
   let state = if seat.admitted() { ResearchRunState::Running } else { ResearchRunState::Waiting };
@@ -814,6 +849,7 @@ pub async fn launch(
     closes_at,
     bound_ms,
     demand,
+    lost: Mutex::new(None),
   };
   tokio::spawn(go(app, going));
   Ok(launched)
@@ -853,7 +889,9 @@ async fn go(app: Arc<App>, going: Going) {
     Ok(_) => "answered".to_string(),
     Err(why) => format!("failed: {why}"),
   };
-  give_back(&app, run, &going.seat.token, &outcome, never_ran).await;
+  if !give_back(&app, run, &going.seat.token, &outcome, never_ran).await {
+    going.lose("agency no longer held the run's seat when it was given back");
+  }
   ended(&app, &going, result).await;
 }
 
@@ -867,10 +905,14 @@ async fn admitted(app: &App, going: &Going) -> Result<Seat, String> {
       break;
     }
     if seat.ended() {
-      return Err("the pool request was ended before it got a place".into());
+      let why = "the pool request was ended before it got a place";
+      going.lose(why);
+      return Err(why.into());
     }
     if now_ms() >= going.closes_at {
-      return Err("the common co-worker pool stayed full until research closed".into());
+      let why = "the common co-worker pool stayed full until research closed";
+      going.lose(why);
+      return Err(why.into());
     }
     tokio::time::sleep(LOOK_EVERY).await;
     match app.peers.move_seat(&seat.token, &admission(going.demand)).await {
@@ -879,15 +921,17 @@ async fn admitted(app: &App, going: &Going) -> Result<Seat, String> {
           seat = now;
         }
       }
-      Err(why) => return Err(format!("the run's seat could not be let in: {why}")),
+      Err(fault) => {
+        return Err(going.met(fault, "the run's seat could not be let in"));
+      }
     }
   }
   let bound = app
     .peers
     .move_seat(&seat.token, &json!({ "state": "bound", "childId": going.session }))
     .await;
-  if let Err(why) = bound {
-    return Err(format!("the run's seat could not be bound to its session: {why}"));
+  if let Err(fault) = bound {
+    return Err(going.met(fault, "the run's seat could not be bound to its session"));
   }
   let _ = app.store.research_running(run);
   note(app, run, "seated", &format!("Seated on {} · {}.", going.provider, going.model));
@@ -917,7 +961,11 @@ async fn turn(
     },
   );
   let within = Duration::from_millis(going.bound_ms.max(0) as u64) + SEND_SLACK;
-  let answered = app.peers.send_turn(session, &body, within).await?;
+  let answered = app
+    .peers
+    .send_turn(session, &body, within)
+    .await
+    .map_err(|fault| going.met(fault, &format!("the turn {name} did not come back")))?;
   let text = written(&answered);
   let _ = app.store.keep_research_turn(
     going.run,
@@ -976,7 +1024,8 @@ async fn rounds(app: &App, going: &Going, seat: &Seat, first: String) -> String 
   };
   let session = match start_session(app, run, &start).await {
     Ok(session) => session,
-    Err(why) => {
+    Err(fault) => {
+      let why = going.met(fault, "agency started no session for the rounds");
       note(
         app,
         run,
@@ -1160,7 +1209,13 @@ async fn ended(app: &App, going: &Going, result: Result<String, String>) {
   let run = going.run;
   let ask = &going.ask;
   if let (Filing::Page(page), Ok(text)) = (&going.filing, &result) {
-    let (outcome, error, filed) = file_page(app, going, page, text).await;
+    let (outcome, error, filed) = match file_page(app, going, page, text).await {
+      ("failed", Some(why), None) => match going.loss() {
+        Some(loss) => ("cut", Some(cut_error(&why, &loss)), None),
+        None => ("failed", Some(why), None),
+      },
+      other => other,
+    };
     match app.store.close_research_run(run, outcome, error.as_deref(), filed.as_ref()) {
       Ok(true) => note(app, run, "ended", &format!("The research ended {outcome}.")),
       Ok(false) => {}
@@ -1194,7 +1249,16 @@ async fn ended(app: &App, going: &Going, result: Result<String, String>) {
         }
       }
     }
-    Err(why) => (whole_instruction(run, ask, &going.model, &result), "failed", Some(why.clone()), None),
+    Err(why) => match going.loss() {
+      Some(loss) => {
+        let told = match app.store.research_run(run) {
+          Ok(row) => cut_instruction(&row),
+          Err(_) => whole_instruction(run, ask, &going.model, &result),
+        };
+        (told, "cut", Some(cut_error(why, &loss)), None)
+      }
+      None => (whole_instruction(run, ask, &going.model, &result), "failed", Some(why.clone()), None),
+    },
   };
   match app.store.close_research_run(run, outcome, error.as_deref(), filed.as_ref()) {
     Ok(true) => note(app, run, "ended", &format!("The research ended {outcome}.")),
@@ -1204,6 +1268,11 @@ async fn ended(app: &App, going: &Going, result: Result<String, String>) {
   if app.store.research_run(run).map(|row| row.tells).unwrap_or(true) {
     tell(app, run, &told).await;
   }
+}
+
+/// Why a run that met a loss was cut: its own failure, and the loss where that was not the failure itself.
+fn cut_error(why: &str, loss: &str) -> String {
+  if why == loss { why.to_owned() } else { format!("{why}; {loss}") }
 }
 
 async fn tell(app: &App, run: i64, told: &Value) {
@@ -1339,7 +1408,9 @@ pub async fn sweep(app: &Arc<App>) -> usize {
           let app = app.clone();
           tokio::spawn(async move { end_session(&app, run, &value, until).await });
         }
-        _ => give_back(app, run, &value, "stopped: the research unit restarted", false).await,
+        _ => {
+          give_back(app, run, &value, "stopped: the research unit restarted", false).await;
+        }
       }
     }
     let why = "the research unit restarted while the run was under way";

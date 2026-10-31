@@ -276,7 +276,7 @@ pub const OPERATIONS: &[Operation] = &[
     path: "/queue/{itemId}",
     id: "patchItem",
     tag: "queue",
-    summary: "Dismiss an item, mark it taken, or move it to the front.",
+    summary: "Dismiss an item, mark it taken, ask a stuck one again, or move it to the front.",
     params: &[path("itemId", "the item's id")],
     body: Some("ItemChange"),
     answer: (200, Some("Item")),

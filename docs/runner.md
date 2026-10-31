@@ -74,14 +74,17 @@ of a run is this unit's.
    the ask names, else the seat's, `cwd` empty, `line` the line, `systemPrompt` the composed instructions,
    `labels` `{research: <the run's record>}`, `toolsAllowed` the run's capabilities, and `boundMs` the clock
    and a writing margin of `runner.writing_margin_minutes`, and `demandId` the run's demand where it holds
-   one. A seat or a session agency refuses is answered 503
-   with agency's sentence; a seat already asked is cancelled and nothing is left standing.
+   one. A seat or a session agency cannot be asked for — agency not reached, or answering with a failure of
+   its own (5xx) — is answered 503 with agency's sentence; one agency refuses for what it asks, or a seat
+   with no token or no model, is answered 502. Either way a seat already asked is cancelled and nothing is
+   left standing.
 5. **The answer at once:** 202 with the run's id, its key, its state (`waiting` while its seat waits for a
    place, `running` once admitted), its road and the moment its web tools close. The run's clock starts at the
    ask, so a seat that waits spends the run's own time.
 6. **The admission:** a seat still waiting is asked for its place again every half second (`PATCH` naming
    `admitted`, and `within` the run's demand where it holds one) until it is let in, then bound to the session (`PATCH` naming `bound` with the session's id). A
-   seat the pool ends, or one still waiting when the clock runs out, ends the run `failed`.
+   seat the pool ends, or one still waiting when the clock runs out, ends the run with no answer, and the
+   run is cut (「A cut run」).
 7. **The first turn:** the request, as one turn of the session (`POST /sessions/{id}/turns`) carrying the work
    parts — the provider, the model, the seat's mapping (model, effort, tier), a fresh resume, an empty folder,
    the name `research-<run>`, the title, the room or 0, the key as the work key, no words heard and no
@@ -209,7 +212,8 @@ daemon finishes, held first to the shape the deep dive asked for.
 - **A result still short of its shape is not filed:** the run closes `failed`, its error naming each thing
   missing — an empty body, a head line, the answer at the body's open, the opening section, or the headings
   looked for — and the deep dive's try fails with that error, so the item waits for its retry and the queue
-  shows why. No document stands for it and no notice goes out.
+  shows why; a run that met a loss on the way closes `cut` instead (「A cut run」). No document stands for it
+  and no notice goes out.
 - **The title** is the `TITLE:` line. A body that opens with a heading saying the title loses that heading,
   since the page's head says it.
 - **The opening section opens the page's body:** the first section whose heading holds one of the shape's
@@ -272,6 +276,27 @@ daemon finishes, held first to the shape the deep dive asked for.
 - **A run the daemon asks for its own deep dive tells no room:** the dive's notices are its report
   (`docs/api.md`, 「The deep dive」), and its document is the page the daemon finishes (「The deep dive's
   page」).
+
+## A cut run
+
+- **A run is cut where what it stands on went away,** not failed. The run meets a loss where:
+  - a call into agency for its seat, its session or a turn does not reach agency, is answered with a failure
+    of agency's own (5xx), or is answered 404 for the seat or the session the call names, which agency no
+    longer holds;
+  - the pool ends its seat before it got a place, or the seat still waits for one when the run's clock runs
+    out;
+  - its seat, given back at its end, is one agency no longer held (the finish answering `held` false), or the
+    finish does not reach agency.
+- **A run that met a loss and filed no document closes `cut`,** its error naming the first loss; one that
+  filed its document all the same closes `answered`. A round, the whole document or the narration that did
+  not come for a loss leaves the result as it stands, as any turn that does not answer does, and the result
+  is then judged as ever.
+- **Anything else that ends a run with no document closes it `failed`:** a turn that wrote nothing while
+  the run's seat stood, agency refusing a call for what it asked (another 4xx), a result short of its shape,
+  or a filing that did not go through. A deep dive's try reads the outcome: a cut run's try is not counted,
+  a failed one's is (`docs/api.md`, 「The deep dive」).
+- **A cut run asked for a room tells it as a cut run** (「The room」), and the restart's cut is the same
+  outcome (「A restart」).
 
 ## Ending a session
 

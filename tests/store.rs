@@ -1,5 +1,6 @@
 //! The store and the queue's rules (`docs/store.md`, `docs/api.md` 「queue」): the categories it starts with,
-//! the cap per category, the queue's order, a candidate judged once, and where each item came from.
+//! the cap per category, the queue's order, a candidate judged once, where each item came from, a stuck item's
+//! moves, and the step that stands every item a store held given up stuck.
 
 mod support;
 
@@ -179,6 +180,77 @@ fn dismissal_and_taking_follow_the_states() {
 
   assert_eq!((taken.state, taken.job_item_id), (ItemState::Taken, Some(5)));
   assert!(matches!(store.dismiss(item.id), Err(Refusal::Conflict(_))));
+}
+
+#[test]
+fn a_stuck_item_is_still_asked_goes_back_stuck_when_interrupted_and_is_asked_again_or_fronted() {
+  let store = store();
+  let item = store.ask("it", "example.org/y", "y", "https://example.org/y", Shape::Manual).unwrap();
+  let (run, _) = store.start_try("it", &[item.id]).unwrap().unwrap();
+  store.end_run(run, "failed", None, Some("short")).unwrap();
+  assert_eq!(store.fail_try(run, "short", 0, true).unwrap(), [item.id]);
+  let stuck = store.item(item.id).unwrap();
+  assert_eq!((stuck.state, stuck.tries, stuck.retry_at), (ItemState::Stuck, 1, Some(0)));
+  assert!(matches!(store.front(item.id), Ok(ref i) if i.retry_at.is_none() && i.state == ItemState::Stuck));
+  assert_eq!(store.waiting("it", 1, 5).unwrap().len(), 1, "a stuck item is asked on its retry wait");
+  let state = store.daemon_state().unwrap();
+  assert_eq!(state.categories.iter().find(|c| c.category_name == "it").unwrap().stuck_count, 1);
+  assert!(matches!(
+    store.ask("it", "example.org/y", "y", "https://example.org/y", Shape::Manual),
+    Err(Refusal::Conflict(_))
+  ));
+
+  // An interrupted try puts it back stuck, its try taken off the count.
+  let (run, _) = store.start_try("it", &[item.id]).unwrap().unwrap();
+  store
+    .requeue(run, "cut", Some("cut"), "agency went away, so the try is not counted", 0)
+    .unwrap();
+  let back = store.item(item.id).unwrap();
+  assert_eq!((back.state, back.tries, back.retry_at), (ItemState::Stuck, 1, None));
+
+  store.keep_repair(&[item.id], 77).unwrap();
+  assert!(store.unrepaired().unwrap().is_empty());
+  let again = store.ask_again(item.id).unwrap();
+  assert_eq!((again.state, again.tries, again.repair_item_id), (ItemState::Waiting, 0, None));
+  assert!(matches!(store.ask_again(item.id), Err(Refusal::Conflict(_))));
+}
+
+#[test]
+fn the_step_that_keeps_repairs_stands_every_given_up_item_stuck_with_its_retry_due() {
+  let dir = support::scratch().join("research");
+  let store = Store::open(&dir).unwrap();
+  let item = store.ask("it", "example.org/z", "z", "https://example.org/z", Shape::Manual).unwrap();
+  let kept = store.ask("it", "example.org/w", "w", "https://example.org/w", Shape::Manual).unwrap();
+  drop(store);
+  // The store as it stood one step before: an item given up after its retries, and its notice.
+  let conn = rusqlite::Connection::open(dir.join("research.db")).unwrap();
+  conn
+    .execute_batch(&format!(
+      "update queue set state = 'failed', tries = 4, retry_at = null, error = 'the turn wrote nothing'
+         where id = {};
+       insert into reports (item_id, recipient, kind, state, at) values ({}, 'room:7', 'failed', 'sent', 1);
+       alter table queue drop column repair_item_id;
+       pragma user_version = {};",
+      item.id,
+      item.id,
+      schema_version() - 1
+    ))
+    .unwrap();
+  drop(conn);
+
+  let store = Store::open(&dir).unwrap();
+  assert_eq!(store.version().unwrap(), schema_version());
+  let stuck = store.item(item.id).unwrap();
+  assert_eq!(
+    (stuck.state, stuck.tries, stuck.retry_at, stuck.repair_item_id),
+    (ItemState::Stuck, 4, Some(0), None)
+  );
+  assert_eq!(stuck.error.as_deref(), Some("the turn wrote nothing"));
+  assert_eq!(store.item(kept.id).unwrap().state, ItemState::Waiting);
+  assert_eq!(store.unrepaired().unwrap().iter().map(|i| i.id).collect::<Vec<_>>(), [item.id]);
+  let conn = rusqlite::Connection::open(dir.join("research.db")).unwrap();
+  let kinds: String = conn.query_row("select group_concat(kind) from reports", [], |r| r.get(0)).unwrap();
+  assert_eq!(kinds, "stuck");
 }
 
 #[test]

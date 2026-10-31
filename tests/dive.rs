@@ -1,6 +1,7 @@
 //! The deep dive against stand-in agency, artifact, receiver, voice and tool host servers (`docs/api.md`, 「The
-//! deep dive」, 「The page」 and 「The notices」): the bodies each unit is asked with, the retries, the failure
-//! told once, a result short of its shape asked again whole and never filed short, a final answer in two
+//! deep dive」, 「The page」 and 「The notices」): the bodies each unit is asked with, an interrupted try asked
+//! again at once uncounted and a failed one counted and waited, an item stuck past its retries told once,
+//! handed to the helper and still asked until it is filed or dismissed, a result short of its shape asked again whole and never filed short, a final answer in two
 //! text blocks filed whole, the one page with both languages and its switch, the narration's sounds, a
 //! missing one logged and asked again on every retry wait, a synthesis waited on however long with its
 //! reasons logged, and a long script cut to what the voice speaks, the pending Korean side drawn into the
@@ -1184,8 +1185,8 @@ async fn a_korean_side_failing_past_the_retries_is_still_asked_on_every_retry_wa
 }
 
 #[tokio::test]
-async fn a_refused_ask_is_retried_and_counted() {
-  let ground = support::ground(|s| s.retry_minutes = 0).await;
+async fn an_ask_agency_cannot_carry_now_is_asked_again_at_once_and_not_counted() {
+  let ground = support::ground(|s| s.retry_minutes = 60).await;
   give_owner_room(&ground.app).await;
   let item = ground
     .app
@@ -1198,12 +1199,13 @@ async fn a_refused_ask_is_retried_and_counted() {
 
   settle(&ground).await;
   let waiting = ground.app.store.item(item.id).unwrap();
-  assert_eq!(waiting.state, ItemState::Waiting);
-  assert!(waiting.retry_at.is_some() && waiting.error.unwrap().contains("503"));
+  assert_eq!((waiting.state, waiting.tries, waiting.retry_at), (ItemState::Waiting, 0, None));
+  let error = waiting.error.unwrap();
+  assert!(error.contains("503") && error.contains("not counted"), "{error}");
 
   settle(&ground).await;
   let reported = ground.app.store.item(item.id).unwrap();
-  assert_eq!((reported.state, reported.tries), (ItemState::Reported, 2));
+  assert_eq!((reported.state, reported.tries), (ItemState::Reported, 1));
   let runs = ground.app.store.runs(Some(item.id), None, None, 10).unwrap().items;
   let states: Vec<&str> = runs.iter().map(|r| r.state.as_str()).collect();
   assert_eq!(states, ["closed", "refused"]);
@@ -1211,7 +1213,84 @@ async fn a_refused_ask_is_retried_and_counted() {
 }
 
 #[tokio::test]
-async fn a_run_cut_past_its_retries_fails_and_is_told_once() {
+async fn an_ask_agency_refuses_for_what_it_asks_is_counted_and_waits() {
+  let ground = support::ground(|s| s.retry_minutes = 60).await;
+  let item = ground
+    .app
+    .store
+    .ask("it", "example.org/a", "A", "https://example.org/a", Shape::Investigation)
+    .unwrap();
+  ground.world.lock().unwrap().session_answers.push_back(422);
+
+  settle(&ground).await;
+  let waiting = ground.app.store.item(item.id).unwrap();
+  assert_eq!((waiting.state, waiting.tries), (ItemState::Waiting, 1));
+  assert!(waiting.retry_at.unwrap() > now_ms() + 50 * 60_000, "it waits retry_minutes");
+  assert!(waiting.error.unwrap().contains("422"));
+  settle(&ground).await;
+  assert_eq!(ground.run_seats().len(), 1, "nothing is asked before its wait ends");
+}
+
+#[tokio::test]
+async fn a_run_whose_turn_agency_cannot_carry_is_cut_and_asked_again_at_once_uncounted() {
+  let ground = support::ground(|s| s.retry_minutes = 60).await;
+  let item = ground
+    .app
+    .store
+    .ask("it", "example.org/c", "C", "https://example.org/c", Shape::Investigation)
+    .unwrap();
+  ground.world.lock().unwrap().turns_lost.insert(1);
+  file(&ground, 2, 9, format!("# An investigation\n\n## {}\n\nIt is.\n", answer_heading()));
+
+  settle(&ground).await;
+  let cut = ground.app.store.research_run(1).unwrap();
+  assert_eq!(cut.outcome.as_deref(), Some("cut"));
+  assert!(cut.error.unwrap().contains("503"));
+  let waiting = ground.app.store.item(item.id).unwrap();
+  assert_eq!((waiting.state, waiting.tries, waiting.retry_at), (ItemState::Waiting, 0, None));
+  assert!(waiting.error.unwrap().contains("not counted"));
+
+  settle(&ground).await;
+  let reported = ground.app.store.item(item.id).unwrap();
+  assert_eq!((reported.state, reported.tries), (ItemState::Reported, 1));
+  let tries = ground.app.store.runs(Some(item.id), None, None, 10).unwrap().items;
+  let states: Vec<&str> = tries.iter().map(|r| r.state.as_str()).collect();
+  assert_eq!(states, ["closed", "cut"]);
+}
+
+#[tokio::test]
+async fn a_turn_that_wrote_nothing_is_cut_where_agency_no_longer_held_the_seat_and_counted_where_it_did() {
+  let ground = support::ground(|s| s.retry_minutes = 60).await;
+  let item = ground
+    .app
+    .store
+    .ask("it", "example.org/d", "D", "https://example.org/d", Shape::Investigation)
+    .unwrap();
+  {
+    let mut world = ground.world.lock().unwrap();
+    world.failing.extend(1..=2);
+    world.seats_dropped = true;
+  }
+  settle(&ground).await;
+  let cut = ground.app.store.research_run(1).unwrap();
+  assert_eq!(cut.outcome.as_deref(), Some("cut"));
+  let error = cut.error.unwrap();
+  assert!(error.contains("wrote nothing") && error.contains("no longer held"), "{error}");
+  let waiting = ground.app.store.item(item.id).unwrap();
+  assert_eq!((waiting.state, waiting.tries, waiting.retry_at), (ItemState::Waiting, 0, None));
+
+  // With its seat held, a turn that wrote nothing is the run's own failure.
+  ground.world.lock().unwrap().seats_dropped = false;
+  settle(&ground).await;
+  let failed = ground.app.store.research_run(2).unwrap();
+  assert_eq!(failed.outcome.as_deref(), Some("failed"));
+  let counted = ground.app.store.item(item.id).unwrap();
+  assert_eq!((counted.state, counted.tries), (ItemState::Waiting, 1));
+  assert!(counted.retry_at.is_some());
+}
+
+#[tokio::test]
+async fn an_item_failing_past_its_retries_is_stuck_told_once_handed_to_the_helper_and_still_asked() {
   let ground = support::ground(|s| {
     s.retry_minutes = 0;
     s.retries = 3;
@@ -1221,19 +1300,86 @@ async fn a_run_cut_past_its_retries_fails_and_is_told_once() {
   let item = ground
     .app
     .store
-    .ask("it", "example.org/b", "B", "https://example.org/b", Shape::Manual)
+    .ask("it", "example.org/b", "B", "https://example.org/b", Shape::Investigation)
     .unwrap();
-  ground.world.lock().unwrap().failing.extend(1..=4);
-  for _ in 0..6 {
+  ground.world.lock().unwrap().failing.extend(1..=5);
+  for _ in 0..4 {
     settle(&ground).await;
   }
-  let failed = ground.app.store.item(item.id).unwrap();
-  assert_eq!((failed.state, failed.tries), (ItemState::Failed, 4));
-  assert_eq!(ground.run_seats().len(), 4, "a failed item is asked no more");
+  let stuck = ground.app.store.item(item.id).unwrap();
+  assert_eq!((stuck.state, stuck.tries, stuck.repair_item_id), (ItemState::Stuck, 4, None));
   let told = orders(&ground);
   assert_eq!(told.len(), 1);
-  let expected = words::fill(&words::report().failed, &[("name", "B"), ("tries", "4")]);
+  let expected = words::fill(&words::report().stuck, &[("name", "B"), ("tries", "4")]);
   assert_eq!(told[0]["said"]["order"], expected.as_str());
+
+  // The next pass files the repair before it asks the item again, and asks it all the same.
+  settle(&ground).await;
+  let items = ground.world.lock().unwrap().job_items.clone();
+  assert_eq!(items.len(), 1);
+  let repair = &items[0];
+  assert_eq!(
+    (repair["queueName"].as_str(), repair["assigneeName"].as_str()),
+    (Some("todo"), Some("helper"))
+  );
+  assert_eq!(repair["labels"]["lane"], "repair");
+  assert_eq!(repair["labels"]["research-item"], item.id.to_string().as_str());
+  assert!(repair["title"].as_str().unwrap().contains("B"));
+  let brief = repair["brief"].as_str().unwrap();
+  assert!(brief.contains("https://example.org/b") && brief.contains("research run 4"), "{brief}");
+  assert!(brief.contains("wrote nothing") && brief.contains(&format!("PATCH /queue/{}", item.id)));
+  assert_eq!(ground.run_seats().len(), 5, "a stuck item is asked again on its retry wait");
+  let still = ground.app.store.item(item.id).unwrap();
+  assert_eq!((still.state, still.tries, still.repair_item_id), (ItemState::Stuck, 5, Some(601)));
+  assert_eq!(orders(&ground).len(), 1, "it is told once");
+
+  // The fix lands without a word: the next try files its document and the item is reported.
+  file(&ground, 6, 9, format!("# An investigation\n\n## {}\n\nIt is.\n", answer_heading()));
+  settle(&ground).await;
+  assert_eq!(ground.world.lock().unwrap().job_items.len(), 1, "one repair for the stretch");
+  let reported = ground.app.store.item(item.id).unwrap();
+  assert_eq!((reported.state, reported.repair_item_id), (ItemState::Reported, Some(601)));
+}
+
+#[tokio::test]
+async fn a_stuck_item_leaves_only_by_dismissal_and_is_asked_again_afresh() {
+  let ground = support::ground(|s| {
+    s.retry_minutes = 0;
+    s.retries = 0;
+  })
+  .await;
+  let store = &ground.app.store;
+  let item = store
+    .ask("it", "example.org/s", "S", "https://example.org/s", Shape::Investigation)
+    .unwrap();
+  ground.world.lock().unwrap().failing.extend(1..=3);
+  settle(&ground).await;
+  assert_eq!(store.item(item.id).unwrap().state, ItemState::Stuck);
+  settle(&ground).await;
+  let repaired = store.item(item.id).unwrap();
+  assert_eq!(
+    (repaired.state, repaired.tries, repaired.repair_item_id),
+    (ItemState::Stuck, 2, Some(601))
+  );
+
+  let again = store.ask_again(item.id).unwrap();
+  assert_eq!(
+    (again.state, again.tries, again.retry_at, again.repair_item_id),
+    (ItemState::Waiting, 0, None, None)
+  );
+  settle(&ground).await;
+  assert_eq!(store.item(item.id).unwrap().state, ItemState::Stuck, "stuck anew after its retries");
+  assert!(store.ask_again(item.id).is_ok());
+  assert!(store.ask_again(item.id).is_err(), "only a stuck item is asked again");
+
+  ground.world.lock().unwrap().failing.extend(4..=9);
+  settle(&ground).await;
+  store.dismiss(item.id).unwrap();
+  let seats = ground.run_seats().len();
+  settle(&ground).await;
+  settle(&ground).await;
+  assert_eq!(store.item(item.id).unwrap().state, ItemState::Dismissed);
+  assert_eq!(ground.run_seats().len(), seats, "a dismissed item is asked no more");
 }
 
 #[tokio::test]
@@ -1357,7 +1503,7 @@ async fn a_stopped_category_starts_no_run_and_the_least_recent_category_goes_fir
   // `it` ran a try a moment ago; security has not run at all, so it goes first.
   let (run, _) = store.start_try("it", &[it.id]).unwrap().unwrap();
   store.end_run(run, "refused", None, Some("earlier")).unwrap();
-  store.fail_try(run, "earlier", Some(0)).unwrap();
+  store.fail_try(run, "earlier", 0, false).unwrap();
   let sec = store
     .ask("security", "example.org/s", "S", "https://example.org/s", Shape::Advisory)
     .unwrap();
@@ -1433,7 +1579,11 @@ async fn a_restarted_daemon_cuts_the_runs_it_left_open_and_takes_up_its_tries() 
   assert!(told[0].get("run").is_none());
 
   let retried = store.item(asked.id).unwrap();
-  assert_eq!((retried.state, retried.tries), (ItemState::Waiting, 1));
+  assert_eq!(
+    (retried.state, retried.tries, retried.retry_at),
+    (ItemState::Waiting, 0, None),
+    "uncounted"
+  );
   let tries = store.runs(Some(asked.id), None, None, 10).unwrap().items;
   assert_eq!(tries[0].state.as_str(), "cut");
   assert!(ground.run_seats().is_empty(), "an asked run is not asked again");

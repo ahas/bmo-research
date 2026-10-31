@@ -252,12 +252,13 @@ async fn command(verb: Verb) -> Result<(), String> {
       println!("{}", state.state.as_str());
       for c in state.categories {
         println!(
-          "  {:<12} {:<8} waiting {} running {} finishing {} cap {}",
+          "  {:<12} {:<8} waiting {} running {} finishing {} stuck {} cap {}",
           c.category_name,
           c.state.as_str(),
           c.waiting_count,
           c.running_count,
           c.finishing_count,
+          c.stuck_count,
           c.cap
         );
       }

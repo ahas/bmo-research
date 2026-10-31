@@ -2,7 +2,8 @@
 //! run picked among the running categories, its engine's card waited for where its road is watched, asked of
 //! the runner, read until it closes, its result read and its items filed, its page finished with its Korean
 //! side and its narrations, and every recipient told once the page is whole; what a page still lacks asked
-//! again on every retry wait until it is had; a try the arbiter cut put back uncounted.
+//! again on every retry wait until it is had; an interrupted try put back uncounted and asked again at once,
+//! a failed one counted and waited, and an item stuck past its retries handed to the helper to repair.
 
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
@@ -34,6 +35,27 @@ const LANGUAGES: [&str; 2] = ["ko", "en"];
 
 /// The name the queue gives a page's pending Korean side; a pending narration is named `narration-<code>`.
 const KOREAN: &str = "korean";
+
+/// How many of the latest research run's log lines a repair carries.
+const REPAIR_LOG_LINES: usize = 20;
+
+/// The last failure to file a repair, said in the log once while it stays the same.
+#[derive(Debug, Default)]
+pub struct Repairs(Mutex<Option<String>>);
+
+impl Repairs {
+  fn failed(&self, why: String) {
+    let mut failure = self.0.lock().unwrap_or_else(|e| e.into_inner());
+    if failure.as_deref() != Some(why.as_str()) {
+      eprintln!("bmo-research: a repair was not filed: {why}");
+      *failure = Some(why);
+    }
+  }
+
+  fn filed(&self) {
+    *self.0.lock().unwrap_or_else(|e| e.into_inner()) = None;
+  }
+}
 
 /// The pages being finished now, by their item, so a page whose finishing outlasts its retry wait is not
 /// asked a second time beside it.
@@ -121,7 +143,7 @@ pub async fn daemon(app: Arc<App>) {
   }
 }
 
-/// The tries a stopped daemon left running: one asked is read again, one never asked waits again.
+/// The tries a stopped daemon left running: one asked is read again, one never asked goes back as it stood.
 pub fn take_up(app: &Arc<App>) {
   let runs = match app.store.open_runs() {
     Ok(r) => r,
@@ -133,7 +155,8 @@ pub fn take_up(app: &Arc<App>) {
   for run in runs {
     match run.run_id {
       None => {
-        let _ = app.store.requeue(run.id, "failed", None, "the daemon stopped before the run was asked");
+        let why = "the daemon stopped before the run was asked";
+        let _ = app.store.requeue(run.id, "failed", None, why, app.settings.retries);
       }
       Some(run_id) => {
         let app = app.clone();
@@ -159,14 +182,16 @@ pub async fn give_owner_room(app: &App) {
   }
 }
 
-/// One pass of the loop: the demands left behind given back, a scan, every page whose pending part's retry is
-/// due asked again, then as many tries started as `concurrency` leaves room for, a try waiting for its card
-/// among them. Answers the tasks started, each carried to its end on a task of its own.
+/// One pass of the loop: the demands left behind given back, a scan, a repair filed for every stuck item
+/// holding none, every page whose pending part's retry is due asked again, then as many tries started as
+/// `concurrency` leaves room for, a try waiting for its card among them. Answers the tasks started, each
+/// carried to its end on a task of its own.
 pub async fn tick(app: &Arc<App>) -> Vec<JoinHandle<()>> {
   engine::give_back_left(app).await;
   if let Err(why) = crate::scan::scan(app).await {
     eprintln!("bmo-research: the scan: {why}");
   }
+  repair(app).await;
   let mut started = Vec::new();
   for item in app.store.pages_due(now_ms()).unwrap_or_default() {
     let app = app.clone();
@@ -298,8 +323,8 @@ pub async fn carry(app: Arc<App>, run: i64, asked: Option<i64>) {
 }
 
 /// One try carried to its end: its engine's card waited for and the try asked where it was not, read until
-/// its run closes, filed and told. A try whose category is stopped before its card is granted waits again,
-/// uncounted.
+/// its run closes, filed and told. A try whose category is stopped before its card is granted, or that is
+/// interrupted, goes back uncounted; one that fails on its content is counted.
 async fn carried(app: Arc<App>, run: i64, asked: Option<i64>) {
   let Ok(row) = app.store.run(run) else {
     return;
@@ -323,7 +348,7 @@ async fn carried(app: Arc<App>, run: i64, asked: Option<i64>) {
           None => {
             let why =
               "the category was stopped before the run's card was granted, so the try is not counted";
-            let _ = app.store.requeue(run, "failed", None, why);
+            let _ = app.store.requeue(run, "failed", None, why, app.settings.retries);
             return;
           }
         },
@@ -346,7 +371,10 @@ async fn carried(app: Arc<App>, run: i64, asked: Option<i64>) {
           let _ = app.store.keep_run_id(run, launched.run_id);
           launched.run_id
         }
-        Err(Refused::Ask(why) | Refused::Unavailable(why) | Refused::Failed(why)) => {
+        Err(Refused::Unavailable(why)) => {
+          return interrupt(&app, run, &lead, "refused", None, &why);
+        }
+        Err(Refused::Ask(why) | Refused::Upstream(why) | Refused::Failed(why)) => {
           return fail(&app, run, &lead, "refused", None, &why).await;
         }
       }
@@ -362,7 +390,8 @@ async fn carried(app: Arc<App>, run: i64, asked: Option<i64>) {
   };
   let outcome = closed.outcome.clone();
   if outcome.as_deref() == Some("cut") {
-    return fail(&app, run, &lead, "cut", outcome.as_deref(), "the run was cut").await;
+    let why = closed.error.clone().unwrap_or_else(|| "the run was cut".into());
+    return interrupt(&app, run, &lead, "cut", outcome.as_deref(), &why);
   }
   let Some(document_id) = closed.document_id else {
     let why = closed.error.clone().unwrap_or_else(|| "the run closed with no document filed".into());
@@ -759,28 +788,145 @@ async fn report(
   }
 }
 
-/// A failed try: the arbiter's is not counted and its items wait again at once; any other's wait again after
-/// `retry_minutes`, or after the last retry are failed and every recipient is told once.
+/// An interrupted try (`docs/api.md`, 「The deep dive」): something the run needs could not be reached or was
+/// taken away, so the try is not counted and its items go back as they stood, asked again on the next pass.
+fn interrupt(app: &App, run: i64, lead: &Item, state: &str, outcome: Option<&str>, why: &str) {
+  let error = format!("{why}, so the try is not counted");
+  eprintln!("bmo-research: item {}: {error}", lead.id);
+  let _ = app.store.requeue(run, state, outcome, &error, app.settings.retries);
+}
+
+/// A failed try: the arbiter's is interrupted instead; any other is counted and its items wait again after
+/// `retry_minutes`, `stuck` once the lead's tries pass `retries`, every recipient told once as it first
+/// becomes so.
 async fn fail(app: &App, run: i64, lead: &Item, state: &str, outcome: Option<&str>, why: &str) {
-  if engine::evicted(app, run).await {
-    let error = format!("{why}; the engine's card was taken, so the try is not counted");
-    eprintln!("bmo-research: item {}: {error}", lead.id);
-    let _ = app.store.requeue(run, state, outcome, &error);
-    return;
+  if let Some(gone) = engine::evicted(app, run).await {
+    return interrupt(app, run, lead, state, outcome, &format!("{why}; {gone}"));
   }
   let _ = app.store.end_run(run, state, outcome, Some(why));
   let tries = app.store.item(lead.id).map(|i| i.tries).unwrap_or(lead.tries);
-  let last = tries > app.settings.retries;
-  let retry_at = (!last).then(|| now_ms() + app.settings.retry_minutes * 60_000);
-  let moved = app.store.fail_try(run, why, retry_at).unwrap_or_default();
-  if last && moved.contains(&lead.id) {
-    eprintln!("bmo-research: item {} failed after {tries} tries: {why}", lead.id);
+  let stuck = tries > app.settings.retries;
+  let retry_at = now_ms() + app.settings.retry_minutes * 60_000;
+  let moved = app.store.fail_try(run, why, retry_at, stuck).unwrap_or_default();
+  if tries == app.settings.retries + 1 && moved.contains(&lead.id) {
+    eprintln!("bmo-research: item {} is stuck after {tries} tries: {why}", lead.id);
     if let Ok(category) = app.store.category(&lead.category_name) {
       let words = words::report();
-      let notice = fill(&words.failed, &[("name", &lead.name), ("tries", &tries.to_string())]);
-      notify(app, &category, lead, &notice, "failed").await;
+      let notice = fill(&words.stuck, &[("name", &lead.name), ("tries", &tries.to_string())]);
+      notify(app, &category, lead, &notice, "stuck").await;
     }
   }
+}
+
+/// A repair filed in the job service for the stuck items of each research run that hold none, and for each
+/// stuck item with no run, the job item's number kept on each (`docs/api.md`, 「The repair」).
+pub async fn repair(app: &App) {
+  let mut groups: Vec<Vec<Item>> = Vec::new();
+  for item in app.store.unrepaired().unwrap_or_default() {
+    match groups.iter_mut().find(|group| item.run_id.is_some() && group[0].run_id == item.run_id) {
+      Some(group) => group.push(item),
+      None => groups.push(vec![item]),
+    }
+  }
+  for group in groups {
+    let filed = match repair_item(app, &group) {
+      Ok(item) => app.peers.file_item(&item).await,
+      Err(why) => Err(why),
+    };
+    match filed {
+      Ok(job_item) => {
+        app.repairs.filed();
+        let ids: Vec<i64> = group.iter().map(|item| item.id).collect();
+        eprintln!("bmo-research: item {} is stuck; repair {job_item} was filed for the helper", ids[0]);
+        let _ = app.store.keep_repair(&ids, job_item);
+      }
+      Err(why) => app.repairs.failed(why),
+    }
+  }
+}
+
+/// The job item a stuck group's repair is filed as: the words of `prompts/repair.toml` with the evidence set
+/// in, for the settings' queue, worker and labels.
+fn repair_item(app: &App, group: &[Item]) -> Result<Value, String> {
+  let words = words::repair();
+  let lead = &group[0];
+  let mut labels = serde_json::Map::new();
+  for label in &app.settings.job.labels {
+    match label.split_once('=') {
+      Some((key, value)) if !key.trim().is_empty() && !value.trim().is_empty() => {
+        labels.insert(key.trim().to_owned(), json!(value.trim()));
+      }
+      _ => return Err(format!("the job label {label} is no key=value")),
+    }
+  }
+  labels.insert("research-item".into(), json!(lead.id.to_string()));
+  let items: Vec<String> = group
+    .iter()
+    .map(|item| {
+      fill(
+        &words.item,
+        &[
+          ("id", &item.id.to_string()),
+          ("name", &item.name),
+          ("address", item.address.as_deref().unwrap_or("none")),
+          ("category", &item.category_name),
+          ("shape", item.shape.as_str()),
+          ("tries", &item.tries.to_string()),
+          ("error", item.error.as_deref().unwrap_or("none")),
+        ],
+      )
+    })
+    .collect();
+  let tries = app.store.runs(Some(lead.id), None, None, 10).map(|page| page.items).unwrap_or_default();
+  let runs: Vec<String> = tries
+    .iter()
+    .map(|attempt| {
+      let run = attempt.run_id.map_or("none".to_string(), |id| id.to_string());
+      let state = match attempt.outcome.as_deref() {
+        Some(outcome) => format!("{} ({outcome})", attempt.state),
+        None => attempt.state.clone(),
+      };
+      fill(
+        &words.attempt,
+        &[
+          ("try", &attempt.attempt.to_string()),
+          ("run", &run),
+          ("state", &state),
+          ("error", attempt.error.as_deref().unwrap_or("none")),
+        ],
+      )
+    })
+    .collect();
+  let latest = lead.run_id.or_else(|| tries.iter().find_map(|attempt| attempt.run_id));
+  let lines = latest.map(|run| app.store.research_log(run).unwrap_or_default()).unwrap_or_default();
+  let log: Vec<String> = lines
+    .iter()
+    .skip(lines.len().saturating_sub(REPAIR_LOG_LINES))
+    .map(|line| fill(&words.line, &[("kind", &line.kind), ("text", &line.text)]))
+    .collect();
+  let log = if log.is_empty() { words.no_log.clone() } else { log.join("\n") };
+  let id = lead.id.to_string();
+  let run = latest.map_or("none".to_string(), |run| run.to_string());
+  let address = format!("http://{}", app.settings.listen);
+  let brief = fill(
+    &words.brief,
+    &[
+      ("items", &items.join("\n")),
+      ("tries", &lead.tries.to_string()),
+      ("runs", &runs.join("\n")),
+      ("run", &run),
+      ("log", &log),
+      ("id", &id),
+      ("address", &address),
+    ],
+  );
+  Ok(json!({
+    "title": fill(&words.title, &[("id", &id), ("name", &lead.name)]),
+    "brief": brief,
+    "queueName": app.settings.job.queue,
+    "assigneeName": app.settings.job.assignee,
+    "labels": labels,
+  }))
 }
 
 /// The notice a whole page's recipients hear: the line of the page's Korean side and its one link, naming the

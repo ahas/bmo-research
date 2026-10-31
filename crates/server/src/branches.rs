@@ -192,9 +192,9 @@ pub async fn open(app: Arc<App>, ask: BranchAsk) -> Result<BranchEnd, Refusal> {
           seat = now;
         }
       }
-      Err(why) => {
+      Err(fault) => {
         held.give_back("failed").await;
-        return Ok(failed(index, &why));
+        return Ok(failed(index, &fault.why));
       }
     }
   }
@@ -257,7 +257,8 @@ async fn seated(
       demand: held.demand,
     },
   )
-  .await?;
+  .await
+  .map_err(String::from)?;
   held.session = Some(session.clone());
   let bound = app.peers.move_seat(&seat.token, &json!({ "state": "bound", "childId": session })).await;
   if let Err(why) = bound {
@@ -285,6 +286,6 @@ async fn seated(
   match answered {
     Ok(turn) => Ok((runner::written(&turn), closed)),
     Err(_) if closed => Ok((String::new(), true)),
-    Err(why) => Err(why),
+    Err(fault) => Err(fault.why),
   }
 }

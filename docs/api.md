@@ -47,8 +47,8 @@ the one to read.
 | 409 | `conflict` | the member's state does not allow the change, or the key is taken |
 | 409 | `branch-refused` | a branch is not opened; the sentence says why (「research runs」) |
 | 500 | `failed` | the daemon failed; the sentence is the failure |
-| 502 | `upstream-failed` | a unit the daemon called failed; the sentence names it |
-| 503 | `unavailable` | a research run cannot go out now: agency refused its seat or its session, or the tool host gave no web listing; the sentence is theirs |
+| 502 | `upstream-failed` | a unit the daemon called failed, or refused what it was asked; the sentence names it |
+| 503 | `unavailable` | a research run cannot go out now: agency could not be reached or failed on its side for its seat or its session, or the tool host gave no web listing; the sentence is theirs |
 
 ## Routes by resource
 
@@ -68,7 +68,8 @@ the one to read.
 - **The state** answers `state` (`stopped` where every category is stopped, `running` otherwise),
   `changedAt` (the latest change of any category's state, null where none was changed) and `categories`,
   each `categoryName`, `state`, `waitingCount`, `runningCount`, `finishingCount` (its items whose page is
-  finished before they are told) and `cap`, and `holds`, the runs asked that
+  finished before they are told), `stuckCount` (its items stuck, 「The repair」) and `cap`, and `holds`, the
+  runs asked that
   wait for their engine now (「The engine」), each `reason` (`waiting-card`), `runId` (the try), its
   `categoryName`, `registration`, `serviceName` (the arbiter service whose card it waits for), `demandId`
   (null until the master has answered the ask), `cause` and `causeText` (the master's reason the card
@@ -79,7 +80,7 @@ the one to read.
   and its part of the queue fills as ever.
 - **A stopped category starts no run** and its sources are not read; a run under way is waited on to its
   end and reported as any other, and a run still waiting for its card gives its demand back and its items
-  wait again, the try uncounted. `running` starts it again. A category's state outlives a restart; a
+  go back as they stood, the try uncounted. `running` starts it again. A category's state outlives a restart; a
   category starts running. A `categoryName` no category holds is 404 `not-found`.
 
 ### categories
@@ -148,7 +149,7 @@ the one to read.
 | GET | `/queue` | The items in the queue's order, narrowed by `categoryName` and `state` (a comma-separated list), paged by `after`. |
 | POST | `/queue` | Ask for a thing by its name and its maker's address; 201 with the item. |
 | GET | `/queue/{itemId}` | One item. |
-| PATCH | `/queue/{itemId}` | Dismiss it, mark it taken, or move it to the front. |
+| PATCH | `/queue/{itemId}` | Dismiss it, mark it taken, ask a stuck one again, or move it to the front. |
 
 - **An item** is `id`, `categoryName`, `key` (the canonical address, else the name lower-cased), `name`,
   `maker`, `address` (the maker's page for the thing), `kind` (`model`, `paper`, `release`, `entry`, or
@@ -162,7 +163,9 @@ the one to read.
   `narration-en` for each narration its script allows; empty where it lacks nothing), `pendingRetryAt` (when
   that is asked again, null where nothing is pending), `fit`, `touches` (the hosts and repositories an
   advisory names), `plan` (the heading of the document's plan section, as the document holds it),
-  `jobItemId` (the job item the chat agent filed for it), `error`, `foundAt`, `createdAt` and `changedAt`.
+  `jobItemId` (the job item the chat agent filed for it), `repairItemId` (the job item filed for the helper
+  while it is stuck, 「The repair」; null where none was), `error` (why its latest try failed or was
+  interrupted, null after one that filed its document), `foundAt`, `createdAt` and `changedAt`.
 - **Where an item came from** is its `origin`, an object whose `kind` is one of three:
   - `source`, an item a scan took in: `source` names the source that found it, by its kind and what it
     reads (its query, else its address), null where that source no longer stands;
@@ -174,22 +177,26 @@ the one to read.
 - **Its states:** `waiting` until a run is asked for it; `running` while one is under way; `finishing` once
   its run has filed its document and while its page is not yet whole, `pending` naming what it waits on and
   nobody told of it yet (「The page」); `reported` once its whole page is told to its category's
-  recipients, or `fit` where the document asks the owner's word (「The fit」);
-  `failed` after its last try; `taken` once the chat agent filed the work it calls for; `dismissed` on the
-  owner's word. A dismissed item's key stays seen, so nothing turns it up again.
+  recipients, or `fit` where the document asks the owner's word (「The fit」); `stuck` once its failed
+  tries pass `retries`, still asked again on every retry wait while the helper is asked to fix the cause
+  (「The repair」); `taken` once the chat agent filed the work it calls for; `dismissed` on the owner's
+  word. No count of tries gives an item up: dismissal is the one way an item leaves the queue unreported. A
+  dismissed item's key stays seen, so nothing turns it up again.
 - **The queue's order** is the order runs are taken in, within a category: `priority` from highest, then
   `foundAt` from oldest, then `id`. Between categories, the next run goes to the highest priority waiting,
   and among equals to the category whose last run was asked longest ago, so no category's flood starves
-  another. `GET /queue` answers the running items, then the waiting ones in their category's order, then
-  the rest newest first; `after` continues past the named item's place in it.
+  another. `GET /queue` answers the running items, then the waiting and stuck ones in their category's
+  order, then the rest newest first; `after` continues past the named item's place in it.
 - **The cap.** A category's part of the queue holds at most its `cap` items `waiting` or `running` that the
-  scan took in; an ask is never refused for the cap. A slot that frees is filled from the category's seen
+  scan took in, a stuck item not among them; an ask is never refused for the cap. A slot that frees is
+  filled from the category's seen
   candidates no item stands for, oldest first (`docs/sources.md`, 「From a candidate to an item」).
 - **An ask** names `name` and `address`, and may name `categoryName` (`it` where it names none) and `shape`
   (`manual` or `investigation`, for a `manual-or-investigation` category alone; `manual` where it names
   none); it is queued at once with `asked` true and a `priority` of 1, above every item a scan took in (0).
   An empty name or address, or a shape the category does not take, is 400 `bad-request`; a category that
-  does not stand is 404 `not-found`; a key an item still `waiting` or `running` holds is 409 `conflict`.
+  does not stand is 404 `not-found`; a key an item still `waiting`, `running` or `stuck` holds is 409
+  `conflict`.
   The archive is not asked: the owner's word stands over it.
 - **An ask may say why and from what:** `because`, the words it is made with, kept as its origin's; and,
   for a follow-up of an earlier research, `followsItemId`, the item it follows from, or
@@ -199,15 +206,17 @@ the one to read.
   filed it, else its number alone. An item that does not stand is 404 `not-found`, an item that has filed
   no document yet is 409 `conflict`, and an item and a document that are not each other's are 400
   `bad-request`.
-- **A change** is a merge patch of `state` or `front`; the daemon files nothing and launches nothing, so a
-  change only records what was decided elsewhere:
+- **A change** is a merge patch of `state` or `front`, recording what was decided elsewhere; it files
+  nothing and launches nothing:
   - `state` `dismissed` dismisses an item in any state but `taken` and `dismissed`; a run under way goes
     on to its end, which is no longer told.
   - `state` `taken` with `jobItemId`, the number of the job item the chat agent filed on the owner's word,
     keeps that number on the item. Only a `reported` or `fit` item is taken; a `taken` naming no
     `jobItemId` is 400 `bad-request`.
-  - `front` true gives a waiting item a `priority` one above the highest any item holds, so it is its
-    category's next.
+  - `state` `waiting` asks a `stuck` item again once its cause is fixed: it waits with its tries counted
+    from none, no retry wait, and no repair item. Only a stuck item is moved so.
+  - `front` true gives a waiting or stuck item a `priority` one above the highest any item holds, so it is
+    its category's next; a stuck one's retry wait is cleared with it.
   A move the state does not allow is 409 `conflict`; a body naming neither is 400 `bad-request`.
 
 ### runs
@@ -283,13 +292,16 @@ the one to read.
   `browse`) and `query`, and may name `asker`, `options`, `roomId` (the room the result is told to; the
   owner's private room where none is named), `provider` and `model` (the road it goes out on; the seat's
   where none is named). A key that is no research key or an empty query is 400 `bad-request`. Where agency
-  refuses the seat or the session, or a search's web listing cannot be had, it is 503 `unavailable` with the
+  cannot be reached for the seat or the session or answers it with a failure of its own (5xx), or a search's
+  web listing cannot be had, it is 503 `unavailable`; where agency refuses the seat or the session for what
+  it asks, or gives a seat with no token or no model, it is 502 `upstream-failed`. Either carries the
   sentence, and nothing is left standing.
 - **The ask is answered at once,** 202 with `runId`, `key`, `state` (`waiting` while its seat waits for a
   place, `running` once let in), `provider`, `model` and `closesAt` (when its web tools close; the clock runs
   from the ask). The run goes on in the background to its end.
 - **A research run** is `runId`, `key`, `query`, `asker`, `roomId`, `provider`, `model`, `state` (`waiting`,
-  `running` or `closed`), `outcome` (`answered`, `failed` or `cut`; null while open), `startedAt`, `closesAt`,
+  `running` or `closed`), `outcome` (`answered`, `failed`, or `cut` where what it stood on went away,
+  `docs/runner.md`, 「A cut run」; null while open), `startedAt`, `closesAt`,
   `finishedAt`, `documentId` and `link` (the filed document and its share link, null where none was filed),
   `error` (why it failed), `branches` (how many it opened) and `turns` (the names of the agency turns it went
   out under, its first answer's and each round's, by which its tool calls are read in agency's log).
@@ -346,25 +358,55 @@ the one to read.
   language, the run's session asked once more for the whole document where they are short
   (`docs/runner.md`, 「The deep dive's page」). The try hands the runner the item's origin too, which the
   page prints under its title.
-- **A run that closed** with the outcome `cut` is a failed try. Any other outcome ends the try once the run's
-  row names the document it filed; a closed run with no document is a failed try, its error the run's, which
-  names what the result was missing where its shape held it back.
-- **A failed try** — an ask the runner refused (503 or any failure), a cut run, a missing document — puts its
-  items back `waiting` with `retryAt` `retry_minutes` ahead. After `retries` retries they are `failed` and
-  every recipient of the category is told so once.
+- **A try ends filed, interrupted or failed.** It is filed once the run's row names the document it filed.
+- **An interrupted try** is one that ended because something the run needs could not be reached or was
+  taken away, not because of what it asked or wrote: the runner refusing the ask 503 (`docs/runner.md`,
+  「One run, step by step」), a run that closed `cut` (this unit's restart, or agency failing or no longer
+  holding the run's seat or session, `docs/runner.md`, 「A cut run」), or a try of a watched road whose card
+  was taken or no longer stands (「The engine」). It is not counted toward `retries`, and its items go back
+  as they stood — `waiting`, or `stuck` — with no retry wait (`retryAt` null), so the next pass of the loop
+  asks them again; a watched road's try waits there for its card however long that takes. Its error stays
+  on the items and on its try's row, saying what went away and that the try is not counted.
+- **A failed try** is one that ended on its own content: the runner refusing the ask 400, 500 or 502 (an ask
+  of the wrong shape, the runner's own failure, agency refusing what was asked), or a closed run with no
+  document, its error the run's — the result still short of its shape once asked again whole, or a turn
+  that wrote nothing while its seat stood. It counts toward `retries`: its items wait again with `retryAt`
+  `retry_minutes` ahead. A failed try that takes the lead's tries past `retries` puts its items `stuck`
+  (「The repair」), and every recipient of the category is told so once.
 - **A brief** gathers, once its category's `gatherMinutes` have passed since its last run was asked, every
-  waiting item of the category, at most its `cap`, into one run; a gathering whose retry is due is asked
-  at once.
-- **A try the arbiter cut is not counted** (「The engine」); every other failed try is.
+  waiting or stuck item of the category whose retry is due, at most its `cap`, into one run; a gathering
+  whose retry is due is asked at once.
 - **A daemon that starts** closes every research run it left open as `cut` (`docs/runner.md`, 「A
   restart」), then takes up every try it left `running`: one with a run id is read again, and ends as a
-  cut run's try; one without puts its items back `waiting`. A page it left `finishing`, or with a part
-  pending, is asked again on its retry wait as any pending page is (「The page」).
+  cut run's try, interrupted; one without puts its items back as they stood, uncounted. A page it left
+  `finishing`, or with a part pending, is asked again on its retry wait as any pending page is (「The page」).
 - **A filed document's page is finished before it is told** (「The page」): its items are filed `finishing`
   first, the page read from the run's result as the ledger keeps it (`written`, drawn as the runner drew
   it), then its Korean side and its narrations are asked and the page drawn again with what was had. Once
   the page is whole its items are `reported` or `fit` and the recipients are told; until then its pending
   parts are asked again on every retry wait.
+
+### The repair
+
+- **A stuck item is still asked:** on every retry wait, as a waiting item is, its tries counted on. It
+  leaves `stuck` once a try files its document, once it is asked again (「queue」, `state` `waiting`), or
+  once the owner dismisses it.
+- **The helper is asked to fix the cause.** Each pass of the loop files, before it starts its tries, one
+  repair item in the job service for the stuck items of each research run that hold none — one for the
+  items a stuck brief gathered, one for each item stuck with no run — and keeps the job item's number on
+  each as `repairItemId`. The item is `POST /items` with the settings' `[job]` `queue`, `assignee` and
+  `labels` (`docs/settings.md`, 「Peers」): the helper as its worker, under a label the deployment's job
+  service opens unattended, so it needs no approval. Its title and brief are `prompts/repair.toml`'s, with
+  the evidence set in: each item's number, name, address, category, shape, tries and last error; the
+  research runs of its tries, each with its outcome and its error; and the last lines of its latest run's
+  log. The brief tells the helper to find the cause — the question template, a rulebook, the runner, the
+  page's shape or the engine's road — fix it where it lies, then ask the item again with `PATCH
+  /queue/{itemId}` naming `state` `waiting`, or `front` true, and to check first with `GET /queue/{itemId}`
+  that it is still stuck, since its next retry may have filed it.
+- **A filing that fails is asked again on the next pass,** said in the log once while the failure stays
+  the same.
+- **One repair for each stuck stretch:** an item asked again holds no repair item, and is stuck anew only
+  after `retries` more failed tries; one whose try files its document keeps its repair item's number.
 
 ### The engine
 
@@ -385,11 +427,12 @@ the one to read.
   has ended or whose branch's run has closed. A daemon that starts gives back every
   demand its store holds, since no run it asked is still under way.
 - **A try whose category is stopped** while it waits for its card gives its demand back, ends `failed`
-  with its `error` saying so, and its items wait again with the try not counted.
-- **A failed try of a watched road** is the arbiter's where its demand, read as the try fails, names a
-  claimant or a lower tier that took its card (`taken`), or no longer stands granted. Such a try ends in
-  its state with its `error` saying the engine's card was taken, and its items wait again at once with the
-  try not counted. The words of the failure are not read.
+  with its `error` saying so, and its items go back as they stood with the try not counted.
+- **A failed try of a watched road is interrupted** where its demand, read as the try fails, names a
+  claimant or a lower tier that took its card (`taken`), no longer stands granted, is no longer held by the
+  master (404, as after the master's restart), or cannot be read because the master cannot be reached.
+  Such a try ends in its state with its `error` saying which, and its items go back as they stood at once,
+  the try not counted (「The deep dive」). The words of the failure are not read.
 - **An engine that does not come:** a try still waiting for its card `restore_wait_minutes` after its demand
   was asked is told to the owner's private room once (「The notices」, `restore`); it goes on waiting.
 
@@ -509,8 +552,8 @@ search runner applies it, and the run writes its document in English, the questi
   page」), with the words `prompts/report.toml` holds as `line`, the Korean title, the first sentence of the
   Korean description and the document's one share link set in, and, for a follow-up, `follows` with the
   title of the document it follows from set in (its Korean title where its page has one, else the title
-  the item keeps), or `follows_document` with its number where no title is known; or a failed try's last,
-  `failed`, with the name and the tries set in. The narration is never named, and the parent's link stands
+  the item keeps), or `follows_document` with its number where no title is known; or, as an item first
+  becomes stuck, `stuck`, with the name and the tries set in. The narration is never named, and the parent's link stands
   on the page, not in the notice.
 - **A report is told once, whole.** While its page lacks a part, its recipients hear nothing of the item:
   it stands `finishing`, its `pending` naming what it waits on, and its run's log says the same under
@@ -625,6 +668,10 @@ of these units, and reads each one's address and token from that unit's own file
   second until its `state` is `done` or `failed`, however long that takes, its `waitingOn` read as it
   stands; and
   `GET /syntheses/{synthesisId}/sound`, the sound, OGG/Opus.
+- **the job service:** at the address and with the token its own settings file under `env/` names
+  (`docs/settings.md`, 「Peers」): `POST /items` with `title`, `brief`, `queueName`, `assigneeName` and
+  `labels` — the settings' and `research-item`, the lead item's number — a stuck item's repair for the
+  helper (「The repair」), answered 201 with the item's `id`.
 - **the receiver:** `GET /owner`, the owner's private room; `POST /instructions`, a report line, the notice
   that an engine has not come, or a research run's end (`room`, null where the run named none, `sort` `notice`,
   `kind` `research-ended:<run>`, `said`, `summary` and `events`).

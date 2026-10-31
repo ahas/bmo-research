@@ -2,7 +2,7 @@
 //! for one card of its engine's service and waits for the grant with no clock of its own, holds it for the
 //! run and gives it back as the try ends; a branch of such a run asks its own within the run's; what the
 //! daemon left behind given back; the holds the state answers; the owner's room told once where a card does
-//! not come; and whether a failed try was the arbiter's.
+//! not come; and why a failed try was the arbiter's, where it was.
 
 use std::collections::BTreeMap;
 use std::sync::Mutex;
@@ -222,13 +222,19 @@ pub async fn give_back_left(app: &App) {
   }
 }
 
-/// Whether a try that has just failed was the arbiter's: its demand, read afresh, names who took its card or
-/// no longer stands granted. A try holding no demand never is.
-pub async fn evicted(app: &App, try_id: i64) -> bool {
+/// Why a try that has just failed was the arbiter's, where it was: its demand, read afresh, names who took
+/// its card or no longer stands granted, the master no longer holds it, or the master cannot be reached. A
+/// try holding no demand never is.
+pub async fn evicted(app: &App, try_id: i64) -> Option<String> {
   let Ok(Some(id)) = app.store.try_demand(try_id) else {
-    return false;
+    return None;
   };
-  matches!(app.peers.read_demand(id, 0).await, Ok(Some(demand)) if demand.taken())
+  match app.peers.read_demand(id, 0).await {
+    Ok(Some(demand)) if demand.taken() => Some("the engine's card was taken".into()),
+    Ok(Some(_)) => None,
+    Ok(None) => Some(format!("the arbiter no longer holds the run's demand {id}")),
+    Err(why) => Some(format!("the arbiter could not be asked for the run's demand: {why}")),
+  }
 }
 
 /// Why a branch got no card.

@@ -26,6 +26,7 @@ pub const BROWSE_TASK: &str = include_str!("../../../prompts/browse/task.md");
 pub const BROWSE_REQUEST: &str = include_str!("../../../prompts/browse/request.md");
 const SEARCH_DOCUMENT: &str = include_str!("../../../prompts/search/document.toml");
 const RUNNER: &str = include_str!("../../../prompts/runner.toml");
+const REPAIR: &str = include_str!("../../../prompts/repair.toml");
 
 /// The rulebooks under `prompts/rules/`, by name.
 const RULEBOOKS: &[(&str, &str)] = &[
@@ -54,7 +55,7 @@ pub struct ReportWords {
   pub name: String,
   pub plan: String,
   pub worker: String,
-  pub failed: String,
+  pub stuck: String,
   pub restore: String,
   pub sources: SourceColumns,
 }
@@ -143,6 +144,25 @@ pub struct BriefWords {
 pub fn report() -> &'static ReportWords {
   static WORDS: LazyLock<ReportWords> =
     LazyLock::new(|| toml::from_str(REPORT).expect("prompts/report.toml reads"));
+  &WORDS
+}
+
+/// The words of a stuck item's repair, filed for the helper (`docs/api.md`, 「The repair」).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RepairWords {
+  pub title: String,
+  pub brief: String,
+  pub item: String,
+  #[serde(rename = "try")]
+  pub attempt: String,
+  pub line: String,
+  pub no_log: String,
+}
+
+pub fn repair() -> &'static RepairWords {
+  static WORDS: LazyLock<RepairWords> =
+    LazyLock::new(|| toml::from_str(REPAIR).expect("prompts/repair.toml reads"));
   &WORDS
 }
 

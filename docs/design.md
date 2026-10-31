@@ -3,8 +3,9 @@
 bmo-research is the platform's research unit: a daemon that keeps a queue of things to research, finds new
 ones on the sites the owner registers, deep-dives each one in the lab's own routine, files the report in the
 archive and tells the agents and rooms that should hear of it. It researches and measures, and notifies;
-it files no job and launches nothing: what a report calls for is the chat agent's to raise on the owner's
-word. It is the home of the research feature; agency supplies it sessions and seats and nothing more.
+it launches nothing, and the one job item it files is the repair of its own stuck research, for the
+helper: what a report calls for is the chat agent's to raise on the owner's word. It is the home of the
+research feature; agency supplies it sessions and seats and nothing more.
 
 ## What it is for
 
@@ -38,12 +39,14 @@ word. It is the home of the research feature; agency supplies it sessions and se
   - the receiver, to tell a room (`POST /instructions`) and to learn the owner's private room (`GET /owner`);
   - the arbiter's master, to ask for the engine each run needs and to read why it waits (「The engine a run
     needs」).
-  The job service it never calls: a job is the chat agent's to file.
+  - the job service, for one item alone: the repair of an item stuck past its retries, filed for the helper
+    (「Nothing is given up」).
+  Any other job is the chat agent's to file.
 - **Every per-deployment choice is a setting or a registration,** never code: the sources, the cap, the
   cadence, the model's road, the report rooms, the token files (`docs/settings.md`).
 - **The daemon decides nothing a person should and files nothing an agent should.** It never approves a
-  verification, never raises a queue item, never registers a service with the arbiter, and never spends a
-  paid road unless a setting names one. It notifies: every report, every `fit` item and every failure is
+  verification, never raises a queue item for what a report calls for, never registers a service with the arbiter, and never spends a
+  paid road unless a setting names one. It notifies: every report, every `fit` item and every item stuck is
   an instruction the receiver hands to the room's agent, which says it in its own voice and acts on the
   owner's word.
 - **A base never knows its consumers** and this unit is a consumer of every unit it calls; nothing here is
@@ -77,8 +80,9 @@ sources ──scan──▶ candidates ──new?──▶ queue (cap) ──slo
    dataset or a tool, and as an investigation where it is a claim or an event. The run's question is the
    item's name, its maker's address and where it came from — the source that found it, the owner's ask, or
    the earlier research a follow-up continues — with the shape named, so the runner's research rulebook
-   applies. A run that is refused (no road carries it) or cut is retried after `retry_minutes`, three
-   times, then marked failed and reported once.
+   applies. A try cut short by something it needs going away is asked again at once, uncounted; a try that
+   fails on its own content is asked again after `retry_minutes`, and past its retries the item is stuck
+   and the helper is asked to fix the cause (「Nothing is given up」).
 5. **The report.** The document the run filed is the report: it opens by saying what the thing is and
    what it is for, and under its title says where the research came from. The daemon tells every report
    room: the share link and one line saying what the thing is, naming the earlier document a follow-up
@@ -207,10 +211,11 @@ A source is a registration: a category, a kind, an address and, where the kind t
   run's engine standing down until the branch is finished, however long it takes, and coming back after
   two engine loads (bmo-lab-arena `docs/engines.md`, 「The self-swap」). The search task prompt states this
   as a rule (`prompts/search/task.md`).
-- **A try the arbiter cut is retried, not counted against its three tries.** A try of a watched road
-  that fails after its demand's card was taken by a bench or a claim is the eviction's: its item waits
-  again with the try uncounted. The words of the refusal are not read; the demand's answer is the
-  evidence. A run's own closing time and its retries are its own budget, and stand as they are.
+- **A try the arbiter cut is retried, not counted against its tries.** A try of a watched road that
+  fails after its demand's card was taken by a bench or a claim, or after the master stopped holding it, is
+  the eviction's: its item waits again at once with the try uncounted. The words of the refusal are not
+  read; the demand's answer is the evidence. A run's own closing time and its retries are its own budget,
+  and stand as they are.
 - **The owner hears of an engine that stays away:** a run's demand still waiting after
   `restore_wait_minutes` is told to the owner's private room once; the demand goes on waiting.
 - **Why nothing runs is shown:** the state route answers each hold — the demand and its reason (the
@@ -221,6 +226,22 @@ A source is a registration: a category, a kind, an address and, where the kind t
   bench runs on the cards the arbiter grants it (「The bench lock」).
 - **kakia's own turns (the chat companion and its worker) are agency's to hold** while their engine is
   away, as agency's rules for an engine the arbiter stands say; the daemon adds nothing to that.
+
+## Nothing is given up
+
+- **Nothing is parked on a clock while what it waits for is away.** A try that ends because something it
+  needs could not be reached or was taken away — agency down or restarted under the run, the run's seat or
+  session no longer held, the arbiter's card taken or the master restarted, this unit's own restart — is
+  interrupted: uncounted, and asked again on the next pass, where it waits for its card or its seat however
+  long that takes. The evidence is the source of the failure — a call that did not reach its unit, a status
+  a unit answered, a demand's answer, the seat's finish — never the words of an error (`docs/api.md`, 「The
+  deep dive」; `docs/runner.md`, 「A cut run」).
+- **A try that fails on its own content waits a short while,** `retry_minutes`, and is counted.
+- **No count of failures gives an item up.** Past its retries the item is `stuck`: still asked on every
+  retry wait, while the helper is handed the evidence — the item, its runs, their errors and the last lines
+  of their log — through a repair item in the job service, to fix the cause in the prompts, the rulebooks,
+  the runner or the engine's road and then ask the item again (`docs/api.md`, 「The repair」). The owner's
+  dismissal is the one way an item leaves the queue unreported.
 
 ## The notifier
 
