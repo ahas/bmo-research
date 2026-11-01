@@ -235,6 +235,8 @@ fn the_step_that_keeps_repairs_stands_every_given_up_item_stuck_with_its_retry_d
        drop table translated_parts;
        drop table page_texts;
        drop table page_reviews;
+       drop table narration_asks;
+       drop table syntheses;
        pragma user_version = 9;",
       item.id, item.id
     ))

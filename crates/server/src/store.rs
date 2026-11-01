@@ -29,10 +29,13 @@ use crate::translation::Rendering;
 /// an item came from — a source, an ask with its words, or a follow-up with the document it follows from —
 /// an item standing before it a source's where no ask made it, and an ask's with no words otherwise; the
 /// tenth keeps the repair a stuck item's helper is asked for, stands every item the store held given up
-/// `stuck` with its retry due and no repair yet, and names their notices `stuck`; the eleventh keeps, for a
-/// run that continues, the run it continues and the rounds each run answered, and, for a deep dive's page,
-/// each part of its Korean side as it is had, the texts its review rewrote and its Korean narration's words,
-/// and its one review.
+/// `stuck` with its retry due and no repair yet, and names their notices `stuck`; the eleventh keeps the
+/// synthesis asked of the voice unit for each narration a page still lacks, and sets every filed page that
+/// plays a narration to be finished again at once by the item its try was asked for, with none counted as
+/// had, so each sound is found attached and the page drawn again whole from what the store keeps; the twelfth
+/// keeps, for a run that continues, the run it continues and the rounds each run answered, and, for a deep
+/// dive's page, each part of its Korean side as it is had, the texts its review rewrote and its Korean
+/// narration's words, its one review, and how often each narration was asked anew.
 const MIGRATIONS: &[&str] = &[
   "
   create table categories (
@@ -161,6 +164,17 @@ const MIGRATIONS: &[&str] = &[
   update reports set kind = 'stuck' where kind = 'failed';
 ",
   "
+  create table syntheses (
+    document_id integer not null, language text not null, synthesis_id integer not null,
+    characters integer not null, asked_at integer not null, primary key (document_id, language));
+  update queue set narrations = '[]', pending_retry_at = 0
+    where narrations <> '[]' and document_id is not null
+      and state in ('finishing', 'reported', 'fit', 'taken')
+      and id in (select runs.item_id from runs where runs.run_id = queue.run_id);
+  update queue set narrations = '[]'
+    where narrations <> '[]' and document_id in (select document_id from queue where pending_retry_at = 0);
+",
+  "
   alter table research_runs add column continues integer;
   alter table research_runs add column answered text not null default '[]';
   create table translated_parts (
@@ -171,6 +185,9 @@ const MIGRATIONS: &[&str] = &[
   create table page_reviews (
     document_id integer primary key, answer text not null, applied text not null default '[]',
     remade text not null default '[]', reviewed_at integer not null);
+  create table narration_asks (
+    document_id integer not null, language text not null, renewed integer not null,
+    primary key (document_id, language));
 ",
 ];
 
@@ -1394,6 +1411,81 @@ impl Store {
       .map_err(|e| e.to_string())
   }
 
+  /// The synthesis kept for a page's narration in `language` and how many characters it was asked to speak,
+  /// or none where none is on its way.
+  pub fn synthesis(&self, document_id: i64, language: &str) -> Result<Option<(i64, i64)>, String> {
+    self
+      .lock()
+      .query_row(
+        "select synthesis_id, characters from syntheses where document_id = ?1 and language = ?2",
+        params![document_id, language],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+      )
+      .optional()
+      .map_err(|e| e.to_string())
+  }
+
+  /// The synthesis just asked for a page's narration in `language`, of a text of `characters`, kept until
+  /// its sound is attached.
+  pub fn keep_synthesis(
+    &self,
+    document_id: i64,
+    language: &str,
+    synthesis_id: i64,
+    characters: i64,
+  ) -> Result<(), String> {
+    self
+      .lock()
+      .execute(
+        "insert or replace into syntheses (document_id, language, synthesis_id, characters, asked_at)
+         values (?1, ?2, ?3, ?4, ?5)",
+        params![document_id, language, synthesis_id, characters, now_ms()],
+      )
+      .map(|_| ())
+      .map_err(|e| e.to_string())
+  }
+
+  /// A page's narration in `language` no longer on its way: its sound attached, or its synthesis ended
+  /// without one.
+  pub fn forget_synthesis(&self, document_id: i64, language: &str) -> Result<(), String> {
+    self
+      .lock()
+      .execute(
+        "delete from syntheses where document_id = ?1 and language = ?2",
+        params![document_id, language],
+      )
+      .map(|_| ())
+      .map_err(|e| e.to_string())
+  }
+
+  /// How often a page's narration in `language` was asked anew, after a synthesis that ended without its sound
+  /// or a review that rewrote it; none where it never was.
+  pub fn narration_renewed(&self, document_id: i64, language: &str) -> Result<i64, String> {
+    self
+      .lock()
+      .query_row(
+        "select renewed from narration_asks where document_id = ?1 and language = ?2",
+        params![document_id, language],
+        |r| r.get(0),
+      )
+      .optional()
+      .map(Option::unwrap_or_default)
+      .map_err(|e| e.to_string())
+  }
+
+  /// A page's narration in `language` asked anew: its count bumped, so its next synthesis is a new one.
+  pub fn renew_narration(&self, document_id: i64, language: &str) -> Result<(), String> {
+    self
+      .lock()
+      .execute(
+        "insert into narration_asks (document_id, language, renewed) values (?1, ?2, 1)
+           on conflict (document_id, language) do update set renewed = renewed + 1",
+        params![document_id, language],
+      )
+      .map(|_| ())
+      .map_err(|e| e.to_string())
+  }
+
   /// What an item's page still lacks, and when it is asked again, or none where it lacks nothing.
   pub fn pend_page(&self, item_id: i64, pending: &[String], retry_at: Option<i64>) -> Result<(), String> {
     self
@@ -1440,6 +1532,23 @@ impl Store {
       .map_err(|e| e.to_string())?;
     stmt
       .query_map(params![now], read_item)
+      .map_err(|e| e.to_string())?
+      .collect::<Result<Vec<_>, _>>()
+      .map_err(|e| e.to_string())
+  }
+
+  /// Every item holding a page, for the item its document's run was asked for, in the order of the documents.
+  pub fn filed_pages(&self) -> Result<Vec<Item>, String> {
+    let conn = self.lock();
+    let mut stmt = conn
+      .prepare(&format!(
+        "select {ITEM_COLUMNS} from queue where document_id is not null and run_id is not null
+           and exists (select 1 from runs where runs.run_id = queue.run_id and runs.item_id = queue.id)
+           order by document_id, id"
+      ))
+      .map_err(|e| e.to_string())?;
+    stmt
+      .query_map([], read_item)
       .map_err(|e| e.to_string())?
       .collect::<Result<Vec<_>, _>>()
       .map_err(|e| e.to_string())

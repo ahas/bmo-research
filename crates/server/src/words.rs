@@ -191,7 +191,7 @@ pub fn translation() -> &'static TranslationWords {
 /// The words one language of a deep dive's page is drawn with: its code, its name on the switch, what the
 /// switch is called, the listen band's heading, and the line under the title saying where the research came
 /// from: its label, its words for a source's item, an ask and a follow-up, and for the words an ask was made
-/// with.
+/// with; and the title of a source's mark leading back to where the text cites it.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PageLanguage {
@@ -205,6 +205,7 @@ pub struct PageLanguage {
   pub follow_up: String,
   pub follow_up_untitled: String,
   pub because: String,
+  pub back: String,
 }
 
 /// The title a page falls back on, by shape, in one language.

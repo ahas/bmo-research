@@ -23,6 +23,7 @@ use crate::App;
 use crate::document::{self, Drawn};
 use crate::engine;
 use crate::page::{self, Side, Sound};
+use crate::peers::Synthesis;
 use crate::reading::{self, Exposure};
 use crate::review::{self, Answer, Part, Shown};
 use crate::runner::{self, Filing, PageAsk, Refused};
@@ -77,8 +78,9 @@ pub struct Pages(Mutex<HashSet<i64>>);
 impl Pages {
   /// The item's page held for finishing, or none where it is being finished already.
   fn hold(&self, item: i64) -> Option<PageHold<'_>> {
+    // Built only where it is taken: a hold refused and dropped would give back the page held already.
     let taken = self.0.lock().unwrap_or_else(|e| e.into_inner()).insert(item);
-    taken.then_some(PageHold { pages: self, item })
+    taken.then(|| PageHold { pages: self, item })
   }
 }
 
@@ -146,10 +148,13 @@ fn source(app: &App, run_id: i64) -> Result<Source, String> {
   })
 }
 
-/// The daemon's loop: the tries it left running taken up, the owner's room given to every category holding
-/// no recipient, then a scan and a start of what may run every `tick_seconds`.
+/// The daemon's loop: the tries it left running taken up, every filed page drawn as this binary draws it, the
+/// owner's room given to every category holding no recipient, then a scan and a start of what may run every
+/// `tick_seconds`.
 pub async fn daemon(app: Arc<App>) {
   take_up(&app);
+  let drawing = app.clone();
+  tokio::spawn(async move { redraw_filed(&drawing).await });
   give_owner_room(&app).await;
   loop {
     let _ = tick(&app).await;
@@ -521,6 +526,16 @@ fn sound_of(review: Option<&Review>, code: &str) -> String {
   }
 }
 
+/// The key a narration's synthesis is asked under, so the voice unit answers a repeat with the synthesis it
+/// holds for it: the page's document and the narration's language, and how often the narration was asked anew
+/// where it was.
+pub fn synthesis_key(document_id: i64, code: &str, renewed: i64) -> String {
+  match renewed {
+    0 => format!("research:{document_id}:{code}"),
+    n => format!("research:{document_id}:{code}:{n}"),
+  }
+}
+
 /// A text as the voice unit can speak it: whole where it holds at most `most` characters, else up to the last
 /// sentence that ends within them, the last word where no sentence does, or its first `most` characters.
 pub fn speakable(text: &str, most: usize) -> &str {
@@ -552,9 +567,11 @@ pub fn speakable(text: &str, most: usize) -> &str {
 }
 
 /// One narration's sound attached beside its page under `name`, which the archive's reader plays: the one the
-/// document already keeps, else the script spoken — in Korean the words kept for it, else the script
-/// translated to be spoken and kept, and either cut to what the voice unit speaks, the run's log saying so —
-/// followed however long its synthesis waits, the run's log saying what on whenever that changes, and
+/// document already keeps, else the sound of the synthesis kept for it, else the script spoken — in Korean the
+/// words kept for it, else the script translated to be spoken and kept, and either cut to what the voice unit
+/// speaks, the run's log saying so — its synthesis kept until its sound is attached, so the narration has one
+/// synthesis living at a time. A kept synthesis that has failed or is gone is set aside and another asked; the
+/// one followed is followed however long it waits, the run's log saying what on whenever that changes, and
 /// attached, the Korean as the sound heard at the document's head.
 async fn narration(
   app: &App,
@@ -564,37 +581,63 @@ async fn narration(
   name: &str,
 ) -> Result<(), String> {
   if app.peers.attached(document_id, name).await? {
+    let _ = app.store.forget_synthesis(document_id, code);
     return Ok(());
   }
-  let text = match code {
-    "en" => script.to_string(),
-    _ => match app.store.page_text(document_id, KOREAN_WORDS).ok().flatten() {
-      Some(words) => words,
-      None => {
-        let words = translation::narration(app, &lead.name, script).await?;
-        let _ = app.store.keep_page_text(document_id, KOREAN_WORDS, &words);
-        words
-      }
-    },
-  };
-  let spoken = speakable(&text, VOICE_MOST_CHARACTERS);
-  let (whole, kept) = (text.trim().chars().count(), spoken.chars().count());
-  if kept < whole {
-    let said = format!(
-      "The {code} narration holds {whole} characters, more than the voice speaks, so the first {kept} are \
-       spoken."
-    );
-    let _ = app.store.log_research(run, "narration", &said);
+  let mut kept = app.store.synthesis(document_id, code)?;
+  if let Some((id, _)) = kept
+    && matches!(app.peers.read_synthesis(id).await, Ok(Synthesis::Failed | Synthesis::Gone))
+  {
+    app.store.forget_synthesis(document_id, code)?;
+    app.store.renew_narration(document_id, code)?;
+    kept = None;
   }
-  let (bytes, media_type) = app
+  let (id, size) = match kept {
+    Some(kept) => kept,
+    None => {
+      let text = match code {
+        "en" => script.to_string(),
+        _ => match app.store.page_text(document_id, KOREAN_WORDS).ok().flatten() {
+          Some(words) => words,
+          None => {
+            let words = translation::narration(app, &lead.name, script).await?;
+            let _ = app.store.keep_page_text(document_id, KOREAN_WORDS, &words);
+            words
+          }
+        },
+      };
+      let spoken = speakable(&text, VOICE_MOST_CHARACTERS);
+      let (whole, kept) = (text.trim().chars().count(), spoken.chars().count());
+      if kept < whole {
+        let said = format!(
+          "The {code} narration holds {whole} characters, more than the voice speaks, so the first {kept} \
+           are spoken."
+        );
+        let _ = app.store.log_research(run, "narration", &said);
+      }
+      let key = synthesis_key(document_id, code, app.store.narration_renewed(document_id, code)?);
+      let id = app.peers.ask_synthesis(spoken, code, &key).await?;
+      app.store.keep_synthesis(document_id, code, id, kept as i64)?;
+      (id, kept as i64)
+    }
+  };
+  let ended = app
     .peers
-    .speak(spoken, code, |on| {
+    .follow_synthesis(id, |on| {
       let said = format!("The {code} narration waits for the voice: {on}");
       let _ = app.store.log_research(run, "narration", &said);
     })
     .await?;
+  if ended != Synthesis::Done {
+    app.store.forget_synthesis(document_id, code)?;
+    app.store.renew_narration(document_id, code)?;
+    let how = if ended == Synthesis::Gone { "is gone" } else { "failed" };
+    return Err(format!("the voice unit's synthesis {id} of {size} characters {how}"));
+  }
+  let (bytes, media_type) = app.peers.synthesis_sound(id).await?;
   let role = (code == LANGUAGES[0]).then_some("head");
-  app.peers.attach(document_id, name, &media_type, role, &bytes).await
+  app.peers.attach(document_id, name, &media_type, role, &bytes).await?;
+  app.store.forget_synthesis(document_id, code)
 }
 
 /// The page's English body: the review's rewrite where it rewrote one, else the run's result drawn as the
@@ -613,16 +656,22 @@ fn english_script(app: &App, document_id: i64, source: &Source) -> Option<String
   Some(app.store.page_text(document_id, ENGLISH_SCRIPT).ok().flatten().unwrap_or(script))
 }
 
-/// The page drawn again with the sides it holds, Korean first, its English body `english`, and its listen
-/// band referring to each narration attached by the name it is kept under, and set in the archive.
-async fn redraw(
+/// A page as it is drawn now: its HTML, the title it is set under and its document's labels.
+struct Drawing {
+  html: String,
+  title: String,
+  labels: Value,
+}
+
+/// The page drawn with the sides it holds, Korean first, its English body `english`, and its listen band
+/// referring to each narration attached by the name it is kept under.
+fn drawing(
   app: &App,
   lead: &Item,
-  document_id: i64,
   (source, english): (&Source, &str),
   rendering: Option<&Rendering>,
   narrations: &[(&str, String)],
-) -> Result<(), String> {
+) -> Drawing {
   let origins = LANGUAGES.map(|code| origin_of(app, lead, code));
   let mut sides = Vec::new();
   if let Some(korean) = rendering {
@@ -646,18 +695,100 @@ async fn redraw(
     .filter_map(|code| narrations.iter().find(|(had, _)| *had == code))
     .map(|(code, name)| Sound { code, name })
     .collect();
-  let html = page::compose(&sides, &sounds);
   let mut labels = source.labels.clone();
   labels["languages"] = sides.iter().map(|side| side.code).collect::<Vec<_>>().join(",").into();
+  Drawing {
+    html: page::compose(&sides, &sounds),
+    title: sides[0].title.to_owned(),
+    labels,
+  }
+}
+
+/// A page drawn set in the archive.
+async fn set_page(app: &App, document_id: i64, drawn: &Drawing) -> Result<(), String> {
   app
     .peers
     .artifact_send(
       reqwest::Method::PATCH,
       &format!("/documents/{document_id}"),
-      &json!({ "title": sides[0].title, "html": html, "labels": labels }),
+      &json!({ "title": drawn.title, "html": drawn.html, "labels": drawn.labels }),
     )
     .await
     .map(|_| ())
+}
+
+/// The page drawn again with the sides it holds, Korean first, its English body `english`, and its listen
+/// band referring to each narration attached by the name it is kept under, and set in the archive.
+async fn redraw(
+  app: &App,
+  lead: &Item,
+  document_id: i64,
+  drawn_from: (&Source, &str),
+  rendering: Option<&Rendering>,
+  narrations: &[(&str, String)],
+) -> Result<(), String> {
+  set_page(app, document_id, &drawing(app, lead, drawn_from, rendering, narrations)).await
+}
+
+/// The narrations a page plays, each by the name its sound is kept under now.
+fn played<'a>(sounds: &[String], review: Option<&Review>) -> Vec<(&'a str, String)> {
+  LANGUAGES
+    .into_iter()
+    .filter(|code| sounds.iter().any(|had| had == code))
+    .map(|code| (code, sound_of(review, code)))
+    .collect()
+}
+
+/// Every filed page drawn as this binary draws it (`docs/api.md`, 「The page」): the page of every item holding
+/// a document, for the item its document's run was asked for, drawn again from what is had of it and set where
+/// it differs from the page the archive keeps; a page being finished now is left to its finishing, which draws
+/// it the same way. Answers how many pages were set.
+pub async fn redraw_filed(app: &App) -> usize {
+  let items = match app.store.filed_pages() {
+    Ok(items) => items,
+    Err(why) => {
+      eprintln!("bmo-research: the filed pages could not be read: {why}");
+      return 0;
+    }
+  };
+  let mut set = 0;
+  for item in items {
+    let (Some(document_id), Some(run_id)) = (item.document_id, item.run_id) else {
+      continue;
+    };
+    let Some(_held) = app.pages.hold(item.id) else {
+      continue;
+    };
+    match drawn_again(app, &item, document_id, run_id).await {
+      Ok(true) => set += 1,
+      Ok(false) => {}
+      Err(why) => {
+        eprintln!("bmo-research: item {}'s page {document_id} was not drawn again: {why}", item.id)
+      }
+    }
+  }
+  eprintln!("bmo-research: {set} filed pages were drawn again");
+  set
+}
+
+/// An item's filed page drawn again from what is had of it — its English body as its review left it, its
+/// Korean side kept and its narrations by the names their sounds are kept under — and set where it differs
+/// from the page the archive keeps. Answers whether it was set.
+async fn drawn_again(app: &App, item: &Item, document_id: i64, run_id: i64) -> Result<bool, String> {
+  let source = source(app, run_id)?;
+  let rendering = match item.languages.iter().any(|code| code == LANGUAGES[0]) {
+    true => app.store.rendering(document_id)?,
+    false => None,
+  };
+  let english = english_body(app, item, document_id, &source);
+  let review = app.store.review(document_id)?;
+  let narrations = played(&item.narrations, review.as_ref());
+  let drawn = drawing(app, item, (&source, &english), rendering.as_ref(), &narrations);
+  if app.peers.kept_page(document_id).await? == drawn.html {
+    return Ok(false);
+  }
+  set_page(app, document_id, &drawn).await?;
+  Ok(true)
 }
 
 /// The narrations a page lacks made and attached, each under the name it is kept under now: the page's
@@ -841,6 +972,8 @@ async fn apply_fixes(
           if !review.remade.iter().any(|had| had == code) {
             review.remade.push((*code).to_string());
           }
+          let _ = app.store.forget_synthesis(document_id, code);
+          let _ = app.store.renew_narration(document_id, code);
         }
         sounds.retain(|had| !remade.contains(&had.as_str()));
         let _ = app.store.keep_narrations(document_id, sounds);
@@ -920,11 +1053,7 @@ async fn finish(app: &App, run: i64, lead: &Item, filed: &Filed, source: &Source
   let script = english_script(app, document_id, source);
   heard |= make_sounds(app, page, (script.as_deref(), review.as_ref()), &dropped, &mut sounds).await;
   if fresh || heard || !fixed.is_empty() {
-    let names: Vec<(&str, String)> = LANGUAGES
-      .into_iter()
-      .filter(|code| sounds.iter().any(|had| had == code))
-      .map(|code| (code, sound_of(review.as_ref(), code)))
-      .collect();
+    let names = played(&sounds, review.as_ref());
     match redraw(app, lead, document_id, (source, &english), rendering.as_ref(), &names).await {
       Ok(()) => {
         if let Some(korean) = rendering.as_ref().filter(|_| fresh || !fixed.is_empty()) {

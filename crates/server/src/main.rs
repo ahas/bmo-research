@@ -32,6 +32,8 @@ enum Step {
   Openapi,
   /// Brings the store's schema to the version this binary holds.
   Migrate,
+  /// Draws every filed page again where it differs from what this binary draws, and prints how many it set.
+  Redraw,
   /// The unit's own verbs, as `bmo research` hands them.
   Research {
     #[command(subcommand)]
@@ -142,6 +144,7 @@ async fn main() -> ExitCode {
       Ok(())
     }
     Step::Migrate => migrate(),
+    Step::Redraw => redraw().await,
     Step::Research { verb } => command(verb).await,
   };
   match said {
@@ -215,6 +218,16 @@ fn migrate() -> Result<(), String> {
   let settings = Settings::load()?;
   let store = Store::open(&settings.store_dir())?;
   println!("schema version {}", store.version()?);
+  Ok(())
+}
+
+async fn redraw() -> Result<(), String> {
+  let settings = Settings::load()?;
+  let token = settings.read_token()?;
+  let store = Store::open(&settings.store_dir())?;
+  let app = App::new(settings, store, token);
+  let set = research_server::dive::redraw_filed(&app).await;
+  println!("{set} pages drawn again");
   Ok(())
 }
 

@@ -7,15 +7,17 @@
 //! reasons logged, and a long script cut to what the voice speaks, the pending Korean side drawn into the
 //! same page, the report held until the page is whole and told once, across a restart too, an advisory's
 //! parts to the workers of its repositories, a brief's gathering with its facts, the page opening with what
-//! its subject is and saying under its title where the research came from, and a result with no opening
-//! asked again whole. The filed documents are
+//! its subject is and saying under its title where the research came from, a result with no opening
+//! asked again whole, and every filed page drawn again where the archive keeps it drawn otherwise. The filed documents are
 //! composed from the English words `prompts/document.toml` holds, so this file holds none of them.
 
 mod support;
 
 use bmo_research_client::{ItemState, NewStackRow, RecipientKind, ResearchRunState, Running, Shape};
 use research_server::App;
-use research_server::dive::{VOICE_MOST_CHARACTERS, give_owner_room, speakable, take_up, tick};
+use research_server::dive::{
+  VOICE_MOST_CHARACTERS, give_owner_room, redraw_filed, speakable, take_up, tick,
+};
 use research_server::document::{draw, page_body};
 use research_server::runner::narration_script;
 use research_server::store::{Asked, NewResearchRun, Parent, Store, now_ms};
@@ -733,6 +735,190 @@ async fn a_narration_waits_for_its_synthesis_however_long_and_logs_each_new_reas
       assert!(line.ends_with(reason), "{line}");
     }
   }
+}
+
+/// Waits, a little at a time, until `done` holds.
+async fn until(what: &str, done: impl Fn() -> bool) {
+  for _ in 0..400 {
+    if done() {
+      return;
+    }
+    tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+  }
+  panic!("{what} never came");
+}
+
+/// How often the voice unit was asked how synthesis `id` stands.
+fn readings(ground: &Ground, id: usize) -> usize {
+  ground.asked_path("voice", "GET", &format!("/syntheses/{id}")).len()
+}
+
+/// A daemon started over the same store and stand-ins, as after a restart.
+fn restarted(ground: &Ground) -> std::sync::Arc<App> {
+  let settings = (*ground.app.settings).clone();
+  let store = Store::open(&settings.store_dir()).unwrap();
+  App::new(settings, store, "test-token".into())
+}
+
+#[tokio::test]
+async fn a_narration_whose_synthesis_still_waits_is_asked_nothing_beside_it_on_any_pass_or_restart() {
+  let ground = support::ground(|s| s.retry_minutes = 0).await;
+  give_owner_room(&ground.app).await;
+  let item = ground
+    .app
+    .store
+    .ask("it", "example.org/thing", "Thing-7B", "https://example.org/thing", Shape::Manual)
+    .unwrap();
+  file(&ground, 1, 501, narrated(manual_document()));
+  ground.world.lock().unwrap().voice_holding = true;
+
+  let mut started = tick(&ground.app).await;
+  until("the Korean synthesis's wait", || readings(&ground, 1) > 0).await;
+  for _ in 0..4 {
+    started.extend(tick(&ground.app).await);
+    let read = readings(&ground, 1);
+    until("another reading", || readings(&ground, 1) > read).await;
+  }
+
+  assert_eq!(ground.spoken().len(), 1, "nothing is asked beside the synthesis on its way");
+  let state = ground.app.store.page_state(item.id).unwrap();
+  assert_eq!(state.narration_tries, 1, "the page is finished by one try at a time");
+
+  // The daemon stops while the synthesis waits, and the next follows the one it kept.
+  for handle in &started {
+    handle.abort();
+  }
+  let next = restarted(&ground);
+  let read = readings(&ground, 1);
+  let mut again = tick(&next).await;
+  until("the kept synthesis read again", || readings(&ground, 1) > read).await;
+  again.extend(tick(&next).await);
+  assert_eq!(ground.spoken().len(), 1, "the synthesis kept is followed, not asked again");
+
+  ground.world.lock().unwrap().voice_holding = false;
+  for handle in again {
+    handle.await.unwrap();
+  }
+
+  let spoken = ground.spoken();
+  assert_eq!(spoken.len(), 2, "one synthesis for each narration: {spoken:?}");
+  assert!(spoken[0].starts_with(KO) && spoken[1] == SCRIPT);
+  let attached: Vec<String> =
+    ground.world.lock().unwrap().attachments.iter().map(|a| a.name.clone()).collect();
+  assert_eq!(attached, ["narration-ko.ogg", "narration-en.ogg"]);
+  assert_eq!(next.store.item(item.id).unwrap().narrations, ["ko", "en"]);
+  assert_eq!(next.store.synthesis(501, "ko").unwrap(), None, "nothing is kept once attached");
+  assert_eq!(orders(&ground).len(), 1);
+}
+
+#[tokio::test]
+async fn a_kept_synthesis_that_failed_or_is_gone_is_asked_again_once() {
+  for gone in [false, true] {
+    let ground = support::ground(|s| s.retry_minutes = 0).await;
+    give_owner_room(&ground.app).await;
+    let item = ground
+      .app
+      .store
+      .ask("it", "example.org/thing", "Thing-7B", "https://example.org/thing", Shape::Manual)
+      .unwrap();
+    file(&ground, 1, 501, narrated(manual_document()));
+    ground.world.lock().unwrap().voice_holding = true;
+    let started = tick(&ground.app).await;
+    until("the Korean synthesis's wait", || readings(&ground, 1) > 0).await;
+    for handle in &started {
+      handle.abort();
+    }
+    let kept = ground.app.store.synthesis(501, "ko").unwrap();
+    let size = ground.spoken()[0].chars().count() as i64;
+    assert_eq!(kept, Some((1, size)), "the synthesis is kept with its text's length");
+    {
+      let mut world = ground.world.lock().unwrap();
+      world.voice_holding = false;
+      if gone {
+        world.voice_gone.push(1);
+      } else {
+        world.voice_failed.push(1);
+      }
+    }
+
+    let next = restarted(&ground);
+    for handle in tick(&next).await {
+      handle.await.unwrap();
+    }
+
+    let spoken = ground.spoken();
+    assert_eq!(spoken.len(), 3, "the Korean asked once more, the English once: {spoken:?}");
+    assert_eq!(spoken[0], spoken[1]);
+    assert_eq!(spoken[2], SCRIPT);
+    let attached = ground.world.lock().unwrap().attachments.len();
+    assert_eq!(attached, 2);
+    assert_eq!(next.store.item(item.id).unwrap().narrations, ["ko", "en"]);
+    assert_eq!(orders(&ground).len(), 1);
+  }
+}
+
+#[tokio::test]
+async fn a_synthesis_is_followed_through_readings_the_voice_unit_does_not_answer() {
+  let ground = support::ground(|_| {}).await;
+  give_owner_room(&ground.app).await;
+  let item = ground
+    .app
+    .store
+    .ask("it", "example.org/thing", "Thing-7B", "https://example.org/thing", Shape::Manual)
+    .unwrap();
+  file(&ground, 1, 501, narrated(manual_document()));
+  ground.world.lock().unwrap().voice_down = true;
+
+  let started = tick(&ground.app).await;
+  until("readings the voice unit does not answer", || readings(&ground, 1) >= 3).await;
+  assert_eq!(ground.spoken().len(), 1);
+  ground.world.lock().unwrap().voice_down = false;
+  for handle in started {
+    handle.await.unwrap();
+  }
+
+  assert_eq!(ground.spoken().len(), 2, "no narration is asked twice");
+  assert_eq!(ground.app.store.item(item.id).unwrap().narrations, ["ko", "en"]);
+  assert_eq!(orders(&ground).len(), 1);
+}
+
+#[tokio::test]
+async fn a_whole_page_finished_again_finds_its_sounds_attached_and_is_drawn_whole_untold() {
+  let ground = support::ground(|s| s.retry_minutes = 0).await;
+  give_owner_room(&ground.app).await;
+  let item = ground
+    .app
+    .store
+    .ask("it", "example.org/thing", "Thing-7B", "https://example.org/thing", Shape::Manual)
+    .unwrap();
+  file(&ground, 1, 501, narrated(manual_document()));
+  settle(&ground).await;
+  assert_eq!(orders(&ground).len(), 1);
+  let drawn = ground.rewrites(501).len();
+
+  // What the store's eleventh step sets on a page that plays a narration.
+  let db = ground.app.settings.store_dir().join("research.db");
+  let conn = rusqlite::Connection::open(db).unwrap();
+  conn
+    .execute("update queue set narrations = '[]', pending_retry_at = 0 where id = ?1", [item.id])
+    .unwrap();
+  drop(conn);
+  settle(&ground).await;
+
+  let rewrites = ground.rewrites(501);
+  assert_eq!(rewrites.len(), drawn + 1, "the page is drawn again");
+  let html = rewrites.last().unwrap()["html"].as_str().unwrap();
+  for name in ["narration-ko.ogg", "narration-en.ogg"] {
+    assert!(html.contains(name), "the listen band plays {name}");
+  }
+  assert_eq!(rewrites.last().unwrap()["labels"]["languages"], "ko,en");
+  assert_eq!(ground.spoken().len(), 2, "no sound is made again");
+  let told = ground.app.store.item(item.id).unwrap();
+  assert_eq!(
+    (told.narrations.clone(), told.pending.clone()),
+    (vec!["ko".to_string(), "en".to_string()], vec![])
+  );
+  assert_eq!(orders(&ground).len(), 1, "a report told is not told again");
 }
 
 #[tokio::test]
@@ -1664,6 +1850,47 @@ async fn a_translation_answered_past_ten_minutes_is_waited_on_with_no_clock() {
   assert_eq!(translations(&ground).len(), 1, "one ask, never cut and asked again");
 }
 
+#[tokio::test]
+async fn a_filed_page_drawn_otherwise_is_drawn_again_and_one_drawn_alike_is_left_alone() {
+  let ground = support::ground(|_| {}).await;
+  give_owner_room(&ground.app).await;
+  ground
+    .app
+    .store
+    .ask("it", "example.org/thing", "Thing-7B", "https://example.org/thing", Shape::Manual)
+    .unwrap();
+  let cited = manual_document().replacen(
+    "- re-measure",
+    "- re-measure [1]\nSOURCE [1]: https://example.org/card :: the card",
+    1,
+  );
+  file(&ground, 1, 501, narrated(cited));
+  settle(&ground).await;
+  let drawn = ground.rewrites(501).last().expect("the page is drawn with its Korean side")["html"].clone();
+  let html = drawn.as_str().unwrap().to_owned();
+  assert!(html.contains("href=\"#en-source-1\""), "the page holds its footnotes: {html}");
+
+  assert_eq!(redraw_filed(&ground.app).await, 0, "a page drawn alike is not set");
+  let rewrites = ground.rewrites(501).len();
+  let read = ground.asked_path("artifact", "GET", "/documents/501/content");
+  assert!(
+    read.iter().any(|a| a.path.ends_with("?download=true")),
+    "the page is read as the archive keeps it"
+  );
+
+  ground
+    .world
+    .lock()
+    .unwrap()
+    .kept_pages
+    .insert(501, "<!doctype html>\n<p>drawn otherwise</p>\n".into());
+  assert_eq!(redraw_filed(&ground.app).await, 1);
+  let again = ground.rewrites(501);
+  assert_eq!(again.len(), rewrites + 1, "the page drawn otherwise is set once");
+  assert_eq!(again.last().unwrap()["html"], drawn, "as the page was drawn");
+  assert_eq!(again.last().unwrap()["labels"]["languages"], "ko,en");
+}
+
 /// The review turns agency was sent for research run `run`.
 fn review_turns(ground: &Ground, run: i64) -> Vec<Value> {
   ground.turns_named(&format!("research-{run}-review"))
@@ -1827,6 +2054,10 @@ async fn a_review_s_narration_fix_makes_that_sound_again_under_the_review_s_name
   settle(&ground).await;
 
   assert_eq!(ground.spoken(), [translated(SCRIPT), SCRIPT.to_string(), words.clone()]);
+  // The voice unit answers a repeat of a key with the synthesis done under it: the rewrite is asked under a
+  // key counted anew, so it is spoken rather than answered with the first sound.
+  assert_eq!(ground.synthesis_keys(), ["research:501:ko", "research:501:en", "research:501:ko:1"]);
+  assert_eq!(ground.world.lock().unwrap().syntheses.len(), 3);
   let names: Vec<String> =
     ground.world.lock().unwrap().attachments.iter().map(|a| a.name.clone()).collect();
   assert_eq!(names, ["narration-ko.ogg", "narration-en.ogg", "narration-reviewed-ko.ogg"]);
@@ -1997,4 +2228,41 @@ async fn a_continuing_run_asks_the_rounds_after_the_last_its_chain_answered() {
   store.keep_round_answered(third, "final").unwrap();
   assert_eq!(research_server::runner::rounds_left(&ground.app, third, rounds), rounds.len());
   assert_eq!(research_server::runner::rounds_left(&ground.app, open("q"), rounds), 0);
+}
+
+#[tokio::test]
+async fn a_narration_s_synthesis_is_asked_under_its_key_and_under_a_new_one_once_it_failed() {
+  let ground = support::ground(|s| s.retry_minutes = 0).await;
+  give_owner_room(&ground.app).await;
+  let item = ground
+    .app
+    .store
+    .ask("it", "example.org/thing", "Thing-7B", "https://example.org/thing", Shape::Manual)
+    .unwrap();
+  file(&ground, 1, 501, narrated(manual_document()));
+  ground.world.lock().unwrap().voice_failed.push(1);
+
+  settle(&ground).await;
+
+  assert_eq!(ground.synthesis_keys(), ["research:501:ko", "research:501:en"]);
+  assert_eq!(ground.app.store.item(item.id).unwrap().narrations, ["en"]);
+
+  settle(&ground).await;
+
+  assert_eq!(
+    ground.synthesis_keys(),
+    ["research:501:ko", "research:501:en", "research:501:ko:1"],
+    "a failed synthesis is asked anew under a key of its own"
+  );
+  assert_eq!(ground.world.lock().unwrap().syntheses.len(), 3, "each ask made one synthesis");
+  let told = ground.app.store.item(item.id).unwrap();
+  assert_eq!(
+    (told.state, told.narrations.clone()),
+    (ItemState::Fit, vec!["ko".to_string(), "en".to_string()])
+  );
+
+  // A repeat of a key whose synthesis is done is answered with it, and makes none.
+  let voice = ground.app.peers.ask_synthesis("again", "en", "research:501:en").await.unwrap();
+  assert_eq!(voice, 2);
+  assert_eq!(ground.world.lock().unwrap().syntheses.len(), 3);
 }

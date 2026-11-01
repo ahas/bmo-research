@@ -123,6 +123,17 @@ The Korean side of a deep dive's page, kept so the page can be drawn again (`doc
 | `title`, `description`, `body` | The Korean title, description (or null) and markdown body |
 | `created_at` | When it was had |
 
+## `syntheses`
+
+The synthesis asked of the voice unit for each narration a page still lacks, kept until its sound is
+attached, so a narration has one synthesis living at a time (`docs/api.md`, 「The page」).
+
+| Column | Holds |
+|---|---|
+| `document_id`, `language` | The page's document and the narration's language, `ko` or `en`; the primary key |
+| `synthesis_id`, `characters` | The voice unit's synthesis, and how many characters it was asked to speak |
+| `asked_at` | When it was asked |
+
 ## `translated_parts`
 
 Each part of a deep dive's Korean side as it is had, so a Korean side asked again translates only the parts
@@ -142,6 +153,16 @@ words.
 |---|---|
 | `document_id`, `name` | The page's document and the text's name; the primary key together: `body-en` the English body as the review rewrote it, `narration-en` the English script as the review rewrote it, `narration-ko` the Korean narration's words as they were last spoken or rewritten |
 | `text` | The text |
+
+## `narration_asks`
+
+How often each narration of a deep dive's page was asked anew, which its synthesis's key carries
+(`docs/api.md`, 「The page」).
+
+| Column | Holds |
+|---|---|
+| `document_id`, `language` | The page's document and the narration's language; the primary key together |
+| `renewed` | How many times it was asked anew: after a synthesis that ended without its sound, or a review that rewrote it |
 
 ## `page_reviews`
 

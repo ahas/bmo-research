@@ -117,6 +117,8 @@ pub struct World {
   /// The documents filed with `POST /documents`, as the archive answers them.
   pub posted: Vec<Value>,
   pub next_document: i64,
+  /// Each page document's HTML as the archive keeps it: the last one filed or set.
+  pub kept_pages: BTreeMap<i64, String>,
   /// The demands the stand-in master holds, by id, as it answers them.
   pub demands: BTreeMap<i64, Value>,
   pub next_demand: i64,
@@ -128,6 +130,8 @@ pub struct World {
   pub leaking: bool,
   /// The files attached to documents.
   pub attachments: Vec<Attached>,
+  /// The syntheses the voice unit made, by id from 1: the key each was asked under and the text it speaks.
+  pub syntheses: Vec<(Option<String>, String)>,
   /// Whether every synthesis the voice unit is asked fails.
   pub voice_failing: bool,
   /// A text whose synthesis fails while it is set.
@@ -136,6 +140,13 @@ pub struct World {
   pub voice_refusing: bool,
   /// What each synthesis waits on, one sentence for each reading of it in turn, before it is spoken.
   pub voice_waiting_on: Vec<String>,
+  /// While set, every synthesis waits for its card, every card in use, however often it is read.
+  pub voice_holding: bool,
+  /// While set, the voice unit answers every reading of a synthesis 503.
+  pub voice_down: bool,
+  /// The syntheses read as failed, and those the voice unit holds no longer, by id.
+  pub voice_failed: Vec<usize>,
+  pub voice_gone: Vec<usize>,
   /// The markup the stand-in explorer answers each page address with; an address not here answers 404.
   pub pages: BTreeMap<String, String>,
   /// How many characters one slice of a page holds, however many were asked for.
@@ -462,6 +473,9 @@ async fn artifact_documents(
       }
     };
     document["id"] = json!(id);
+    if let Some(html) = document["html"].as_str() {
+      world.kept_pages.insert(id, html.to_owned());
+    }
     world.posted.push(document.clone());
     return (StatusCode::CREATED, axum::Json(document)).into_response();
   }
@@ -483,6 +497,9 @@ async fn artifact_content(
 ) -> Response {
   keep(&w, "artifact", &method, &uri, &body);
   let world = w.lock().unwrap();
+  if let Some(html) = world.kept_pages.get(&id) {
+    return ([(axum::http::header::CONTENT_TYPE, "text/html")], html.clone()).into_response();
+  }
   if let Some(doc) = world.filed.values().find(|d| d.id == id) {
     return doc.content.clone().into_response();
   }
@@ -494,8 +511,18 @@ async fn artifact_content(
   }
 }
 
-async fn artifact_document(State(w): State<Shared>, method: Method, uri: Uri, body: Bytes) -> Response {
+async fn artifact_document(
+  State(w): State<Shared>,
+  Path(id): Path<i64>,
+  method: Method,
+  uri: Uri,
+  body: Bytes,
+) -> Response {
   keep(&w, "artifact", &method, &uri, &body);
+  let asked: Value = serde_json::from_slice(&body).unwrap_or_default();
+  if let Some(html) = asked["html"].as_str() {
+    w.lock().unwrap().kept_pages.insert(id, html.to_owned());
+  }
   axum::Json(json!({"ok": true})).into_response()
 }
 
@@ -626,19 +653,25 @@ async fn voice_voices(State(w): State<Shared>, method: Method, uri: Uri, body: B
 
 async fn voice_synthesize(State(w): State<Shared>, method: Method, uri: Uri, body: Bytes) -> Response {
   keep(&w, "voice", &method, &uri, &body);
-  let n = w
-    .lock()
-    .unwrap()
-    .asked
-    .iter()
-    .filter(|a| a.unit == "voice" && a.method == "POST")
-    .count();
   let asked: Value = serde_json::from_slice(&body).unwrap_or_default();
-  if w.lock().unwrap().voice_refusing {
+  let mut world = w.lock().unwrap();
+  if world.voice_refusing {
     let refused =
       json!({"code": "unconverted-run", "error": "The spoken words still hold the run Thing-7B."});
     return (StatusCode::UNPROCESSABLE_ENTITY, axum::Json(refused)).into_response();
   }
+  // A repeat under the key of a synthesis that has not failed is answered with it, as the voice unit does.
+  let key = asked["key"].as_str().map(str::to_string);
+  let held = world.syntheses.iter().position(|(had, _)| key.is_some() && *had == key);
+  if let Some(at) = held.filter(|at| !synthesis_failed(&world, at + 1)) {
+    let (id, text) = (at + 1, world.syntheses[at].1.clone());
+    return axum::Json(
+      json!({"id": id, "voiceName": asked["voiceName"], "text": text, "state": "waiting"}),
+    )
+    .into_response();
+  }
+  world.syntheses.push((key, asked["text"].as_str().unwrap_or_default().to_string()));
+  let n = world.syntheses.len();
   (
     StatusCode::CREATED,
     axum::Json(
@@ -650,12 +683,14 @@ async fn voice_synthesize(State(w): State<Shared>, method: Method, uri: Uri, bod
 
 // The text the synthesis of this id was asked to speak.
 fn synthesis_text(world: &World, id: usize) -> Option<String> {
-  world
-    .asked
-    .iter()
-    .filter(|a| a.unit == "voice" && a.method == "POST")
-    .nth(id.checked_sub(1)?)
-    .and_then(|a| a.body["text"].as_str().map(str::to_string))
+  world.syntheses.get(id.checked_sub(1)?).map(|(_, text)| text.clone())
+}
+
+// Whether the synthesis of this id reads as failed or gone now.
+fn synthesis_failed(world: &World, id: usize) -> bool {
+  let text = synthesis_text(world, id);
+  let refused = world.voice_failing_on.is_some() && world.voice_failing_on == text;
+  world.voice_failed.contains(&id) || world.voice_gone.contains(&id) || world.voice_failing || refused
 }
 
 async fn voice_synthesis(
@@ -667,7 +702,25 @@ async fn voice_synthesis(
 ) -> Response {
   keep(&w, "voice", &method, &uri, &body);
   let world = w.lock().unwrap();
+  if world.voice_down {
+    let down =
+      json!({"code": "failed", "error": "the voice's database: Too many open files (os error 24)"});
+    return (StatusCode::SERVICE_UNAVAILABLE, axum::Json(down)).into_response();
+  }
+  if world.voice_gone.contains(&id) {
+    let gone = json!({"code": "not-found", "error": format!("there is no synthesis {id}")});
+    return (StatusCode::NOT_FOUND, axum::Json(gone)).into_response();
+  }
   let text = synthesis_text(&world, id);
+  if world.voice_failed.contains(&id) {
+    return axum::Json(json!({"id": id, "text": text, "state": "failed", "waitingOn": null}))
+      .into_response();
+  }
+  if world.voice_holding {
+    let on = "every card voice may have is in use: n2 by voice";
+    return axum::Json(json!({"id": id, "text": text, "state": "waiting", "waitingOn": on}))
+      .into_response();
+  }
   let path = uri.path();
   let readings = world
     .asked
@@ -1019,6 +1072,15 @@ impl Ground {
   }
 
   /// The texts the voice unit was asked to speak, in order.
+  /// The keys the voice unit's syntheses were asked under, in order.
+  pub fn synthesis_keys(&self) -> Vec<String> {
+    self
+      .asked_path("voice", "POST", "/syntheses")
+      .into_iter()
+      .map(|a| a.body["key"].as_str().unwrap_or_default().to_string())
+      .collect()
+  }
+
   pub fn spoken(&self) -> Vec<String> {
     self
       .asked_path("voice", "POST", "/syntheses")

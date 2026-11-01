@@ -34,7 +34,9 @@ research feature; agency supplies it sessions and seats and nothing more.
     a `page` source's listing through the tool host's `web/web_fetch`, so explorer's pacing and Chrome
     stand round it;
   - artifact, to file a run's document, draw a deep dive's page again and keep its narration beside it
-    (`POST /documents`, `PATCH /documents/{id}`, `POST /documents/{id}/attachments`, `POST /shares`);
+    (`POST /documents`, `PATCH /documents/{id}`, `POST /documents/{id}/attachments`, `POST /shares`), and to
+    read a filed page as it keeps it, so a page drawn otherwise now is set again
+    (`GET /documents/{id}/content`);
   - the voice unit, to speak a deep dive's narration (`POST /syntheses`);
   - the receiver, to tell a room (`POST /instructions`) and to learn the owner's private room (`GET /owner`);
   - the arbiter's master, to ask for the engine each run needs and to read why it waits (「The engine a run
@@ -311,6 +313,11 @@ take; so its own area stays the research and the measurement, however many categ
   be made, a review that does not answer or a fix that cannot be applied yet leaves that part pending, and
   the daemon asks it again on every retry wait until it has it; no count of tries gives it up. Until then
   the recipients hear nothing of the item, and its state in the queue says what it waits on.
+- **A narration has one synthesis living at a time.** The synthesis asked for it is kept in the store until
+  its sound is attached, through a restart of the daemon or of the voice unit; while it stands waiting or
+  speaking it is followed, however long its card takes, and nothing is asked beside it. Only a synthesis
+  that failed, or one the voice unit no longer holds, is asked again: a narration is made anew after its
+  synthesis ended without a sound, never while one is still on its way.
 
 ## Reports and rooms
 
