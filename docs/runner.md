@@ -299,6 +299,10 @@ daemon finishes, held first to the shape the deep dive asked for.
 - **One HTML page holds every language the document has,** Korean first where it has it, then English, each
   side its title, its description and its body, the body's markdown written as HTML by a maintained library
   with any raw HTML the result wrote shown as text.
+- **A table stands as a table** where the result wrote it without the row under its head: lines that each
+  open and close with a pipe, two or more running to the end of a paragraph the library reads, are given
+  that row — a column under each cell of the first — and set apart from any prose the paragraph opens with,
+  before the body is drawn. A document's tables are read the same way (`docs/api.md`, 「The fit」).
 - **The head** is the archive design's masthead: a `header` opening the body with, where the page holds two
   languages, a small switch above the title naming each language in its own words (`prompts/page.toml`),
   Korean pressed first. Pressing a language shows its side and hides the other. The switch is plain inline

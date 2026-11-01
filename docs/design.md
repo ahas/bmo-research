@@ -295,12 +295,13 @@ take; so its own area stays the research and the measurement, however many categ
   dive's document is one HTML page (`docs/runner.md`, 「The page」) holding every language it has: filed in
   English, then drawn again with its Korean side once the daemon has it translated through agency's
   translation route on the `translate` road — the registry's translation model first — part by part, each
-  part with a note that gives the translator its context — that the text is a research report about the
-  named thing, in the register of the owner's documents — and with the terms it keeps exactly as written,
-  its model and product names, figures with their units, code, links and fixed section names, handed to
-  the translation model as its own reference translations rather than as an instruction. A switch at the page's top shows
-  Korean first and English beside it, each named in its own words. A notice's own line is Korean from the
-  start (`prompts/report.toml`).
+  part's prose alone sent and set back by the daemon in the English part's own structure, checked against
+  it before it is kept, each part with a note that gives the translator its context — that the text is a
+  research report about the named thing, in the register of the owner's documents — and with the terms it
+  keeps exactly as written, its model and product names, figures with their units, code, links and fixed
+  section names, handed to the translation model as its own reference translations rather than as an
+  instruction. A switch at the page's top shows Korean first and English beside it, each named in its own
+  words. A notice's own line is Korean from the start (`prompts/report.toml`).
 - **The page is heard as well as read.** The run's narration script is spoken by the platform's voice unit:
   in Korean, translated through the same route with a note that it is a spoken narration, as the sound the
   archive plays at the document's head, and in English as it was written, kept beside it; the page's listen

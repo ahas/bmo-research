@@ -232,13 +232,14 @@ impl Table {
   }
 }
 
-/// Every table of the document, in order.
+/// Every table of the document, in order, a table written without the row under its head given that row.
 pub fn tables(content: &str) -> Vec<Table> {
+  let content = crate::structure::mended(content);
   let mut found = Vec::new();
   let mut table: Option<Table> = None;
   let mut row: Vec<Cell> = Vec::new();
   let mut cell: Option<Cell> = None;
-  for event in Parser::new_ext(content, Options::ENABLE_TABLES) {
+  for event in Parser::new_ext(&content, Options::ENABLE_TABLES) {
     match event {
       Event::Start(Tag::Table(_)) => table = Some(Table::default()),
       Event::End(TagEnd::Table) => found.extend(table.take()),

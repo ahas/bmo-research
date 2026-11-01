@@ -136,8 +136,9 @@ attached, so a narration has one synthesis living at a time (`docs/api.md`, 「T
 
 ## `translated_parts`
 
-Each part of a deep dive's Korean side as it is had, so a Korean side asked again translates only the parts
-it lacks (`docs/api.md`, 「The page」).
+Each part of a deep dive's Korean side as it is had, or as a Korean side set aside held it in the part's
+place, so a Korean side asked again translates only the parts it lacks; a part kept is taken only while it
+agrees with its English part (`docs/api.md`, 「The page」).
 
 | Column | Holds |
 |---|---|

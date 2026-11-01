@@ -19,6 +19,7 @@ use axum::routing::{delete, get, post};
 use research_server::App;
 use research_server::config::Settings;
 use research_server::store::Store;
+use research_server::structure::skeleton;
 use serde_json::{Value, json};
 
 /// One request a stand-in was asked: the unit, the method, the path with its query, and the body.
@@ -98,6 +99,8 @@ pub struct World {
   /// A text longer than this many characters is answered with the first half of its translation, cut off
   /// mid-sentence.
   pub cut_over: Option<usize>,
+  /// While set, a text of more than two paragraphs is answered with its first two joined into one.
+  pub merging: bool,
   /// The script a deep dive's narration turn writes; none writes nothing.
   pub narration: Option<String>,
   /// What each research run's turns write as it stands, in place of its filed result.
@@ -186,6 +189,20 @@ pub fn translated(text: &str) -> String {
     })
     .collect::<Vec<_>>()
     .join("\n")
+}
+
+/// What the daemon sends the translator for a part: its pieces of prose, a blank line between two.
+pub fn sent(part: &str) -> String {
+  let pieces: Vec<String> = skeleton(part).pieces.into_iter().map(|piece| piece.text).collect();
+  pieces.join("\n\n")
+}
+
+/// The Korean side the daemon sets back for a part the stand-in translator answered: each piece's
+/// translation in its place, in the part's own structure.
+pub fn korean_of(part: &str) -> String {
+  let skeleton = skeleton(part);
+  let said: Vec<String> = skeleton.pieces.iter().map(|piece| translated(&piece.text)).collect();
+  skeleton.filled(&said)
 }
 
 /// The sound the stand-in voice unit speaks a text as.
@@ -426,6 +443,9 @@ async fn agency_translation(State(w): State<Shared>, method: Method, uri: Uri, b
   let mut world = w.lock().unwrap();
   world.translating -= 1;
   let mut answer = translated(&text);
+  if world.merging && answer.split("\n\n").count() > 2 {
+    answer = answer.replacen("\n\n", " ", 1);
+  }
   if world.cut_over.is_some_and(|most| text.chars().count() > most) {
     let half: String = answer.chars().take(answer.chars().count() / 2).collect();
     answer = half.trim_end_matches(['.', '!', '?', ' ']).to_string();

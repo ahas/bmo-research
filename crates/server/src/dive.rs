@@ -756,7 +756,7 @@ pub async fn redraw_filed(app: &App) -> usize {
       return 0;
     }
   };
-  let mut set = 0;
+  let (mut set, mut set_aside) = (0, 0);
   for item in items {
     let (Some(document_id), Some(run_id)) = (item.document_id, item.run_id) else {
       continue;
@@ -765,35 +765,73 @@ pub async fn redraw_filed(app: &App) -> usize {
       continue;
     };
     match drawn_again(app, &item, document_id, run_id).await {
-      Ok(true) => set += 1,
-      Ok(false) => {}
+      Ok(again) => {
+        set += again.set as usize;
+        set_aside += again.set_aside as usize;
+      }
       Err(why) => {
         eprintln!("bmo-research: item {}'s page {document_id} was not drawn again: {why}", item.id)
       }
     }
   }
   eprintln!("bmo-research: {set} filed pages were drawn again");
+  eprintln!("bmo-research: {set_aside} Korean sides that did not agree with their English were set aside");
   set
+}
+
+/// What drawing a filed page again did: whether the page was set, and whether its Korean side was set aside.
+struct DrawnAgain {
+  set: bool,
+  set_aside: bool,
 }
 
 /// An item's filed page drawn again from what is had of it — its English body as its review left it, its
 /// Korean side kept and its narrations by the names their sounds are kept under — and set where it differs
-/// from the page the archive keeps. Answers whether it was set.
-async fn drawn_again(app: &App, item: &Item, document_id: i64, run_id: i64) -> Result<bool, String> {
+/// from the page the archive keeps. A Korean side that does not agree with its English is set aside first,
+/// the parts of it that still agree kept, and the page drawn without it (`docs/api.md`, 「The page」).
+async fn drawn_again(app: &App, item: &Item, document_id: i64, run_id: i64) -> Result<DrawnAgain, String> {
   let source = source(app, run_id)?;
-  let rendering = match item.languages.iter().any(|code| code == LANGUAGES[0]) {
+  let mut rendering = match item.languages.iter().any(|code| code == LANGUAGES[0]) {
     true => app.store.rendering(document_id)?,
     false => None,
   };
   let english = english_body(app, item, document_id, &source);
+  let mut item = item.clone();
+  let mut set_aside = false;
+  if let Some(korean) = rendering.as_ref() {
+    let made_of = English {
+      name: &item.name,
+      title: &source.title,
+      description: source.drawn.description.as_deref(),
+      body: &english,
+    };
+    if !translation::agrees(&made_of, korean) {
+      let kept = translation::keep_agreeing(app, document_id, &made_of, korean);
+      app.store.set_aside_korean(document_id, now_ms())?;
+      eprintln!(
+        "bmo-research: item {}'s Korean side did not agree with its English and was set aside, {kept} of its \
+         parts kept",
+        item.id
+      );
+      item = app.store.item(item.id).map_err(|why| why.to_string())?;
+      rendering = None;
+      set_aside = true;
+    }
+  }
   let review = app.store.review(document_id)?;
   let narrations = played(&item.narrations, review.as_ref());
-  let drawn = drawing(app, item, (&source, &english), rendering.as_ref(), &narrations);
+  let drawn = drawing(app, &item, (&source, &english), rendering.as_ref(), &narrations);
   if app.peers.kept_page(document_id).await? == drawn.html {
-    return Ok(false);
+    return Ok(DrawnAgain {
+      set: false,
+      set_aside,
+    });
   }
   set_page(app, document_id, &drawn).await?;
-  Ok(true)
+  Ok(DrawnAgain {
+    set: true,
+    set_aside,
+  })
 }
 
 /// The narrations a page lacks made and attached, each under the name it is kept under now: the page's

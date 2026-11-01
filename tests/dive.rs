@@ -25,7 +25,7 @@ use research_server::store::{Asked, NewResearchRun, Parent, Store, now_ms};
 use research_server::translation::{Rendering, cut, narration_note, note, translate_part};
 use research_server::words;
 use serde_json::Value;
-use support::{Filed, Ground, KO, result_text, spoken, translated};
+use support::{Filed, Ground, KO, korean_of, result_text, sent, spoken, translated};
 
 async fn settle(ground: &Ground) {
   for handle in tick(&ground.app).await {
@@ -222,9 +222,9 @@ async fn a_report_s_korean_side_is_drawn_into_the_same_page_with_a_switch_and_to
   assert_eq!(asks[0]["text"], "It is a thing. It does more.");
   let mut sent: Vec<&str> = asks[1..].iter().map(|a| a["text"].as_str().unwrap()).collect();
   sent.sort();
-  let mut expected: Vec<&str> = parts.iter().map(String::as_str).collect();
+  let mut expected: Vec<String> = parts.iter().map(|part| support::sent(part)).collect();
   expected.sort();
-  assert_eq!(sent, expected);
+  assert_eq!(sent, expected, "each part's prose alone is sent");
   assert!(parts[0].starts_with("# Report 501"), "the title is the body's heading");
   assert!(ground.world.lock().unwrap().translating_most <= 2);
 
@@ -1255,10 +1255,12 @@ async fn a_part_the_translator_finds_too_large_is_halved_and_asked_again() {
   let asks = translations(&ground);
   let texts: Vec<&str> = asks.iter().map(|a| a["text"].as_str().unwrap()).collect();
   let part = format!("# Report 60\n\n{}", english_body(60, &content));
-  let whole = texts.iter().position(|t| *t == part).expect("the part was asked whole first");
-  let halves = &texts[whole + 1..];
-  assert_eq!(halves.len(), 2, "{halves:#?}");
-  assert_eq!(halves.concat(), part, "the halves are the part, in order");
+  let whole = texts.iter().position(|t| *t == sent(&part)).expect("the part was asked whole first");
+  let taken: Vec<&str> = texts[whole + 1..].iter().copied().filter(|t| t.chars().count() <= 200).collect();
+  assert!(taken.len() >= 2, "{taken:#?}");
+  assert_eq!(taken.join("\n\n"), sent(&part), "the halves are the part's pieces, in order");
+  let kept = ground.app.store.rendering(60).unwrap().expect("the Korean side is kept");
+  assert_eq!(format!("# {}\n\n{}", kept.title, kept.body), korean_of(&part).trim_end());
   let html = ground.rewrites(60)[0]["html"].as_str().unwrap().to_string();
   assert!(html.contains(&format!("{KO}Report 60</h1>")));
   assert_eq!(ground.app.store.item(item.id).unwrap().languages, ["ko", "en"]);
@@ -1282,12 +1284,11 @@ async fn a_part_the_translator_cuts_short_is_halved_and_asked_again() {
   let asks = translations(&ground);
   let texts: Vec<&str> = asks.iter().map(|a| a["text"].as_str().unwrap()).collect();
   let part = format!("# Report 60\n\n{}", english_body(60, &content));
-  let whole = texts.iter().position(|t| *t == part).expect("the part was asked whole first");
-  let halves = &texts[whole + 1..];
-  assert_eq!(halves.len(), 2, "{halves:#?}");
-  assert_eq!(halves.concat(), part, "the halves are the part, in order");
+  let whole = texts.iter().position(|t| *t == sent(&part)).expect("the part was asked whole first");
+  assert!(texts.len() > whole + 1, "the part's pieces were asked again: {texts:#?}");
   let kept = ground.app.store.rendering(60).unwrap().expect("the Korean side is kept");
   assert!(kept.body.trim_end().ends_with('.'), "the Korean side is whole: {}", kept.body);
+  assert_eq!(format!("# {}\n\n{}", kept.title, kept.body), korean_of(&part).trim_end());
   assert_eq!(ground.app.store.item(item.id).unwrap().languages, ["ko", "en"]);
 }
 
@@ -2095,16 +2096,16 @@ async fn a_review_s_english_fix_redraws_that_section_alone_and_translates_only_i
 
   let asks = translations(&ground);
   let before = asks.len() - 1;
-  assert_eq!(asks[before]["text"], rewrite.as_str(), "the rewrite alone is translated");
+  assert_eq!(asks[before]["text"], sent(&rewrite).as_str(), "the rewrite alone is translated");
   assert_eq!(asks[before]["note"], note("Thing-7B").as_str());
-  assert!(asks[..before].iter().all(|a| a["text"] != rewrite.as_str()));
+  assert!(asks[..before].iter().all(|a| a["text"] != sent(&rewrite).as_str()));
   let english = ground.app.store.page_text(501, "body-en").unwrap().unwrap();
   assert!(english.contains("38.6 tokens/s") && !english.contains("- re-measure\n"), "{english}");
   let first = english_body(501, &manual_document());
   let opening = &first[..first.find(&format!("## {}", plan_heading())).unwrap()];
   assert!(english.starts_with(opening), "the sections before it stand as they were");
   let korean = ground.app.store.rendering(501).unwrap().unwrap();
-  assert!(korean.body.contains(&translated(&rewrite)), "{}", korean.body);
+  assert!(korean.body.contains(korean_of(&rewrite).trim()), "{}", korean.body);
   let rewrites = ground.rewrites(501);
   assert_eq!(rewrites.len(), 1, "drawn once, with the Korean side and the fix");
   let html = rewrites[0]["html"].as_str().unwrap();
@@ -2241,7 +2242,7 @@ async fn a_translation_part_that_fails_is_asked_again_alone_and_the_parts_had_ar
 
   let first: Vec<String> =
     translations(&ground).iter().map(|a| a["text"].as_str().unwrap().to_string()).collect();
-  assert_eq!(first, ["It is a thing. It does more.", parts[0].as_str(), parts[1].as_str()]);
+  assert_eq!(first, ["It is a thing. It does more.".to_string(), sent(&parts[0]), sent(&parts[1])]);
   assert!(orders(&ground).is_empty());
 
   settle(&ground).await;
@@ -2250,9 +2251,9 @@ async fn a_translation_part_that_fails_is_asked_again_alone_and_the_parts_had_ar
     .iter()
     .map(|a| a["text"].as_str().unwrap().to_string())
     .collect();
-  assert_eq!(again, [parts[1].as_str(), parts[2].as_str()], "only what it lacked is asked again");
+  assert_eq!(again, [sent(&parts[1]), sent(&parts[2])], "only what it lacked is asked again");
   let korean = ground.app.store.rendering(501).unwrap().unwrap();
-  assert!(korean.body.contains(&translated(parts[1].trim())), "{}", korean.body);
+  assert!(korean.body.contains(korean_of(&parts[1]).trim()), "{}", korean.body);
   assert_eq!(orders(&ground).len(), 1);
 }
 
@@ -2375,4 +2376,149 @@ async fn a_narration_s_synthesis_is_asked_under_its_key_and_under_a_new_one_once
   let voice = ground.app.peers.ask_synthesis("again", "en", "research:501:en").await.unwrap();
   assert_eq!(voice, 2);
   assert_eq!(ground.world.lock().unwrap().syntheses.len(), 3);
+}
+
+/// A manual whose sections hold prose, and a section between them holding a table written without the row
+/// under its head, its cells citing the sources.
+fn manual_with_a_table() -> String {
+  let w = &words::document().manual[0];
+  format!(
+    "# Thing-7B\n\n## 7. {}\n\n- {} n3, n9\n\n{}\n\n## Rivals\n\n| Route | Public code |\n| ERF | none found \
+     [1] |\n| Duo | yes, github.com/s-sahoo/duo [2] |\n\n## 9. {}\n\n- re-measure\n\n{}\n\nSOURCE [1]: \
+     https://example.org/erf :: the authors' text\nSOURCE [2]: https://example.org/duo :: its code\n",
+    w.heading,
+    w.label,
+    prose(300),
+    w.plan_heading,
+    prose(300)
+  )
+}
+
+#[tokio::test]
+async fn a_table_with_citations_is_sent_cell_by_cell_and_stands_as_a_table_on_both_sides() {
+  let ground = support::ground(|s| s.translation.part_chars = 400).await;
+  give_owner_room(&ground.app).await;
+  ground
+    .app
+    .store
+    .ask("it", "example.org/thing", "Thing-7B", "https://example.org/thing", Shape::Manual)
+    .unwrap();
+  file(&ground, 1, 501, manual_with_a_table());
+
+  settle(&ground).await;
+
+  let asks = translations(&ground);
+  assert!(
+    asks.iter().all(|a| !a["text"].as_str().unwrap().contains('|')),
+    "no pipe is sent: {asks:#?}"
+  );
+  assert!(
+    asks.iter().any(|a| a["text"]
+      .as_str()
+      .unwrap()
+      .split("\n\n")
+      .any(|p| p == "yes, github.com/s-sahoo/duo")),
+    "a cell is a piece of its own, its mark kept out"
+  );
+  let html = ground.rewrites(501).last().unwrap()["html"].as_str().unwrap().to_string();
+  for side in ["ko", "en"] {
+    let article = &html[html.find(&format!("<article data-language=\"{side}\"")).unwrap()..];
+    let article = &article[..article.find("</article>").unwrap()];
+    assert!(
+      article.contains("<table>") && !article.contains("<p>|"),
+      "{side} holds the table: {article}"
+    );
+    let cell = &article[article.find("github.com/s-sahoo/duo").unwrap()..];
+    let cell = &cell[..cell.find("</td>").unwrap()];
+    assert!(
+      cell.contains(&format!("href=\"#{side}-source-2\"")),
+      "{side}'s cell cites its source: {cell}"
+    );
+  }
+  assert_eq!(orders(&ground).len(), 1);
+}
+
+#[tokio::test]
+async fn pieces_the_translator_answers_in_another_number_are_halved_and_asked_again() {
+  let ground = support::ground(|_| {}).await;
+  give_owner_room(&ground.app).await;
+  ground
+    .app
+    .store
+    .ask("it", "example.org/thing", "Thing-7B", "https://example.org/thing", Shape::Manual)
+    .unwrap();
+  file(&ground, 1, 501, manual_document());
+  ground.world.lock().unwrap().merging = true;
+
+  settle(&ground).await;
+
+  let part = format!("# Report 501\n\n{}", english_body(501, &manual_document()));
+  let texts: Vec<String> =
+    translations(&ground).iter().map(|a| a["text"].as_str().unwrap().to_string()).collect();
+  let whole = texts.iter().position(|t| *t == sent(&part)).expect("the part was asked whole first");
+  assert!(texts.len() > whole + 2, "its pieces were halved and asked again: {texts:#?}");
+  let kept = ground.app.store.rendering(501).unwrap().expect("the Korean side is kept");
+  assert_eq!(format!("# {}\n\n{}", kept.title, kept.body), korean_of(&part).trim_end());
+}
+
+#[tokio::test]
+async fn a_filed_korean_side_that_does_not_agree_is_set_aside_and_only_its_broken_part_asked_again() {
+  let ground = support::ground(|s| {
+    s.retry_minutes = 0;
+    s.translation.part_chars = 400;
+  })
+  .await;
+  give_owner_room(&ground.app).await;
+  let item = ground
+    .app
+    .store
+    .ask("it", "example.org/thing", "Thing-7B", "https://example.org/thing", Shape::Manual)
+    .unwrap();
+  file(&ground, 1, 501, manual_with_a_table());
+  settle(&ground).await;
+  assert_eq!(orders(&ground).len(), 1);
+
+  // A Korean side translated before its structure was kept: its parts not held, and a row of its table lost.
+  let had = ground.app.store.rendering(501).unwrap().unwrap();
+  let row = had.body.lines().find(|line| line.contains("Duo")).unwrap().to_string();
+  let broken = Rendering {
+    body: had.body.replace(&format!("{row}\n"), ""),
+    ..had.clone()
+  };
+  ground.app.store.keep_rendering(501, &broken).unwrap();
+  let db = rusqlite::Connection::open(ground.app.settings.store_dir().join("research.db")).unwrap();
+  db.execute("delete from translated_parts", []).unwrap();
+  let asked = translations(&ground).len();
+
+  assert_eq!(redraw_filed(&ground.app).await, 1);
+
+  let set_aside = ground.app.store.item(item.id).unwrap();
+  assert_eq!(set_aside.languages, ["en"]);
+  assert!(set_aside.pending.contains(&"korean".to_string()), "{:?}", set_aside.pending);
+  let drawn = ground.rewrites(501).last().unwrap().clone();
+  assert_eq!(drawn["labels"]["languages"], "en", "drawn without the broken side");
+  assert!(!drawn["html"].as_str().unwrap().contains("data-language=\"ko\""));
+  let english = english_body(501, &manual_with_a_table());
+  let parts = cut(&format!("# Report 501\n\n{english}"), 400);
+  assert!(parts.len() >= 3, "{parts:#?}");
+  for part in &parts {
+    let kept = ground.app.store.translated_part(501, part).unwrap();
+    assert_eq!(kept.is_none(), part.contains("Duo"), "only the broken part takes no Korean: {part}");
+  }
+  assert_eq!(translations(&ground).len(), asked, "nothing is asked as the page is drawn again");
+
+  settle(&ground).await;
+
+  let again: Vec<String> = translations(&ground)[asked..]
+    .iter()
+    .map(|a| a["text"].as_str().unwrap().to_string())
+    .collect();
+  let broken_parts: Vec<String> = parts.iter().filter(|p| p.contains("Duo")).map(|p| sent(p)).collect();
+  assert_eq!(again, broken_parts, "only the part that did not agree is asked again");
+  let mended = ground.app.store.rendering(501).unwrap().unwrap();
+  assert!(mended.body.contains(&row), "{}", mended.body);
+  let item = ground.app.store.item(item.id).unwrap();
+  assert_eq!(item.languages, ["ko", "en"]);
+  assert!(!item.pending.contains(&"korean".to_string()));
+  assert_eq!(orders(&ground).len(), 1, "the report is not told again");
 }

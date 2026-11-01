@@ -1290,6 +1290,36 @@ impl Store {
       .map_err(|e| e.to_string())
   }
 
+  /// A page's Korean side set aside (`docs/api.md`, 「The page」): every item its document was filed for holding
+  /// `languages` `en` alone, `pending` naming `korean` among what it lacks, and its retry wait due at `retry_at`,
+  /// so the Korean side is asked again as any pending part.
+  pub fn set_aside_korean(&self, document_id: i64, retry_at: i64) -> Result<(), String> {
+    let mut conn = self.lock();
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    let held: Vec<(i64, String)> = {
+      let mut stmt = tx
+        .prepare("select id, pending from queue where document_id = ?1")
+        .map_err(|e| e.to_string())?;
+      stmt
+        .query_map(params![document_id], |r| Ok((r.get(0)?, r.get(1)?)))
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?
+    };
+    for (id, pending) in held {
+      let mut pending: Vec<String> = serde_json::from_str(&pending).unwrap_or_default();
+      if !pending.iter().any(|lacks| lacks == "korean") {
+        pending.insert(0, "korean".to_string());
+      }
+      tx.execute(
+        "update queue set languages = ?2, pending = ?3, pending_retry_at = ?4, changed_at = ?5 where id = ?1",
+        params![id, words_json(&["en".to_string()]), words_json(&pending), retry_at, now_ms()],
+      )
+      .map_err(|e| e.to_string())?;
+    }
+    tx.commit().map_err(|e| e.to_string())
+  }
+
   /// A page's Korean side as it was kept, or none where it has none.
   pub fn rendering(&self, document_id: i64) -> Result<Option<Rendering>, String> {
     self

@@ -1,15 +1,18 @@
 //! A deep dive's page in Korean (`docs/api.md`, 「The page」): its body, the title set over it as its heading,
-//! cut at its headings into parts the translator takes, each part translated with the note that gives it its
-//! context and kept as it is had so a part that fails has only itself asked again, a part the translator
-//! finds too long or translates short halved and asked again, a note the translator answered as text taken
-//! out, and a description that is a name kept as written; a section the review rewrote translated alone;
-//! and its narration's script translated to be spoken.
+//! cut at its headings into parts the translator takes, each part's prose alone sent and its translation set
+//! back in the part's own structure, checked against the part and kept as it is had so a part that fails has
+//! only itself asked again, pieces the translator answers in another number or finds too long halved and
+//! asked again, a piece translated short asked again alone, a note the translator answered as text taken out,
+//! and a description that is a name kept as written; a section the review rewrote translated alone; a Korean
+//! side kept that does not agree with its English set aside, the parts of it that still do kept; and its
+//! narration's script translated to be spoken.
 
 use tokio::task::JoinSet;
 
 use crate::App;
 use crate::peers::{Peers, Untranslated};
 use crate::reading;
+use crate::structure::{self, Piece};
 use crate::words::{self, fill};
 
 /// A page's Korean side: its title, its description and its markdown body.
@@ -311,9 +314,9 @@ pub fn terms(part: &str, name: &str) -> Vec<String> {
   found
 }
 
-/// One part of a text about `name` translated; a part the translator finds too long, or translates short, is
-/// halved and each half asked again, in order, and a note the translator answered as text is taken out.
-pub async fn translate_part(
+/// One text about `name` translated as it stands; a text the translator finds too long, or translates short,
+/// is halved and each half asked again, in order, and a note the translator answered as text is taken out.
+pub async fn translate_text(
   peers: &Peers,
   language: &str,
   part: &str,
@@ -347,8 +350,103 @@ pub async fn translate_part(
   Ok(join(done))
 }
 
+/// The pieces of a part's prose as they are sent, a blank line between two, a heading's words marked as a
+/// heading's, so the terms and a note answered as text are read from them as from the part.
+fn shown(pieces: &[Piece]) -> String {
+  let lines: Vec<String> = pieces
+    .iter()
+    .map(|piece| match piece.heading {
+      true => format!("# {}", piece.text),
+      false => piece.text.clone(),
+    })
+    .collect();
+  lines.join("\n\n")
+}
+
+/// A text's paragraphs, each trimmed.
+fn paragraphs_of(text: &str) -> Vec<&str> {
+  paragraphs(text).into_iter().map(|(start, end)| text[start..end].trim()).collect()
+}
+
+/// The pieces of a part's prose about `name` translated, each in its place (`docs/api.md`, 「The page」): sent
+/// as one text, a blank line between two; where the answer holds another number of pieces, or was cut short,
+/// halved and each half asked again, down to a piece asked alone, whose answer is taken whole; a piece
+/// translated short asked again alone; and each translation's citation marks its English piece's.
+async fn translate_pieces(
+  peers: &Peers,
+  language: &str,
+  pieces: &[Piece],
+  (note, name): (&str, &str),
+) -> Result<Vec<String>, String> {
+  let mut said: Vec<Option<String>> = vec![None; pieces.len()];
+  let mut waiting: Vec<std::ops::Range<usize>> = Vec::new();
+  waiting.push(0..pieces.len());
+  let halved = |batch: std::ops::Range<usize>, waiting: &mut Vec<std::ops::Range<usize>>| {
+    let middle = batch.start + batch.len() / 2;
+    waiting.push(middle..batch.end);
+    waiting.push(batch.start..middle);
+  };
+  while let Some(batch) = waiting.pop() {
+    if batch.is_empty() {
+      continue;
+    }
+    if batch.len() == 1 {
+      let text = translate_text(peers, language, &pieces[batch.start].text, note, name).await?;
+      said[batch.start] = Some(text);
+      continue;
+    }
+    let sent: Vec<&str> = pieces[batch.clone()].iter().map(|piece| piece.text.as_str()).collect();
+    let text = sent.join("\n\n");
+    let marked = shown(&pieces[batch.clone()]);
+    match peers.translate(language, &text, (note, &terms(&marked, name))).await {
+      Ok(answer) => {
+        let answer = without_leaked_note(&marked, &answer, name);
+        let read = paragraphs_of(answer);
+        if read.len() != batch.len() || cut_short(&text, answer) {
+          halved(batch, &mut waiting);
+          continue;
+        }
+        for (at, translated) in batch.zip(read) {
+          match cut_short(&pieces[at].text, translated) {
+            true => waiting.push(at..at + 1),
+            false => said[at] = Some(translated.to_string()),
+          }
+        }
+      }
+      Err(Untranslated::TooLarge) => halved(batch, &mut waiting),
+      Err(Untranslated::Failed(why)) => return Err(why),
+    }
+  }
+  Ok(
+    pieces
+      .iter()
+      .zip(said)
+      .map(|(piece, translated)| structure::marked_as(&piece.text, &translated.unwrap_or_default()))
+      .collect(),
+  )
+}
+
+/// One part of a text about `name` translated in its own structure (`docs/api.md`, 「The page」): its prose
+/// alone sent, and each piece's translation set back in the part's place for it, the part's structure kept as
+/// it writes it. A translation that does not agree with the part is refused.
+pub async fn translate_part(
+  peers: &Peers,
+  language: &str,
+  part: &str,
+  note: &str,
+  name: &str,
+) -> Result<String, String> {
+  let skeleton = structure::skeleton(part);
+  let said = translate_pieces(peers, language, &skeleton.pieces, (note, name)).await?;
+  let korean = skeleton.filled(&said);
+  if !structure::agrees(part, &korean) {
+    return Err("a part's translation does not agree with its English part's structure".into());
+  }
+  Ok(korean)
+}
+
 /// One part of a page's text translated, the translation kept as the page's part held already where the
-/// store holds one for its English text, else asked and kept as it is had.
+/// store holds one for its English text that agrees with it, else asked and kept as it is had.
 async fn kept_part(
   app: &App,
   document_id: i64,
@@ -356,7 +454,9 @@ async fn kept_part(
   part: &str,
   (note, name): (&str, &str),
 ) -> Result<String, String> {
-  if let Ok(Some(korean)) = app.store.translated_part(document_id, part) {
+  if let Ok(Some(korean)) = app.store.translated_part(document_id, part)
+    && structure::agrees(part, &korean)
+  {
     return Ok(korean);
   }
   let korean = translate_part(&app.peers, language, part, note, name).await?;
@@ -367,8 +467,8 @@ async fn kept_part(
 }
 
 /// The parts of a page's body translated, at most `out` of them with the translator at once, joined in their
-/// order: a part the store holds already taken as it was had, and each part asked kept as it is had, so a
-/// part that fails has only itself asked again.
+/// order: a part the store holds already taken as it was had while it agrees with its English part, and each
+/// part asked kept as it is had, so a part that fails has only itself asked again.
 async fn translate_parts(
   app: &App,
   document_id: i64,
@@ -382,7 +482,7 @@ async fn translate_parts(
   let mut waiting = Vec::new();
   for (at, part) in parts.into_iter().enumerate() {
     match app.store.translated_part(document_id, &part) {
-      Ok(Some(korean)) => done[at] = Some(korean),
+      Ok(Some(korean)) if structure::agrees(&part, &korean) => done[at] = Some(korean),
       _ => waiting.push((at, part)),
     }
   }
@@ -421,6 +521,60 @@ async fn translate_parts(
   Ok(join(pieces.collect()))
 }
 
+/// A body with its title set over it as its heading, as a side is cut into parts and checked.
+fn headed(title: &str, body: &str) -> String {
+  format!("# {}\n\n{}", title.trim(), body)
+}
+
+/// The description a Korean side translates: the English one where it has one that is not a name.
+fn translated_description<'a>(english: &English<'a>) -> Option<&'a str> {
+  english.description.filter(|d| !d.trim().is_empty() && !is_name(d, english.name))
+}
+
+/// Whether a Korean side kept agrees with the English side it was made of (`docs/api.md`, 「The page」): its
+/// body with its title set over it as the English body with its, and its description as the English one
+/// where that is translated.
+pub fn agrees(english: &English<'_>, korean: &Rendering) -> bool {
+  let description = match translated_description(english) {
+    Some(said) => korean.description.as_deref().is_some_and(|kept| structure::agrees(said, kept)),
+    None => true,
+  };
+  description
+    && structure::agrees(&headed(english.title, english.body), &headed(&korean.title, &korean.body))
+}
+
+/// The parts of a Korean side that does not agree with its English kept where they still do (`docs/api.md`,
+/// 「The page」): each English part the body is cut into now takes as its translation the Korean that stands
+/// in its place where that agrees with the part and none is kept for it already, and the description
+/// likewise. Answers how many were kept.
+pub fn keep_agreeing(app: &App, document_id: i64, english: &English<'_>, korean: &Rendering) -> usize {
+  let text = headed(english.title, english.body);
+  let parts = cut(&text, app.settings.translation.part_chars);
+  let places = structure::counterparts(&text, &headed(&korean.title, &korean.body), &parts);
+  let mut pairs: Vec<(&str, String)> = parts
+    .iter()
+    .zip(places)
+    .filter_map(|(part, place)| place.map(|place| (part.as_str(), place)))
+    .collect();
+  if let (Some(said), Some(kept)) = (translated_description(english), korean.description.as_deref()) {
+    pairs.push((said, kept.to_string()));
+  }
+  let mut kept = 0;
+  for (part, korean) in pairs {
+    let held = app.store.translated_part(document_id, part).ok().flatten();
+    if held.is_some_and(|held| structure::agrees(part, &held)) || !structure::agrees(part, &korean) {
+      continue;
+    }
+    match app.store.keep_translated_part(document_id, part, &korean) {
+      Ok(()) => kept += 1,
+      Err(why) => {
+        eprintln!("bmo-research: a part of document {document_id}'s Korean side was not kept: {why}")
+      }
+    }
+  }
+  kept
+}
+
 /// The English side rendered in Korean: the description, a name kept as written, then the body with the
 /// title set over it as its heading, so the Korean title is the translated heading, else `title` where the
 /// translation opens with none.
@@ -442,7 +596,7 @@ pub async fn render(
     ),
     None => None,
   };
-  let text = format!("# {}\n\n{}", english.title.trim(), english.body);
+  let text = headed(english.title, english.body);
   let parts = cut(&text, app.settings.translation.part_chars);
   let body = translate_parts(
     app,
@@ -475,6 +629,6 @@ pub async fn section(app: &App, name: &str, text: &str) -> Result<String, String
 /// A narration's script about `name` translated to be spoken, as one text.
 pub async fn narration(app: &App, name: &str, script: &str) -> Result<String, String> {
   let words = words::translation();
-  let spoken = translate_part(&app.peers, &words.language, script, &narration_note(name), name).await?;
+  let spoken = translate_text(&app.peers, &words.language, script, &narration_note(name), name).await?;
   Ok(spoken.trim().to_string())
 }

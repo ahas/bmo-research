@@ -480,7 +480,8 @@ search runner applies it, and the run writes its document in English, the questi
   each shape: English, the language every run is asked in, and Korean, the language the rulebooks name
   their sections in. A reading looks for either language's heading or table and reads by the set that
   finds it, English first; a heading, a column, a label and a cell's opening word are matched without
-  regard to case.
+  regard to case. A table written without the row under its head is read as a table, given that row as a
+  page is drawn (`docs/runner.md`, 「The page」).
 - **A manual is read for whether it asks the owner's word,** by the words under `[[manual]]`, those of the
   research rulebook's section on running the thing in the lab and its line of the cards it fits: under
   the heading `heading` names, the line opening with `label` that names anything but the `none` word
@@ -523,34 +524,63 @@ search runner applies it, and the run writes its document in English, the questi
   that is halved, at a heading, else a blank line, else a line's end, else a space, nearest its middle,
   until each half fits. At most `translation.parts_out` parts are out at once, and the translations are
   joined in the body's order, a blank line between two.
-- **Each part carries the `note`,** the item's name set in: the translator's context, that the text is
+- **A part's structure is the daemon's, and only its prose is sent.** The part is read into its blocks by a
+  maintained library, a table written without the row under its head given that row first, as the page
+  draws it (`docs/runner.md`, 「The page」). Its pieces of prose are each heading's words, each paragraph,
+  each list item's words and each table cell, in the part's order; everything around them — the heading
+  marks, list markers and indentation, a quote's marks, a table's pipes and the row under its head, blank
+  lines, every code block and diagram, raw HTML — is kept by the daemon as the English part writes it and
+  never sent. A citation mark opening or closing a piece stands outside it, and a piece whose whole text is
+  one link, as a sources list's entry is past its mark, sends the link's words alone, its address kept. A
+  piece holding no letter is kept as written. The pieces are sent as one text, a blank line between two,
+  each on one line.
+- **The translation is set back in the English part's exact structure:** each piece's translation, on one
+  line, in its piece's place, a pipe in a cell's translation escaped, and a mark opening a block — a
+  heading's, a quote's, a list item's or a rule's — that a translation opens with and its English piece
+  does not escaped. A piece's citation marks are its English piece's: a mark its translation lost is set at
+  its end, and one it added is taken out.
+- **An answer is read piece by piece,** split at its blank lines. Where it holds as many pieces as were sent,
+  each stands in its place; where it holds another number, the pieces sent are halved and each half asked
+  again, in order, down to a piece asked alone, whose answer is taken whole as that piece.
+- **A text translated short is asked again:** a text of more than 200 characters whose text ends a sentence
+  — its last character, closing quotes, brackets and emphasis marks aside, a full stop, a question mark, an
+  exclamation mark or an ellipsis — while its translation does not was cut off by the translator. The
+  pieces of a text cut off are halved and each half asked again; a piece of more than 200 characters cut
+  off within an answer otherwise whole is asked again alone; and a piece asked alone and cut off is halved
+  as text, at a blank line, else a line's end, else a space, nearest its middle, each half asked again. A
+  text of 200 characters or fewer is taken as it comes.
+- **Each text sent carries the `note`,** the item's name set in: the translator's context, that the text is
   part of a research report about the thing for the owner, in the register of the owner's documents.
-- **Each part carries its `terms`,** what it keeps exactly as written, each a term whose target is itself,
-  which agency hands the translation model as its own reference translations (agency's 「translations」):
-  the item's name; every inline code span, link address and bare web address; every fixed section name
-  (`prompts/document.toml`, `[sections]` and `[opening]`) a heading of the part holds, as the heading
-  writes it; every word of its prose holding both a letter and a digit, or a capital after its first
-  letter — a model, product or dataset name; and every figure with its unit, a number and the word after
-  it where that word holds a slash or is an abbreviation of at most four letters holding a capital. Each
-  stands once, in the order the part holds them, at most forty, read from the part's markdown by a
-  maintained library. A part halved is given the terms of each half.
-- **A note the translator answered as text is taken out:** where a translation holds more paragraphs than its
-  part, and its first paragraph is prose saying the item's name while the part opens with a heading or with
-  a paragraph not saying it, that paragraph restates the note and is dropped, as often as the count allows.
-- **A part refused 413 `too-large`** is halved the same way and each half asked again; a part that cannot
-  be halved any further, a 503 `no-login-open`, or any other failure leaves the Korean side pending.
+- **Each text sent carries its `terms`,** what it keeps exactly as written, each a term whose target is
+  itself, which agency hands the translation model as its own reference translations (agency's
+  「translations」): the item's name; every inline code span, link address and bare web address; every fixed
+  section name (`prompts/document.toml`, `[sections]` and `[opening]`) a heading's words hold, as the
+  heading writes it; every word of its prose holding both a letter and a digit, or a capital after its first
+  letter — a model, product or dataset name; and every figure with its unit, a number and the word after it
+  where that word holds a slash or is an abbreviation of at most four letters holding a capital. Each stands
+  once, in the order the text holds them, at most forty, read from the pieces sent by a maintained library,
+  a heading's words read as a heading. A text halved is given the terms of each half.
+- **A note the translator answered as text is taken out:** where an answer holds more paragraphs than the
+  text sent, and its first paragraph is prose saying the item's name while the text opens with a heading's
+  words or with a paragraph not saying it, that paragraph restates the note and is dropped, as often as the
+  count allows.
+- **A text refused 413 `too-large`** is halved and each half asked again: its pieces where it holds more than
+  one, else a piece as text, as one cut off is; a piece that cannot be halved any further, a 503
+  `no-login-open`, or any other failure leaves the Korean side pending.
+- **Every part is checked against its English part before it is kept:** both are read by the library, a
+  table without the row under its head given it, and they agree where they hold the same blocks in the same
+  order and nesting — each heading at its level, each paragraph, each list and its items (how loosely a
+  list is written aside), each table with its columns, its head and its rows, each code block, quote and
+  rule — and the same citation marks, each as often. A part that does not agree is never kept or drawn: it leaves the Korean side pending, and is asked
+  again alone on its retry wait. The description is checked the same way.
 - **Every part translated is kept as it is had** (`docs/store.md`, `translated_parts`), by the document and
   the part's English text, so a Korean side asked again translates only the parts it does not hold yet: one
-  part failing never has the others asked again.
+  part failing never has the others asked again. A part kept is taken only while it agrees with its English
+  part; one that does not is asked again alone.
 - **A part is waited on until agency answers it,** with no clock of this unit's: a translation waits as
   long as its card's grant and the translation take, so the parts out keep the card they share and its
-  place in the master's line (「Calls this unit makes」).
-- **A part translated short is halved the same way:** a part of more than 200 characters whose text ends a
-  sentence — its last character, closing quotes, brackets and emphasis marks aside, a full stop, a question
-  mark, an exclamation mark or an ellipsis — while its translation does not, was cut off by the translator,
-  so the translation is set aside and each half asked again. A part of 200 characters or fewer is taken as
-  it comes. The
-  Korean side had is kept in the store (`docs/store.md`, `renderings`), so the page can be drawn again.
+  place in the master's line (「Calls this unit makes」). The Korean side had is kept in the store
+  (`docs/store.md`, `renderings`), so the page can be drawn again.
 - **The narration** is the result's `LISTEN:` script. The English sound speaks it as written; the Korean sound
   speaks it translated as one text with the `narration_note`, the item's name set in: that it is a spoken
   narration kept as its transcript, to be translated in short sentences, its names, acronyms, figures and
@@ -592,6 +622,18 @@ search runner applies it, and the run writes its document in English, the questi
   which draws it the same way; a page whose result is not kept, or that cannot be read or set, is said in
   the log and left as it stands. Nothing a page lacks is asked here, and no one is told. The count of pages
   drawn again is said in the log, and printed by the step.
+- **A filed Korean side that does not agree with its English is set aside** as its page is drawn again: its
+  body, the Korean title set over it as its heading, checked against the English body with the title set
+  over it the way a part is (above), and its description against the English one. Where they do not agree,
+  each English part the body is cut into now takes as its translation the Korean that stands in its place —
+  where both bodies hold as many headings, the same top-level blocks of the same section, each agreeing
+  with its English block, the part beginning and ending between blocks — where that Korean agrees with the
+  part and none is kept for it already (`docs/store.md`, `translated_parts`); the description likewise.
+  The page is then drawn and set without its Korean side, every item of its document holding `languages`
+  `en`, `korean` among what it lacks and its retry wait due at once, so the daemon asks the Korean side as
+  it asks any pending part: only the parts that took no Korean are translated again, and the page is drawn
+  again with its Korean side once it is had. A report told before is not told again. How many Korean sides
+  were set aside is said in the log.
 - **A page is whole** once it holds its Korean side and every narration its result's script allows: both
   sounds where the result has a `LISTEN:` script, none where it has none, so a page whose result has no
   script is whole with its Korean side. A whole page whose items stand `finishing` is then reviewed once

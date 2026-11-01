@@ -20,6 +20,7 @@ pub mod runner;
 pub mod scan;
 pub mod sources;
 pub mod store;
+pub mod structure;
 pub mod tool_host;
 pub mod translation;
 pub mod words;

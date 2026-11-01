@@ -2,17 +2,18 @@
 //! page on the archive's design, Korean first, a switch between them where it holds two, and the listen band
 //! under the title referring to each narration attached by its name, which the archive stands as its player;
 //! under the title too, the line saying where the research came from.
-//! The markdown is written as HTML by `pulldown-cmark`, any raw HTML a result wrote stands as text, a fenced
-//! `mermaid` block is a diagram the page draws with Mermaid, and a citation mark is a footnote linked to its
-//! entry of the sources list and back.
+//! The markdown is written as HTML by `pulldown-cmark`, a table written without the row under its head stands
+//! as a table, any raw HTML a result wrote stands as text, a fenced `mermaid` block is a diagram the page
+//! draws with Mermaid, and a citation mark is a footnote linked to its entry of the sources list and back.
 
 use std::collections::{HashMap, HashSet};
 
 use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
-use pulldown_cmark::{CodeBlockKind, CowStr, Event, Options, Parser, Tag, TagEnd, html};
+use pulldown_cmark::{CodeBlockKind, CowStr, Event, Parser, Tag, TagEnd, html};
 
 use bmo_research_client::{Item, OriginKind};
 
+use crate::structure::{self, marks};
 use crate::words;
 
 /// One language's side of the page: its code, its title, its description, the line saying where the research
@@ -139,14 +140,15 @@ fn is_diagram(kind: &CodeBlockKind<'_>) -> bool {
   matches!(kind, CodeBlockKind::Fenced(info) if info.split_whitespace().next() == Some("mermaid"))
 }
 
-/// A markdown body written as HTML for the side of the language `code`, any raw HTML it holds shown as text,
+/// A markdown body written as HTML for the side of the language `code`, a table written without the row under
+/// its head given that row, any raw HTML it holds shown as text,
 /// each fenced `mermaid` block a diagram's block, its text escaped, and each citation mark naming an entry of
 /// its sources list a footnote (`cited`).
 pub fn body_html(markdown: &str, code: &str) -> String {
-  let options = Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS;
+  let markdown = structure::mended(markdown);
   let mut events = Vec::new();
   let mut diagram: Option<String> = None;
-  for event in Parser::new_ext(markdown, options) {
+  for event in Parser::new_ext(&markdown, structure::options()) {
     match (event, diagram.as_mut()) {
       (Event::Start(Tag::CodeBlock(kind)), None) if is_diagram(&kind) => diagram = Some(String::new()),
       (Event::Text(text), Some(open)) => open.push_str(&text),
@@ -195,28 +197,6 @@ background:var(--doc-accent-soft);border-radius:4px}li[id],a.cite[id]{scroll-mar
 struct Entry {
   note: String,
   url: Option<String>,
-}
-
-/// Every citation mark in a text, `[n]` or `[n†]`, by where it stands and its key, the mark without its
-/// brackets.
-fn marks(text: &str) -> Vec<(std::ops::Range<usize>, &str)> {
-  let mut found = Vec::new();
-  let mut from = 0;
-  while let Some(at) = text[from..].find('[').map(|at| from + at) {
-    let key_from = at + 1;
-    let digits = text[key_from..].bytes().take_while(u8::is_ascii_digit).count();
-    let mut key_to = key_from + digits;
-    if digits > 0 && text[key_to..].starts_with('\u{2020}') {
-      key_to += '\u{2020}'.len_utf8();
-    }
-    if digits > 0 && text[key_to..].starts_with(']') {
-      found.push((at..key_to + 1, &text[key_from..key_to]));
-      from = key_to + 1;
-    } else {
-      from = key_from;
-    }
-  }
-  found
 }
 
 /// The fragment a mark's key is named by in an identifier: its number, and `-snippet` for a mark with `†`.
