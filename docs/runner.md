@@ -267,6 +267,21 @@ daemon finishes, held first to the shape the deep dive asked for.
   loaded once over https and started on the page's load, strict, in the dark theme under a dark colour scheme
   and the neutral one otherwise. Both sides' diagrams stand in the page, so the switch draws nothing again. A
   diagram that does not parse stays as its text. A page with no diagram loads nothing.
+- **A citation mark is a footnote.** A body's sources list (「The document」) is a list whose items each open
+  with a mark, `[n]`, or `[n†]` for a value read only in a search result's snippet, then the link to the page
+  titled by what it supports. Each such item is a target named by its side's language and its mark, and a
+  mark of the same side's text that names one links to it:
+  - **the mark** stands raised, as a link to its entry; the first place a side cites an entry is a target of
+    its own, which the entry's mark links back to, titled by the `back` words of its side's language
+    (`prompts/page.toml`);
+  - **hovering a mark, or focusing it from the keyboard,** shows what its source supports and its address in
+    a box under the line, as wide as the reading column, drawn from the mark's attributes by the page's style
+    alone; a tap follows the link, so on a phone the reader jumps to the entry and back;
+  - **the entry jumped to and the mark jumped back to stand highlighted,** by the style's `:target` rule;
+  - a mark naming no entry of its side, a mark inside a link or code, and the words of the entries
+    themselves stay as written, and an entry whose mark the side never cites links back to nothing.
+  The footnotes' look is a style marked `data-archive` and drawn in the design's colour variables, set only
+  on a page whose text cites an entry. The page runs no script for them.
 - **A page with one language** has no switch and no hidden side.
 ## The room
 

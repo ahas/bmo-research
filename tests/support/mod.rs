@@ -113,6 +113,8 @@ pub struct World {
   /// The documents filed with `POST /documents`, as the archive answers them.
   pub posted: Vec<Value>,
   pub next_document: i64,
+  /// Each page document's HTML as the archive keeps it: the last one filed or set.
+  pub kept_pages: BTreeMap<i64, String>,
   /// The demands the stand-in master holds, by id, as it answers them.
   pub demands: BTreeMap<i64, Value>,
   pub next_demand: i64,
@@ -457,6 +459,9 @@ async fn artifact_documents(
       }
     };
     document["id"] = json!(id);
+    if let Some(html) = document["html"].as_str() {
+      world.kept_pages.insert(id, html.to_owned());
+    }
     world.posted.push(document.clone());
     return (StatusCode::CREATED, axum::Json(document)).into_response();
   }
@@ -478,6 +483,9 @@ async fn artifact_content(
 ) -> Response {
   keep(&w, "artifact", &method, &uri, &body);
   let world = w.lock().unwrap();
+  if let Some(html) = world.kept_pages.get(&id) {
+    return ([(axum::http::header::CONTENT_TYPE, "text/html")], html.clone()).into_response();
+  }
   if let Some(doc) = world.filed.values().find(|d| d.id == id) {
     return doc.content.clone().into_response();
   }
@@ -489,8 +497,18 @@ async fn artifact_content(
   }
 }
 
-async fn artifact_document(State(w): State<Shared>, method: Method, uri: Uri, body: Bytes) -> Response {
+async fn artifact_document(
+  State(w): State<Shared>,
+  Path(id): Path<i64>,
+  method: Method,
+  uri: Uri,
+  body: Bytes,
+) -> Response {
   keep(&w, "artifact", &method, &uri, &body);
+  let asked: Value = serde_json::from_slice(&body).unwrap_or_default();
+  if let Some(html) = asked["html"].as_str() {
+    w.lock().unwrap().kept_pages.insert(id, html.to_owned());
+  }
   axum::Json(json!({"ok": true})).into_response()
 }
 

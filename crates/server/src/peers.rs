@@ -575,6 +575,15 @@ impl Peers {
       .map(|_| ())
   }
 
+  /// A page document's HTML as the archive keeps it.
+  pub async fn kept_page(&self, document_id: i64) -> Result<String, String> {
+    let artifact = self.artifact()?;
+    let path = format!("/documents/{document_id}/content");
+    let request = self.request(&artifact, reqwest::Method::GET, &path).query(&[("download", "true")]);
+    let (bytes, _) = self.bytes(&artifact, request, &format!("GET {path}")).await?;
+    String::from_utf8(bytes).map_err(|e| format!("the artifact service's page did not read as text: {e}"))
+  }
+
   /// Whether a document keeps a file under a name.
   pub async fn attached(&self, document_id: i64, name: &str) -> Result<bool, String> {
     let artifact = self.artifact()?;

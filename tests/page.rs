@@ -203,3 +203,95 @@ fn the_line_saying_where_the_research_came_from_stands_under_the_title_its_marks
   assert!(html.contains("Is *this* the [lighter] one?"), "the marks stand as text: {html}");
   assert!(!page("The body.").contains("class=\"origin\""), "a page handed no origin prints none");
 }
+
+const CITED: &str = "## The answer\n\nIt runs on 8 GB. [1][2]\n\nIt was out in May [3\u{2020}], not June [9], and [1] again.\n\n```text\nThe [1] in code.\n```\n\nSee [the card [1]](https://example.org/card).\n\n## Sources\n\n- [1] [the card: memory and licence](https://example.org/card)\n- [2] [the release notes](https://example.org/notes)\n- [3\u{2020}] [a snippet <of> the date](https://example.org/date?a=1&b=2)\n- [4] [never cited](https://example.org/never)\n";
+
+#[test]
+fn a_citation_mark_links_to_its_source_entry_which_links_back_to_the_first_mark() {
+  let html = page(CITED);
+  assert!(
+    html.contains(
+      "<a class=\"cite\" id=\"en-cite-1\" href=\"#en-source-1\" aria-describedby=\"en-source-1\" \
+       data-note=\"the card: memory and licence\" data-url=\"https://example.org/card\">[1]</a>"
+    ),
+    "{html}"
+  );
+  assert!(html.contains("id=\"en-cite-2\" href=\"#en-source-2\""), "{html}");
+  assert!(
+    html.contains("id=\"en-cite-3-snippet\" href=\"#en-source-3-snippet\""),
+    "a snippet's mark is a footnote of its own: {html}"
+  );
+  assert!(
+    html.contains(
+      "data-note=\"a snippet &lt;of&gt; the date\" data-url=\"https://example.org/date?a=1&amp;b=2\""
+    ),
+    "{html}"
+  );
+  assert_eq!(html.matches("id=\"en-cite-1\"").count(), 1, "only the first mark is a target");
+  assert_eq!(html.matches("href=\"#en-source-1\"").count(), 2, "both marks in the text link: {html}");
+  assert!(html.contains("June [9]"), "a mark naming no entry stays as written: {html}");
+  assert!(html.contains("The [1] in code."), "a mark in code stays as written");
+  assert!(html.contains(">the card [1]</a>"), "a mark inside a link stays as written: {html}");
+  assert!(
+    html.contains(
+      "<li id=\"en-source-1\"><a href=\"#en-cite-1\" title=\"Back to where the text cites it\">[1]</a> \
+       <a href=\"https://example.org/card\">the card: memory and licence</a></li>"
+    ),
+    "{html}"
+  );
+  assert!(
+    html.contains("<li id=\"en-source-4\">[4] <a href=\"https://example.org/never\">"),
+    "an entry never cited links back to nothing: {html}"
+  );
+  assert!(html.contains("<style data-archive>"), "the footnotes' style is set: {html}");
+  assert!(html.contains("a.cite:hover::after"), "the box shows on hover");
+  assert!(html.contains("li:target"), "the entry jumped to is highlighted");
+  assert!(!html.contains("<script"), "the footnotes run no script: {html}");
+}
+
+#[test]
+fn each_side_names_its_footnotes_by_its_language() {
+  let sides = [
+    Side {
+      code: "ko",
+      title: "Thing-7B (ko)",
+      description: None,
+      origin: None,
+      body: CITED,
+    },
+    Side {
+      code: "en",
+      title: "Thing-7B",
+      description: None,
+      origin: None,
+      body: CITED,
+    },
+  ];
+  let html = compose(&sides, &[]);
+  for id in ["ko-cite-1", "ko-source-1", "en-cite-1", "en-source-1"] {
+    assert_eq!(html.matches(&format!("id=\"{id}\"")).count(), 1, "{id}: {html}");
+  }
+  assert_eq!(
+    html.matches("<style data-archive>").count(),
+    1,
+    "one style holds the switch and the footnotes"
+  );
+}
+
+#[test]
+fn a_body_citing_no_entry_has_no_footnotes() {
+  let html = page("## The answer\n\nIt runs [1].\n\n## Sources\n\n- the card\n");
+  assert!(html.contains("It runs [1]."), "{html}");
+  assert!(!html.contains("class=\"cite\""));
+  assert!(!html.contains("<style"), "{html}");
+}
+
+#[test]
+fn an_entry_whose_link_the_translation_broke_is_still_a_target() {
+  let html = page("It runs [13].\n\n- [13] the card's words](https://example.org/card)\n");
+  assert!(html.contains("<li id=\"en-source-13\">"), "{html}");
+  assert!(
+    html.contains("data-note=\"the card&#39;s words](https://example.org/card)\" data-url=\"\""),
+    "{html}"
+  );
+}

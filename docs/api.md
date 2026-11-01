@@ -546,6 +546,16 @@ search runner applies it, and the run writes its document in English, the questi
   with `role` `head`, the English as `narration-en.ogg` with no role. The page is then drawn again with its
   listen band referring to every sound attached by its name (`docs/runner.md`, 「The page」), and the
   archive plays them there. A sound already attached is not made again.
+- **Every filed page is drawn as this binary draws it.** As the daemon starts, and on `bmo-research
+  redraw`, the page of every item holding a document, for the item its document's run was asked for, is
+  drawn again from what is had of it — the run's result, the Korean side kept (`docs/store.md`,
+  `renderings`) where its page holds one, and the narrations it plays — and compared with the page as the
+  archive keeps it, read with `GET /documents/{id}/content?download=true`. A page that differs is set as any
+  page drawn again, and one that matches is left alone, so a change in how a page is drawn reaches every
+  filed page and nothing else is written. A page being finished at that moment is left to its finishing,
+  which draws it the same way; a page whose result is not kept, or that cannot be read or set, is said in
+  the log and left as it stands. Nothing a page lacks is asked here, and no one is told. The count of pages
+  drawn again is said in the log, and printed by the step.
 - **A page is whole** once it holds its Korean side and every narration its result's script allows: both
   sounds where the result has a `LISTEN:` script, none where it has none, so a page whose result has no
   script is whole with its Korean side.
@@ -641,7 +651,8 @@ daemon's settings name, read under the data root the session record's `BMO_DATA_
 
 `bmo-research` serves and answers the deployment: `serve` runs the daemon; `health` answers 0 once the
 daemon answers ready; `openapi` prints the OpenAPI document; `migrate` brings the store's schema to the
-version the binary holds and says which; `nouns` prints `research`, the noun `bmo research …` hands it.
+version the binary holds and says which; `redraw` draws every filed page again where it differs from what
+this binary draws, and prints how many it set (「The page」); `nouns` prints `research`, the noun `bmo research …` hands it.
 Under `research` stand `state`, `stop`, `resume`, `categories`, `queue`, `ask`, `taken`, `dismiss`,
 `front`, `sources`, `recipients`, `runs`, `stack` and `facts`, each calling the route of the same name through the client; `--json` prints
 the member or the page exactly as the API answers it.
@@ -680,6 +691,8 @@ of these units, and reads each one's address and token from that unit's own file
   `GET /documents/{documentId}/attachments`, whether a narration's sound is already attached;
   `PATCH /documents/{documentId}` with `body` and `labels` once a room's document's pictures are kept, or with
   `title`, `html` and `labels` as a page is drawn again;
+  `GET /documents/{documentId}/content?download=true`, a page as the archive keeps it, compared with the page
+  drawn again (「The page」);
   `GET /shares?documentId=<documentId>` and `POST /shares` with `documentId` and, for a run's document,
   `expiresAt` a day ahead, its live link.
 - **the voice unit:** at the address and with the token its own settings file under `env/` names

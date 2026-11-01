@@ -2,11 +2,14 @@
 //! page on the archive's design, Korean first, a switch between them where it holds two, and the listen band
 //! under the title referring to each narration attached by its name, which the archive stands as its player;
 //! under the title too, the line saying where the research came from.
-//! The markdown is written as HTML by `pulldown-cmark`, any raw HTML a result wrote stands as text, and a
-//! fenced `mermaid` block is a diagram the page draws with Mermaid.
+//! The markdown is written as HTML by `pulldown-cmark`, any raw HTML a result wrote stands as text, a fenced
+//! `mermaid` block is a diagram the page draws with Mermaid, and a citation mark is a footnote linked to its
+//! entry of the sources list and back.
+
+use std::collections::{HashMap, HashSet};
 
 use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
-use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd, html};
+use pulldown_cmark::{CodeBlockKind, CowStr, Event, Options, Parser, Tag, TagEnd, html};
 
 use bmo_research_client::{Item, OriginKind};
 
@@ -136,9 +139,10 @@ fn is_diagram(kind: &CodeBlockKind<'_>) -> bool {
   matches!(kind, CodeBlockKind::Fenced(info) if info.split_whitespace().next() == Some("mermaid"))
 }
 
-/// A markdown body written as HTML, any raw HTML it holds shown as text and each fenced `mermaid` block a
-/// diagram's block, its text escaped.
-pub fn body_html(markdown: &str) -> String {
+/// A markdown body written as HTML for the side of the language `code`, any raw HTML it holds shown as text,
+/// each fenced `mermaid` block a diagram's block, its text escaped, and each citation mark naming an entry of
+/// its sources list a footnote (`cited`).
+pub fn body_html(markdown: &str, code: &str) -> String {
   let options = Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS;
   let mut events = Vec::new();
   let mut diagram: Option<String> = None;
@@ -156,12 +160,248 @@ pub fn body_html(markdown: &str) -> String {
     }
   }
   let mut out = String::new();
-  html::push_html(&mut out, events.into_iter());
+  html::push_html(&mut out, cited(merged(events), code).into_iter());
   out
 }
 
-/// The page: every side in the order given, the first shown first, and the listen band under the title where
-/// a narration is attached.
+// Adjacent texts joined into one: the parser hands a mark's brackets apart, and raw HTML shown as text stands
+// beside the text around it.
+fn merged(events: Vec<Event<'_>>) -> Vec<Event<'_>> {
+  let mut out: Vec<Event<'_>> = Vec::with_capacity(events.len());
+  for event in events {
+    match (out.last_mut(), event) {
+      (Some(Event::Text(before)), Event::Text(text)) => *before = format!("{before}{text}").into(),
+      (_, event) => out.push(event),
+    }
+  }
+  out
+}
+
+// The class a citation mark's link carries, which the footnotes' style draws.
+const CITE: &str = "class=\"cite\"";
+
+// The footnotes' look, an addition to the archive's design drawn in its colour variables: a mark raised, the
+// box saying what its source supports and its address under the line as wide as the reading column while it
+// is hovered or focused, and the entry or the mark jumped to highlighted.
+const CITE_STYLE: &str = "article{position:relative}a.cite{font-size:.75em;line-height:0;vertical-align:super;\
+text-decoration:none;white-space:nowrap}a.cite:hover::after,a.cite:focus-visible::after{content:attr(data-note) \
+\"\\A\" attr(data-url);position:absolute;left:0;right:0;z-index:10;margin-top:1.75em;padding:8px 12px;\
+border:1px solid var(--doc-rule);border-radius:8px;background:var(--doc-surface);color:var(--doc-ink);\
+font-size:14px;font-weight:400;line-height:1.5;vertical-align:baseline;white-space:pre-line;\
+overflow-wrap:anywhere;box-shadow:0 4px 16px rgba(0,0,0,.25);pointer-events:none}li:target,a.cite:target{\
+background:var(--doc-accent-soft);border-radius:4px}li[id],a.cite[id]{scroll-margin-top:24px}";
+
+/// One entry of a sources list: what its source supports and its address, where the entry links one.
+struct Entry {
+  note: String,
+  url: Option<String>,
+}
+
+/// Every citation mark in a text, `[n]` or `[n†]`, by where it stands and its key, the mark without its
+/// brackets.
+fn marks(text: &str) -> Vec<(std::ops::Range<usize>, &str)> {
+  let mut found = Vec::new();
+  let mut from = 0;
+  while let Some(at) = text[from..].find('[').map(|at| from + at) {
+    let key_from = at + 1;
+    let digits = text[key_from..].bytes().take_while(u8::is_ascii_digit).count();
+    let mut key_to = key_from + digits;
+    if digits > 0 && text[key_to..].starts_with('\u{2020}') {
+      key_to += '\u{2020}'.len_utf8();
+    }
+    if digits > 0 && text[key_to..].starts_with(']') {
+      found.push((at..key_to + 1, &text[key_from..key_to]));
+      from = key_to + 1;
+    } else {
+      from = key_from;
+    }
+  }
+  found
+}
+
+/// The fragment a mark's key is named by in an identifier: its number, and `-snippet` for a mark with `†`.
+fn fragment(key: &str) -> String {
+  match key.strip_suffix('\u{2020}') {
+    Some(number) => format!("{number}-snippet"),
+    None => key.to_owned(),
+  }
+}
+
+/// The sources list's entries, by the place of each entry's item among the events: an item whose first text
+/// opens with a mark and a space, or is the mark alone, its note the text it links, else the rest of its text,
+/// and its address the first link it holds. A key a list holds twice is the first item's.
+fn entries(events: &[Event<'_>]) -> HashMap<usize, (String, Entry)> {
+  let mut found = HashMap::new();
+  let mut keys = HashSet::new();
+  for (at, event) in events.iter().enumerate() {
+    if !matches!(event, Event::Start(Tag::Item)) {
+      continue;
+    }
+    let Some(opening) = events[at + 1..].iter().position(|e| !matches!(e, Event::Start(Tag::Paragraph)))
+    else {
+      continue;
+    };
+    let opening = at + 1 + opening;
+    let Event::Text(first) = &events[opening] else {
+      continue;
+    };
+    let Some((place, key)) = marks(first).into_iter().next().filter(|(place, _)| place.start == 0) else {
+      continue;
+    };
+    if !first[place.end..].is_empty() && !first[place.end..].starts_with(char::is_whitespace) {
+      continue;
+    }
+    if !keys.insert(key.to_owned()) {
+      continue;
+    }
+    let (mut linked, mut rest, mut url) = (String::new(), first[place.end..].to_owned(), None);
+    let (mut depth, mut links) = (0usize, 0usize);
+    for event in &events[opening + 1..] {
+      match event {
+        Event::Start(Tag::Item) => depth += 1,
+        Event::End(TagEnd::Item) if depth == 0 => break,
+        Event::End(TagEnd::Item) => depth -= 1,
+        Event::Start(Tag::Link { dest_url, .. }) => {
+          links += 1;
+          url.get_or_insert_with(|| dest_url.to_string());
+        }
+        Event::End(TagEnd::Link) => links = links.saturating_sub(1),
+        Event::Text(text) | Event::Code(text) if links > 0 => linked.push_str(text),
+        Event::Text(text) | Event::Code(text) => rest.push_str(text),
+        _ => {}
+      }
+    }
+    let note = if linked.trim().is_empty() { rest } else { linked };
+    found.insert(
+      at,
+      (
+        key.to_owned(),
+        Entry {
+          note: note.trim().to_owned(),
+          url,
+        },
+      ),
+    );
+  }
+  found
+}
+
+/// A body's citation marks made footnotes for the side of the language `code`: each entry of its sources list
+/// a target, `<code>-source-<n>`, its own mark linking back to the first place the text cites it,
+/// `<code>-cite-<n>`; each mark naming an entry a raised link to it, carrying what the entry's source supports
+/// and its address for the footnotes' style to show. A mark inside a link, a picture or code, or among the
+/// entries' own words stays as written, as does a mark naming no entry.
+fn cited<'a>(events: Vec<Event<'a>>, code: &str) -> Vec<Event<'a>> {
+  let listed = entries(&events);
+  if listed.is_empty() {
+    return events;
+  }
+  let by_key: HashMap<&str, &Entry> = listed.values().map(|(key, entry)| (key.as_str(), entry)).collect();
+  let back = words::page().language(code).map(|l| l.back.clone()).unwrap_or_default();
+  let code = escaped(code);
+  let mut out: Vec<Event<'a>> = Vec::with_capacity(events.len());
+  let mut first_cited: HashSet<String> = HashSet::new();
+  let mut backs: Vec<(usize, String)> = Vec::new();
+  let (mut links, mut code_blocks, mut entry_depth) = (0usize, 0usize, None::<usize>);
+  let mut item_depth = 0usize;
+  let mut lead: Option<String> = None;
+  for (at, event) in events.into_iter().enumerate() {
+    match event {
+      Event::Start(Tag::Item) => {
+        item_depth += 1;
+        match listed.get(&at) {
+          Some((key, _)) if entry_depth.is_none() => {
+            entry_depth = Some(item_depth);
+            lead = Some(key.clone());
+            out.push(Event::Html(format!("<li id=\"{code}-source-{}\">", fragment(key)).into()));
+          }
+          _ => out.push(Event::Start(Tag::Item)),
+        }
+      }
+      Event::End(TagEnd::Item) => {
+        if entry_depth == Some(item_depth) {
+          entry_depth = None;
+          lead = None;
+        }
+        item_depth = item_depth.saturating_sub(1);
+        out.push(Event::End(TagEnd::Item));
+      }
+      Event::Text(text) if lead.is_some() => {
+        let key = lead.take().unwrap_or_default();
+        let mark_end = 1 + key.len() + 1;
+        backs.push((out.len(), key));
+        out.push(Event::InlineHtml(CowStr::Borrowed("")));
+        if text.len() > mark_end {
+          out.push(Event::Text(text[mark_end..].to_owned().into()));
+        }
+      }
+      Event::Text(text) if entry_depth.is_none() && links == 0 && code_blocks == 0 => {
+        let found: Vec<_> = marks(&text).into_iter().filter(|(_, key)| by_key.contains_key(key)).collect();
+        if found.is_empty() {
+          out.push(Event::Text(text));
+          continue;
+        }
+        let mut from = 0;
+        for (place, key) in found {
+          if place.start > from {
+            out.push(Event::Text(text[from..place.start].to_owned().into()));
+          }
+          let entry = by_key[key];
+          let name = fragment(key);
+          let id = if first_cited.insert(key.to_owned()) {
+            format!(" id=\"{code}-cite-{name}\"")
+          } else {
+            String::new()
+          };
+          out.push(Event::InlineHtml(
+            format!(
+              "<a {CITE}{id} href=\"#{code}-source-{name}\" aria-describedby=\"{code}-source-{name}\" \
+               data-note=\"{}\" data-url=\"{}\">{}</a>",
+              escaped(&entry.note),
+              escaped(entry.url.as_deref().unwrap_or_default()),
+              escaped(&text[place.clone()])
+            )
+            .into(),
+          ));
+          from = place.end;
+        }
+        if from < text.len() {
+          out.push(Event::Text(text[from..].to_owned().into()));
+        }
+      }
+      Event::Start(Tag::Link { .. } | Tag::Image { .. }) => {
+        links += 1;
+        out.push(event);
+      }
+      Event::End(TagEnd::Link | TagEnd::Image) => {
+        links = links.saturating_sub(1);
+        out.push(event);
+      }
+      Event::Start(Tag::CodeBlock(_)) => {
+        code_blocks += 1;
+        out.push(event);
+      }
+      Event::End(TagEnd::CodeBlock) => {
+        code_blocks = code_blocks.saturating_sub(1);
+        out.push(event);
+      }
+      other => out.push(other),
+    }
+  }
+  for (place, key) in backs {
+    let name = fragment(&key);
+    let mark = escaped(&format!("[{key}]"));
+    out[place] = Event::InlineHtml(if first_cited.contains(&key) {
+      format!("<a href=\"#{code}-cite-{name}\" title=\"{}\">{mark}</a>", escaped(&back)).into()
+    } else {
+      mark.into()
+    });
+  }
+  out
+}
+
+/// The page: every side in the order given, the first shown first, the listen band under the title where a
+/// narration is attached, and the footnotes' style where a body cites an entry of its sources list.
 pub fn compose(sides: &[Side<'_>], sounds: &[Sound<'_>]) -> String {
   let words = words::page();
   let Some(first) = sides.first() else {
@@ -185,17 +425,22 @@ pub fn compose(sides: &[Side<'_>], sounds: &[Sound<'_>]) -> String {
   if let Some(description) = first.description.filter(|d| !d.trim().is_empty()) {
     page.push_str(&format!("<meta name=\"description\" content=\"{}\">\n", escaped(description.trim())));
   }
+  let bodies: Vec<String> = sides.iter().map(|side| body_html(side.body, side.code)).collect();
+  let mut style = String::new();
   if two {
-    let hiding: Vec<String> = sides
-      .iter()
-      .map(|side| {
-        let code = escaped(side.code);
-        format!(
-          "html[data-shown=\"{code}\"] [data-language]:not([data-language=\"{code}\"]){{display:none}}"
-        )
-      })
-      .collect();
-    page.push_str(&format!("<style data-archive>{SWITCH_STYLE}{}</style>\n", hiding.concat()));
+    style.push_str(SWITCH_STYLE);
+    for side in sides {
+      let code = escaped(side.code);
+      style.push_str(&format!(
+        "html[data-shown=\"{code}\"] [data-language]:not([data-language=\"{code}\"]){{display:none}}"
+      ));
+    }
+  }
+  if bodies.iter().any(|body| body.contains(CITE)) {
+    style.push_str(CITE_STYLE);
+  }
+  if !style.is_empty() {
+    page.push_str(&format!("<style data-archive>{style}</style>\n"));
   }
   page.push_str("</head>\n<body>\n<header>\n");
   if two {
@@ -231,7 +476,7 @@ pub fn compose(sides: &[Side<'_>], sounds: &[Sound<'_>]) -> String {
   for side in sides {
     if let Some(origin) = side.origin.filter(|o| !o.trim().is_empty()) {
       let label = words.language(side.code).map(|l| plain(&l.origin)).unwrap_or_default();
-      let line = body_html(&format!("**{label}:** {}", origin.trim()));
+      let line = body_html(&format!("**{label}:** {}", origin.trim()), side.code);
       page.push_str(&format!("<div class=\"origin\"{}>\n{line}</div>\n", mark(side.code)));
     }
   }
@@ -253,8 +498,7 @@ pub fn compose(sides: &[Side<'_>], sounds: &[Sound<'_>]) -> String {
     page.push_str("</section>\n");
   }
   let mut diagrams = false;
-  for side in sides {
-    let body = body_html(side.body);
+  for (side, body) in sides.iter().zip(&bodies) {
     diagrams |= body.contains(DIAGRAM);
     page.push_str(&format!("<article{}>\n{body}</article>\n", mark(side.code)));
   }

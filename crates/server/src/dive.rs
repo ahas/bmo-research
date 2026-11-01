@@ -134,10 +134,13 @@ fn source(app: &App, run_id: i64) -> Result<Source, String> {
   })
 }
 
-/// The daemon's loop: the tries it left running taken up, the owner's room given to every category holding
-/// no recipient, then a scan and a start of what may run every `tick_seconds`.
+/// The daemon's loop: the tries it left running taken up, every filed page drawn as this binary draws it, the
+/// owner's room given to every category holding no recipient, then a scan and a start of what may run every
+/// `tick_seconds`.
 pub async fn daemon(app: Arc<App>) {
   take_up(&app);
+  let drawing = app.clone();
+  tokio::spawn(async move { redraw_filed(&drawing).await });
   give_owner_room(&app).await;
   loop {
     let _ = tick(&app).await;
@@ -576,16 +579,22 @@ async fn narration(
   app.store.forget_synthesis(document_id, code)
 }
 
-/// The page drawn again with the sides it holds, Korean first, and its listen band referring to each narration
-/// attached, and set in the archive.
-async fn redraw(
+/// A page as it is drawn now: its HTML, the title it is set under and its document's labels.
+struct Drawing {
+  html: String,
+  title: String,
+  labels: Value,
+}
+
+/// The page drawn with the sides it holds, Korean first, and its listen band referring to each narration
+/// attached.
+fn drawing(
   app: &App,
   lead: &Item,
-  document_id: i64,
   source: &Source,
   rendering: Option<&Rendering>,
   narrations: &[String],
-) -> Result<(), String> {
+) -> Drawing {
   let english = document::page_body(&source.drawn, &source.title, words::document().opening.of(lead.shape));
   let origins = LANGUAGES.map(|code| origin_of(app, lead, code));
   let mut sides = Vec::new();
@@ -611,18 +620,87 @@ async fn redraw(
     .map(|code| (code, sound_name(code)))
     .collect();
   let sounds: Vec<Sound<'_>> = names.iter().map(|(code, name)| Sound { code, name }).collect();
-  let html = page::compose(&sides, &sounds);
   let mut labels = source.labels.clone();
   labels["languages"] = sides.iter().map(|side| side.code).collect::<Vec<_>>().join(",").into();
+  Drawing {
+    html: page::compose(&sides, &sounds),
+    title: sides[0].title.to_owned(),
+    labels,
+  }
+}
+
+/// A page drawn set in the archive.
+async fn set_page(app: &App, document_id: i64, drawn: &Drawing) -> Result<(), String> {
   app
     .peers
     .artifact_send(
       reqwest::Method::PATCH,
       &format!("/documents/{document_id}"),
-      &json!({ "title": sides[0].title, "html": html, "labels": labels }),
+      &json!({ "title": drawn.title, "html": drawn.html, "labels": drawn.labels }),
     )
     .await
     .map(|_| ())
+}
+
+/// The page drawn again with the sides it holds, Korean first, and its listen band referring to each narration
+/// attached, and set in the archive.
+async fn redraw(
+  app: &App,
+  lead: &Item,
+  document_id: i64,
+  source: &Source,
+  rendering: Option<&Rendering>,
+  narrations: &[String],
+) -> Result<(), String> {
+  set_page(app, document_id, &drawing(app, lead, source, rendering, narrations)).await
+}
+
+/// Every filed page drawn as this binary draws it (`docs/api.md`, 「The page」): the page of every item holding
+/// a document, for the item its document's run was asked for, drawn again from what is had of it and set where
+/// it differs from the page the archive keeps; a page being finished now is left to its finishing, which draws
+/// it the same way. Answers how many pages were set.
+pub async fn redraw_filed(app: &App) -> usize {
+  let items = match app.store.filed_pages() {
+    Ok(items) => items,
+    Err(why) => {
+      eprintln!("bmo-research: the filed pages could not be read: {why}");
+      return 0;
+    }
+  };
+  let mut set = 0;
+  for item in items {
+    let (Some(document_id), Some(run_id)) = (item.document_id, item.run_id) else {
+      continue;
+    };
+    let Some(_held) = app.pages.hold(item.id) else {
+      continue;
+    };
+    match drawn_again(app, &item, document_id, run_id).await {
+      Ok(true) => set += 1,
+      Ok(false) => {}
+      Err(why) => {
+        eprintln!("bmo-research: item {}'s page {document_id} was not drawn again: {why}", item.id)
+      }
+    }
+  }
+  eprintln!("bmo-research: {set} filed pages were drawn again");
+  set
+}
+
+/// An item's filed page drawn again from what is had of it, and set where it differs from the page the archive
+/// keeps. Answers whether it was set.
+async fn drawn_again(app: &App, item: &Item, document_id: i64, run_id: i64) -> Result<bool, String> {
+  let source = source(app, run_id)?;
+  let rendering = match item.languages.iter().any(|code| code == LANGUAGES[0]) {
+    true => app.store.rendering(document_id)?,
+    false => None,
+  };
+  let drawn = drawing(app, item, &source, rendering.as_ref(), &item.narrations);
+  if app.peers.kept_page(document_id).await? == drawn.html {
+    return Ok(false);
+  }
+  set_page(app, document_id, &drawn).await?;
+  Ok(true)
 }
 
 /// An item's page finished as far as it can be now: its Korean side asked where it lacks one, each narration

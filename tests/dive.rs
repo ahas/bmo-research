@@ -7,15 +7,17 @@
 //! reasons logged, and a long script cut to what the voice speaks, the pending Korean side drawn into the
 //! same page, the report held until the page is whole and told once, across a restart too, an advisory's
 //! parts to the workers of its repositories, a brief's gathering with its facts, the page opening with what
-//! its subject is and saying under its title where the research came from, and a result with no opening
-//! asked again whole. The filed documents are
+//! its subject is and saying under its title where the research came from, a result with no opening
+//! asked again whole, and every filed page drawn again where the archive keeps it drawn otherwise. The filed documents are
 //! composed from the English words `prompts/document.toml` holds, so this file holds none of them.
 
 mod support;
 
 use bmo_research_client::{ItemState, NewStackRow, RecipientKind, ResearchRunState, Running, Shape};
 use research_server::App;
-use research_server::dive::{VOICE_MOST_CHARACTERS, give_owner_room, speakable, take_up, tick};
+use research_server::dive::{
+  VOICE_MOST_CHARACTERS, give_owner_room, redraw_filed, speakable, take_up, tick,
+};
 use research_server::document::{draw, page_body};
 use research_server::runner::narration_script;
 use research_server::store::{Asked, NewResearchRun, Parent, Store, now_ms};
@@ -1837,4 +1839,45 @@ async fn a_translation_answered_past_ten_minutes_is_waited_on_with_no_clock() {
     "the slow translation was waited on to its answer"
   );
   assert_eq!(translations(&ground).len(), 1, "one ask, never cut and asked again");
+}
+
+#[tokio::test]
+async fn a_filed_page_drawn_otherwise_is_drawn_again_and_one_drawn_alike_is_left_alone() {
+  let ground = support::ground(|_| {}).await;
+  give_owner_room(&ground.app).await;
+  ground
+    .app
+    .store
+    .ask("it", "example.org/thing", "Thing-7B", "https://example.org/thing", Shape::Manual)
+    .unwrap();
+  let cited = manual_document().replacen(
+    "- re-measure",
+    "- re-measure [1]\nSOURCE [1]: https://example.org/card :: the card",
+    1,
+  );
+  file(&ground, 1, 501, narrated(cited));
+  settle(&ground).await;
+  let drawn = ground.rewrites(501).last().expect("the page is drawn with its Korean side")["html"].clone();
+  let html = drawn.as_str().unwrap().to_owned();
+  assert!(html.contains("href=\"#en-source-1\""), "the page holds its footnotes: {html}");
+
+  assert_eq!(redraw_filed(&ground.app).await, 0, "a page drawn alike is not set");
+  let rewrites = ground.rewrites(501).len();
+  let read = ground.asked_path("artifact", "GET", "/documents/501/content");
+  assert!(
+    read.iter().any(|a| a.path.ends_with("?download=true")),
+    "the page is read as the archive keeps it"
+  );
+
+  ground
+    .world
+    .lock()
+    .unwrap()
+    .kept_pages
+    .insert(501, "<!doctype html>\n<p>drawn otherwise</p>\n".into());
+  assert_eq!(redraw_filed(&ground.app).await, 1);
+  let again = ground.rewrites(501);
+  assert_eq!(again.len(), rewrites + 1, "the page drawn otherwise is set once");
+  assert_eq!(again.last().unwrap()["html"], drawn, "as the page was drawn");
+  assert_eq!(again.last().unwrap()["labels"]["languages"], "ko,en");
 }

@@ -6,7 +6,8 @@
 # source that found the item, {source} its kind and what it reads), `asked` (the owner's ask), `follow_up`
 # (an ask made from an earlier research, {document} that document's number and {title} its title, linked
 # where its live link is known) or `follow_up_untitled` where no title is known, then `because` where the
-# ask said why, {because} its words. The English words are also the line the question hands the run.
+# ask said why, {because} its words. The English words are also the line the question hands the run. `back`
+# titles a source's mark in the sources list, which leads back to where the text first cites it.
 
 [[language]]
 code = "ko"
@@ -19,6 +20,7 @@ asked = "사장님이 직접 맡기신 조사입니다."
 follow_up = "문서 {document} 「{title}」의 후속 조사입니다."
 follow_up_untitled = "문서 {document}의 후속 조사입니다."
 because = "요청한 말: «{because}»"
+back = "본문의 인용 위치로 돌아가기"
 
 [[language]]
 code = "en"
@@ -31,6 +33,7 @@ asked = "Asked for by the owner."
 follow_up = "A follow-up of document {document}, 「{title}」."
 follow_up_untitled = "A follow-up of document {document}."
 because = "In the asker's words: «{because}»"
+back = "Back to where the text cites it"
 
 # The title a page falls back on where the result names none, by the item's shape and the page's language.
 # {name} is the item's name.
