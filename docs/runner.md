@@ -184,6 +184,9 @@ of a run is this unit's.
   `LISTEN:` line of its own; the result with it is the run's result and what the ledger keeps as `written`.
   It is asked after the whole document (「The deep dive's page」), so the script is set after the result that is
   filed; only then is the result held to its shape and filed.
+- **The script is written words.** It keeps names, acronyms and figures as written, since it is the
+  narration's transcript as well as what is heard: the voice unit derives the spoken words from it
+  (`docs/api.md`, 「The page」).
 - **A narration turn that writes nothing,** or fails, leaves the result as it stands, and the document has no
   sound. Where the rounds' session never started, the first answer stands without one. A run told to a room
   is asked no narration.

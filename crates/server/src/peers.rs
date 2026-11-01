@@ -413,12 +413,13 @@ impl Peers {
       .ok_or_else(|| Untranslated::Failed("agency's translation answered no text".into()))
   }
 
-  /// One text spoken by the voice unit in the settings' voice, else the first it lists, followed until it is
-  /// spoken or has failed however long that takes: the sound and its media type. `waiting` is handed what the
-  /// synthesis waits on each time the voice unit's sentence for it changes.
+  /// One text spoken by the voice unit in the settings' voice, else the first it lists, as a line of `language`,
+  /// followed until it is spoken or has failed however long that takes: the sound and its media type. `waiting` is
+  /// handed what the synthesis waits on each time the voice unit's sentence for it changes.
   pub async fn speak(
     &self,
     text: &str,
+    language: &str,
     mut waiting: impl FnMut(&str),
   ) -> Result<(Vec<u8>, String), String> {
     let voice = self.voice()?;
@@ -439,7 +440,7 @@ impl Peers {
         &voice,
         self
           .request(&voice, reqwest::Method::POST, "/syntheses")
-          .json(&json!({ "voiceName": name, "text": text })),
+          .json(&json!({ "voiceName": name, "text": text, "language": language })),
         "POST /syntheses",
       )
       .await?;

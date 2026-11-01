@@ -287,6 +287,10 @@ take; so its own area stays the research and the measurement, however many categ
   in Korean, translated through the same route with a note that it is a spoken narration, as the sound the
   archive plays at the document's head, and in English as it was written, kept beside it; the page's listen
   band plays the sound of the language shown.
+- **A narration handed to the voice is its written words.** Each is the transcript the voice unit keeps, with
+  names, acronyms and figures as written; the voice unit derives the spoken words from it, the same words as a
+  Korean reader says them aloud, and checks them before it speaks. Spoken words it refuses, or a synthesis that
+  fails, leave that narration pending like any other part the page lacks.
 - **A report is told only once its page is whole:** its Korean side had and every narration its script
   allows attached. A translation that cannot be had (no road carries the translate line, a part refused as
   too long after cutting) or a narration that cannot be made leaves that part pending, and the daemon asks

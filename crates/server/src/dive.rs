@@ -539,7 +539,7 @@ async fn narration(
   }
   let (bytes, media_type) = app
     .peers
-    .speak(spoken, |on| {
+    .speak(spoken, code, |on| {
       let said = format!("The {code} narration waits for the voice: {on}");
       let _ = app.store.log_research(run, "narration", &said);
     })

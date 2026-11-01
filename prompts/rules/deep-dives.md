@@ -92,5 +92,10 @@
 - **It is written to be heard,** in the question's language: plain sentences, no persona, no list,
   table, footnote mark, address, code or structure word; only the few figures that matter, rounded
   where the exact value adds nothing; a long identifier said by its short name.
+- **It is written words, kept to be read as well as heard.** The script is the narration's transcript:
+  names, acronyms, model and product names and the figures it keeps stand exactly as they are written,
+  never spelled as they sound. The voice unit derives the spoken words from it, the same words as a
+  Korean reader says them aloud, every name and acronym in its Korean reading and every figure in the
+  words a reader says, with no word added, dropped or moved, and checks them before it speaks.
 - **About three to four minutes aloud,** some 1,500 to 2,500 characters of Korean or 400 to 600
   words of English, and never more: the voice speaks at most 4,000 characters.

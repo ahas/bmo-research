@@ -7,5 +7,6 @@ language = "Korean"
 # The note every part of the body and the description carry.
 note = "This text is part of a research report about {name}, written for the owner. Keep model, product and dataset names, figures, units, code, links and the fixed section names exactly as they are written. Write in the register of the owner's documents."
 
-# The note a narration's script carries when it is translated to be spoken.
-narration_note = "This text is the spoken narration of a research report about {name}, read aloud to the owner. Translate it to be heard: short sentences, every figure written the way a speaker reads it aloud, and model and product names kept exactly as they are written."
+# The note a narration's script carries when it is translated to be spoken. The translation is the narration's
+# written words; the voice unit derives the spoken words from them.
+narration_note = "This text is the spoken narration of a research report about {name}, read aloud to the owner and kept as its transcript. Translate it to be heard, in short sentences, and keep model, product and dataset names, acronyms, figures and units exactly as they are written: how each is read aloud is settled after you, so never write one as it sounds."
