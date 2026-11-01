@@ -1,8 +1,8 @@
-//! A page's Korean side, its parts, its notes and a note the translator answered as text (`docs/api.md`, 「The
+//! A page's Korean side, its parts, its notes, the terms each part keeps and a note the translator answered as text (`docs/api.md`, 「The
 //! page」).
 
 use research_server::translation::{
-  cut, cut_short, ends_sentence, halve, is_name, narration_note, note, without_leaked_note,
+  cut, cut_short, ends_sentence, halve, is_name, narration_note, note, terms, without_leaked_note,
 };
 use research_server::words;
 
@@ -126,4 +126,33 @@ fn a_description_that_is_a_name_is_never_translated() {
   assert!(is_name("Example-Lab/example-model-7b", name));
   assert!(is_name("Thing-7B", name));
   assert!(!is_name("A usage manual for example-lab/Example-Model-7B", name));
+}
+
+#[test]
+fn a_part_keeps_its_names_figures_code_addresses_and_fixed_headings_as_its_terms() {
+  let part = "## 9. Draft reproduction plan\n\nQwen3.5-Omni-Flash outperforms GPT-4o on MMLU-Pro. On one card it \
+              decodes at 38.6 tokens/s with a 128K context, using 21.4 GB at FP8. Start it with `vllm serve \
+              Qwen/Qwen3.5-Omni` and read [the card](https://huggingface.co/Qwen/Qwen3.5-Omni) or \
+              https://arxiv.org/abs/2509.17765. Junyang Lin said the release targets assistants.\n\n## What we \
+              found\n\nThe maker says it fits.\n";
+  assert_eq!(
+    terms(part, "Qwen3.5-Omni"),
+    [
+      "Qwen3.5-Omni",
+      "9. Draft reproduction plan",
+      "Qwen3.5-Omni-Flash",
+      "GPT-4o",
+      "MMLU-Pro",
+      "38.6 tokens/s",
+      "128K",
+      "21.4 GB",
+      "FP8",
+      "`vllm serve Qwen/Qwen3.5-Omni`",
+      "https://huggingface.co/Qwen/Qwen3.5-Omni",
+      "https://arxiv.org/abs/2509.17765",
+    ],
+    "each once, in order; prose words, plain figures and a heading holding no fixed name are not terms"
+  );
+  let long: String = (0..60).map(|n| format!("Model-{n}X ")).collect();
+  assert_eq!(terms(&long, "Thing").len(), 40, "at most forty");
 }

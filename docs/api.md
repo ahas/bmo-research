@@ -516,9 +516,16 @@ search runner applies it, and the run writes its document in English, the questi
   until each half fits. At most `translation.parts_out` parts are out at once, and the translations are
   joined in the body's order, a blank line between two.
 - **Each part carries the `note`,** the item's name set in: the translator's context, that the text is
-  part of a research report about the thing for the owner, that model, product and dataset names, figures,
-  units, code, links and the fixed section names stay as written, and the register of the owner's
-  documents.
+  part of a research report about the thing for the owner, in the register of the owner's documents.
+- **Each part carries its `terms`,** what it keeps exactly as written, each a term whose target is itself,
+  which agency hands the translation model as its own reference translations (agency's 「translations」):
+  the item's name; every inline code span, link address and bare web address; every fixed section name
+  (`prompts/document.toml`, `[sections]` and `[opening]`) a heading of the part holds, as the heading
+  writes it; every word of its prose holding both a letter and a digit, or a capital after its first
+  letter — a model, product or dataset name; and every figure with its unit, a number and the word after
+  it where that word holds a slash or is an abbreviation of at most four letters holding a capital. Each
+  stands once, in the order the part holds them, at most forty, read from the part's markdown by a
+  maintained library. A part halved is given the terms of each half.
 - **A note the translator answered as text is taken out:** where a translation holds more paragraphs than its
   part, and its first paragraph is prose saying the item's name while the part opens with a heading or with
   a paragraph not saying it, that paragraph restates the note and is dropped, as often as the count allows.
@@ -680,7 +687,8 @@ of these units, and reads each one's address and token from that unit's own file
   answers, however long a card it waits on takes; a turn's send alone is bounded, by its session's bound
   and a margin past it.
   `POST /sessions/{agentName}@worker/turns` with `prompt`, a notice to an agent. `POST /translation-runs`
-  with `purpose`, `language`, `text` and `note`, one part of a page's Korean side or its narration;
+  with `purpose`, `language`, `text`, `note` and `terms` (each a `source` alone, kept as written), one part
+  of a page's Korean side or its narration;
   answered 200 with `text`, 413 `too-large` or 503 `no-login-open`. A translation's call carries no clock
   of this unit's either: it is waited on until agency answers, however long the card the translations
   share takes to be granted and the part to be translated.

@@ -215,6 +215,102 @@ fn join(pieces: Vec<(String, &'static str)>) -> String {
   out
 }
 
+/// The most terms one part carries.
+const TERMS_MOST: usize = 40;
+
+/// Whether a word of prose is a name a translation keeps: one holding both a letter and a digit, or a capital
+/// after its first letter.
+fn names_a_thing(word: &str) -> bool {
+  let letters = word.chars().any(char::is_alphabetic);
+  let digits = word.chars().any(|c| c.is_ascii_digit());
+  (letters && digits) || word.chars().skip(1).any(|c| c.is_uppercase())
+}
+
+/// Whether a word after a number is its unit: one holding a slash, or an abbreviation of at most four letters
+/// holding a capital.
+fn unit(word: &str) -> bool {
+  let letters = word.chars().all(|c| c.is_alphabetic() || c == '/');
+  letters && (word.contains('/') || (word.chars().count() <= 4 && word.chars().any(char::is_uppercase)))
+}
+
+/// Whether a word is a number, a decimal mark or a thousands separator in it aside.
+fn number(word: &str) -> bool {
+  !word.is_empty()
+    && word.chars().any(|c| c.is_ascii_digit())
+    && word.chars().all(|c| c.is_ascii_digit() || c == '.' || c == ',')
+}
+
+/// What a part about `name` keeps exactly as written (`docs/api.md`, 「The page」), each once, in the order the
+/// part holds them, at most `TERMS_MOST`: the name; every inline code span, link address and bare web address;
+/// every fixed section name a heading holds, as the heading writes it; every word of prose naming a thing; and
+/// every figure with its unit.
+pub fn terms(part: &str, name: &str) -> Vec<String> {
+  use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
+  let fixed: Vec<&String> = {
+    let words = words::document();
+    [&words.sections, &words.opening]
+      .into_iter()
+      .flat_map(|s| [&s.manual, &s.investigation, &s.advisory, &s.brief])
+      .flatten()
+      .filter(|word| word.is_ascii())
+      .collect()
+  };
+  let mut found: Vec<String> = Vec::new();
+  let keep = |term: &str, found: &mut Vec<String>| {
+    let term = term.trim();
+    if !term.is_empty() && !found.iter().any(|had| had == term) {
+      found.push(term.to_string());
+    }
+  };
+  keep(name, &mut found);
+  let mut heading: Option<String> = None;
+  for event in Parser::new_ext(part, Options::empty()) {
+    match event {
+      Event::Start(Tag::Heading { .. }) => heading = Some(String::new()),
+      Event::End(TagEnd::Heading(_)) => {
+        if let Some(said) = heading.take() {
+          let said = said.trim();
+          if fixed.iter().any(|word| said.to_lowercase().contains(&word.to_lowercase())) {
+            keep(said, &mut found);
+          }
+        }
+      }
+      Event::Code(code) => {
+        keep(&format!("`{code}`"), &mut found);
+        if let Some(said) = heading.as_mut() {
+          said.push_str(&code);
+        }
+      }
+      Event::Start(Tag::Link { dest_url, .. }) => keep(&dest_url, &mut found),
+      Event::Text(text) => {
+        if let Some(said) = heading.as_mut() {
+          said.push_str(&text);
+        }
+        let words: Vec<&str> = text
+          .split_whitespace()
+          .map(|word| word.trim_matches(|c: char| "()[]{},.;:!?\"'*_".contains(c)))
+          .collect();
+        let mut at = 0;
+        while let Some(word) = words.get(at) {
+          if word.starts_with("http://") || word.starts_with("https://") {
+            keep(word, &mut found);
+          } else if number(word) && words.get(at + 1).is_some_and(|next| unit(next)) {
+            // The unit stands with its figure, never as a term of its own.
+            keep(&format!("{word} {}", words[at + 1]), &mut found);
+            at += 1;
+          } else if names_a_thing(word) && !number(word) {
+            keep(word, &mut found);
+          }
+          at += 1;
+        }
+      }
+      _ => {}
+    }
+  }
+  found.truncate(TERMS_MOST);
+  found
+}
+
 /// One part of a text about `name` translated; a part the translator finds too long, or translates short, is
 /// halved and each half asked again, in order, and a note the translator answered as text is taken out.
 pub async fn translate_part(
@@ -227,7 +323,7 @@ pub async fn translate_part(
   let mut waiting = vec![part.to_string()];
   let mut done = Vec::new();
   while let Some(piece) = waiting.pop() {
-    match peers.translate(language, &piece, note).await {
+    match peers.translate(language, &piece, (note, &terms(&piece, name))).await {
       Ok(text) => {
         let text = without_leaked_note(&piece, &text, name);
         match halve(&piece).filter(|_| cut_short(&piece, text)) {

@@ -213,6 +213,8 @@ async fn a_report_s_korean_side_is_drawn_into_the_same_page_with_a_switch_and_to
   for ask in &asks {
     assert_eq!((ask["purpose"].as_str(), ask["language"].as_str()), (Some("document"), Some("Korean")));
     assert_eq!(ask["note"], note("Thing-7B").as_str());
+    let terms = ask["terms"].as_array().expect("each part names its terms");
+    assert_eq!(terms[0], serde_json::json!({"source": "Thing-7B"}), "the name is kept as written");
   }
   assert_eq!(asks[0]["text"], "It is a thing. It does more.");
   let mut sent: Vec<&str> = asks[1..].iter().map(|a| a["text"].as_str().unwrap()).collect();

@@ -385,11 +385,20 @@ impl Peers {
     }
   }
 
-  /// One text translated by agency's translator, with the note that gives it its context: waited on until
-  /// agency answers, however long the card the translations share takes to be granted.
-  pub async fn translate(&self, language: &str, text: &str, note: &str) -> Result<String, Untranslated> {
+  /// One text translated by agency's translator, with the note that gives it its context and the terms it keeps
+  /// exactly as written: waited on until agency answers, however long the card the translations share takes
+  /// to be granted.
+  pub async fn translate(
+    &self,
+    language: &str,
+    text: &str,
+    (note, terms): (&str, &[String]),
+  ) -> Result<String, Untranslated> {
     let agency = self.agency().map_err(Untranslated::Failed)?;
-    let body = json!({ "purpose": "document", "language": language, "text": text, "note": note });
+    let terms: Vec<Value> = terms.iter().map(|term| json!({ "source": term })).collect();
+    let body = json!({
+      "purpose": "document", "language": language, "text": text, "note": note, "terms": terms,
+    });
     let answer = self
       .unclocked(&agency, reqwest::Method::POST, "/translation-runs")
       .json(&body)

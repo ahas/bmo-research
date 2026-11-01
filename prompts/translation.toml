@@ -4,8 +4,9 @@
 # The language the owner's copy is rendered in, as the translator's instructions ask for it.
 language = "Korean"
 
-# The note every part of the body and the description carry.
-note = "This text is part of a research report about {name}, written for the owner. Keep model, product and dataset names, figures, units, code, links and the fixed section names exactly as they are written. Write in the register of the owner's documents."
+# The note every part of the body and the description carry; what a part keeps exactly as written goes to the
+# translator as its terms (docs/api.md, "The page").
+note = "This text is part of a research report about {name}, written for the owner, in the register of the owner's documents."
 
 # The note a narration's script carries when it is translated to be spoken. The translation is the narration's
 # written words; the voice unit derives the spoken words from them.
