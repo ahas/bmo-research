@@ -124,6 +124,8 @@ pub struct World {
   pub voice_failing: bool,
   /// A text whose synthesis fails while it is set.
   pub voice_failing_on: Option<String>,
+  /// Whether the voice unit refuses every synthesis it is asked, as it refuses spoken words it cannot clear.
+  pub voice_refusing: bool,
   /// What each synthesis waits on, one sentence for each reading of it in turn, before it is spoken.
   pub voice_waiting_on: Vec<String>,
   /// The markup the stand-in explorer answers each page address with; an address not here answers 404.
@@ -611,6 +613,11 @@ async fn voice_synthesize(State(w): State<Shared>, method: Method, uri: Uri, bod
     .filter(|a| a.unit == "voice" && a.method == "POST")
     .count();
   let asked: Value = serde_json::from_slice(&body).unwrap_or_default();
+  if w.lock().unwrap().voice_refusing {
+    let refused =
+      json!({"code": "unconverted-run", "error": "The spoken words still hold the run Thing-7B."});
+    return (StatusCode::UNPROCESSABLE_ENTITY, axum::Json(refused)).into_response();
+  }
   (
     StatusCode::CREATED,
     axum::Json(

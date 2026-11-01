@@ -523,8 +523,10 @@ search runner applies it, and the run writes its document in English, the questi
   Korean side had is kept in the store (`docs/store.md`, `renderings`), so the page can be drawn again.
 - **The narration** is the result's `LISTEN:` script. The English sound speaks it as written; the Korean sound
   speaks it translated as one text with the `narration_note`, the item's name set in: that it is a spoken
-  narration, to be translated in short sentences, its figures written as they are read aloud and model and
-  product names kept. Each is spoken by the voice unit (「Calls this unit makes」) in the settings' voice, a
+  narration kept as its transcript, to be translated in short sentences, its names, acronyms, figures and
+  units kept as written. Each text handed to the voice is the narration's written words, and only those: the
+  voice unit derives the spoken words from it and checks them before it speaks. Each is spoken by the voice
+  unit (「Calls this unit makes」) in the settings' voice, a
   text of at most the 4,000 characters the voice unit speaks: a longer one is spoken up to the last sentence
   that ends within them, and the run's log says so. Each synthesis is followed until it is spoken or has
   failed, however long its card takes to be granted: nothing ends that wait, and while it waits, each time
@@ -536,7 +538,8 @@ search runner applies it, and the run writes its document in English, the questi
 - **A page is whole** once it holds its Korean side and every narration its result's script allows: both
   sounds where the result has a `LISTEN:` script, none where it has none, so a page whose result has no
   script is whole with its Korean side.
-- **A narration that cannot be made** — no voice, a translation refused, a synthesis failed — leaves the
+- **A narration that cannot be made** — no voice, a translation refused, a synthesis refused (the voice unit's
+  422 `unconverted-run` for spoken words it could not clear among them) or failed — leaves the
   document without that sound for now, and the sound is pending; why is written into the run's log under
   `narration`, the synthesis named with the length of the text it was asked to speak.
 - **What is pending is asked again on every retry wait,** `retry_minutes` after its last try, until it is
@@ -664,7 +667,8 @@ of these units, and reads each one's address and token from that unit's own file
   `expiresAt` a day ahead, its live link.
 - **the voice unit:** at the address and with the token its own settings file under `env/` names
   (`docs/settings.md`, 「Peers」): `GET /voices`, the first voice where the settings name none;
-  `POST /syntheses` with `voiceName` and `text`, a narration spoken; `GET /syntheses/{synthesisId}` read every
+  `POST /syntheses` with `voiceName` and `text`, the narration's written words, and no `spoken`, so the voice
+  unit derives the spoken words, a narration spoken; `GET /syntheses/{synthesisId}` read every
   second until its `state` is `done` or `failed`, however long that takes, its `waitingOn` read as it
   stands; and
   `GET /syntheses/{synthesisId}/sound`, the sound, OGG/Opus.

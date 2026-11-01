@@ -522,6 +522,50 @@ async fn a_failing_narration_is_asked_again_on_every_retry_wait_until_it_is_made
 }
 
 #[tokio::test]
+async fn a_narration_goes_to_the_voice_as_its_written_words_and_a_refusal_leaves_it_pending() {
+  let ground = support::ground(|s| s.retry_minutes = 0).await;
+  give_owner_room(&ground.app).await;
+  let item = ground
+    .app
+    .store
+    .ask("it", "example.org/thing", "Thing-7B", "https://example.org/thing", Shape::Manual)
+    .unwrap();
+  file(&ground, 1, 501, narrated(manual_document()));
+  ground.world.lock().unwrap().voice_refusing = true;
+
+  settle(&ground).await;
+
+  let asked = ground.asked_path("voice", "POST", "/syntheses");
+  assert_eq!(asked.len(), 2, "each language asked once");
+  for synthesis in &asked {
+    assert!(
+      synthesis.body.get("spoken").is_none(),
+      "the voice unit derives the spoken words: {:?}",
+      synthesis.body
+    );
+  }
+  assert!(ground.world.lock().unwrap().attachments.is_empty());
+  let waiting = ground.app.store.item(item.id).unwrap();
+  assert_eq!(waiting.state, ItemState::Finishing);
+  assert_eq!(waiting.pending, ["narration-ko", "narration-en"]);
+  let narrated = logged(&ground, "narration");
+  assert!(
+    narrated
+      .iter()
+      .any(|text| text.contains("unconverted-run") && text.contains("Thing-7B")),
+    "the run's log carries the refusal's code and sentence: {narrated:?}"
+  );
+  assert!(orders(&ground).is_empty());
+
+  ground.world.lock().unwrap().voice_refusing = false;
+  settle(&ground).await;
+
+  let told = ground.app.store.item(item.id).unwrap();
+  assert_eq!(told.narrations, ["ko", "en"]);
+  assert_eq!(orders(&ground).len(), 1);
+}
+
+#[tokio::test]
 async fn a_missing_english_sound_is_logged_and_retried_on_the_retry_wait() {
   let ground = support::ground(|s| s.retry_minutes = 0).await;
   give_owner_room(&ground.app).await;
