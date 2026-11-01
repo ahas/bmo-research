@@ -89,12 +89,14 @@ impl Default for Road {
   }
 }
 
-/// How a filed document's body is cut for the translator.
+/// How a filed document's body is cut for the translator, and how many translations are out with it at
+/// once: of one page, and across the unit, the translator's slots.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Translation {
   pub part_chars: usize,
   pub parts_out: usize,
+  pub parts_out_total: usize,
 }
 
 impl Default for Translation {
@@ -102,6 +104,7 @@ impl Default for Translation {
     Translation {
       part_chars: 2500,
       parts_out: 2,
+      parts_out_total: 4,
     }
   }
 }

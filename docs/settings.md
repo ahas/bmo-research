@@ -40,6 +40,7 @@ How a page's body is cut for agency's translator (`docs/api.md`, 「The page」)
 |---|---|---|
 | `part_chars` | 2500 | The most characters one part sent to the translator holds |
 | `parts_out` | 2 | How many parts of one document are out with the translator at once |
+| `parts_out_total` | 4 | How many translations this unit has out with the translator at once across every page, its titles, sections and narrations included: the translator's slots. The rest wait their turn here, in the order they were asked |
 
 ## The engine watch: `[engine]`
 

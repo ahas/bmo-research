@@ -528,8 +528,13 @@ search runner applies it, and the run writes its document in English, the questi
 - **The body is cut at its headings** into parts no longer than `translation.part_chars` characters
   (`docs/settings.md`): whole sections are gathered into a part while they fit, and a section longer than
   that is halved, at a heading, else a blank line, else a line's end, else a space, nearest its middle,
-  until each half fits. At most `translation.parts_out` parts are out at once, and the translations are
-  joined in the body's order, a blank line between two.
+  until each half fits. At most `translation.parts_out` parts of one page are out at once, and the
+  translations are joined in the body's order, a blank line between two.
+- **The translator is asked no more at once than it has slots:** across every page being drawn, and the
+  titles, descriptions, sections and narrations beside them, at most `translation.parts_out_total`
+  translations are out with agency at once (`docs/settings.md`). Every other one waits its turn in this
+  unit, with no clock, in the order it was asked, so a redraw of many pages queues here and not at the
+  engine, which takes no more at once than its slots.
 - **A part's structure is the daemon's, and only its prose is sent.** The part is read into its blocks by a
   maintained library, a table written without the row under its head given that row first, as the page
   draws it (`docs/runner.md`, 「The page」). Its pieces of prose are each heading's words, each paragraph,

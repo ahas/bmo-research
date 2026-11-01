@@ -195,6 +195,34 @@ async fn a_manual_is_asked_read_filed_and_told_with_what_the_owner_s_word_needs(
 }
 
 #[tokio::test]
+async fn the_translator_is_asked_no_more_at_once_than_its_slots_and_the_rest_wait_their_turn_here() {
+  let ground = support::ground(|s| s.translation.parts_out_total = 3).await;
+  let mut asked = tokio::task::JoinSet::new();
+  for n in 0..9 {
+    let app = ground.app.clone();
+    asked.spawn(async move {
+      app
+        .peers
+        .translate("Korean", &format!("Part {n} of a page."), (&note("Thing-7B"), &[]))
+        .await
+    });
+  }
+  let mut answered = 0;
+  while let Some(done) = asked.join_next().await {
+    done.unwrap().expect("every translation is answered in its turn");
+    answered += 1;
+  }
+
+  assert_eq!(answered, 9);
+  assert_eq!(translations(&ground).len(), 9, "each one asked once");
+  assert_eq!(
+    ground.world.lock().unwrap().translating_most,
+    3,
+    "never more out with agency at once than the translator's slots"
+  );
+}
+
+#[tokio::test]
 async fn a_report_s_korean_side_is_drawn_into_the_same_page_with_a_switch_and_told_with_one_link() {
   let ground = support::ground(|s| {
     s.translation.part_chars = 400;

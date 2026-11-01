@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use serde::Deserialize;
 use serde_json::{Value, json};
+use tokio::sync::Semaphore;
 
 use crate::config::Settings;
 
@@ -169,12 +170,16 @@ impl Demand {
 pub struct Peers {
   http: reqwest::Client,
   settings: Arc<Settings>,
+  /// The translations out with agency's translator at once, across every page: at most
+  /// `translation.parts_out_total`, every other waiting its turn here in the order it was asked.
+  translating: Arc<Semaphore>,
 }
 
 impl Peers {
   pub fn new(settings: Arc<Settings>) -> Peers {
     Peers {
       http: reqwest::Client::new(),
+      translating: Arc::new(Semaphore::new(settings.translation.parts_out_total.max(1))),
       settings,
     }
   }
@@ -397,14 +402,19 @@ impl Peers {
   }
 
   /// One text translated by agency's translator, with the note that gives it its context and the terms it keeps
-  /// exactly as written: waited on until agency answers, however long the card the translations share takes
-  /// to be granted.
+  /// exactly as written: sent once fewer than `translation.parts_out_total` others are out, and waited on until
+  /// agency answers, however long the card the translations share takes to be granted.
   pub async fn translate(
     &self,
     language: &str,
     text: &str,
     (note, terms): (&str, &[String]),
   ) -> Result<String, Untranslated> {
+    let _out = self
+      .translating
+      .acquire()
+      .await
+      .map_err(|e| Untranslated::Failed(format!("the translator's turns are closed: {e}")))?;
     let agency = self.agency().map_err(Untranslated::Failed)?;
     let terms: Vec<Value> = terms.iter().map(|term| json!({ "source": term })).collect();
     let body = json!({
