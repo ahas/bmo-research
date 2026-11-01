@@ -62,6 +62,8 @@ pub struct World {
   pub next_seat: i64,
   /// How many admission asks a seat waits through before it is let in.
   pub seat_waits: u32,
+  /// How long the next admission ask waits before it is answered, in milliseconds.
+  pub admission_wait_ms: u64,
   /// The research runs whose turns end failed, having written nothing.
   pub failing: BTreeSet<i64>,
   /// The research runs whose turns agency cannot carry, answered 503 as agency failing on its side.
@@ -224,6 +226,10 @@ async fn agency_seat_move(
 ) -> Response {
   keep(&w, "agency", &method, &uri, &body);
   let change: Value = serde_json::from_slice(&body).unwrap_or_default();
+  if !matches!(change["state"].as_str(), Some("finished" | "bound")) {
+    let wait = std::mem::take(&mut w.lock().unwrap().admission_wait_ms);
+    tokio::time::sleep(std::time::Duration::from_millis(wait)).await;
+  }
   let mut world = w.lock().unwrap();
   match change["state"].as_str() {
     Some("finished") => axum::Json(json!({"held": !world.seats_dropped})).into_response(),

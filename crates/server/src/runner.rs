@@ -698,11 +698,11 @@ impl Going {
   }
 }
 
-/// The change that asks a waiting seat for its place, within the demand its run or branch holds where it holds
-/// one.
+/// The change that asks a waiting seat for its place, standing on the demand its run or branch holds where it
+/// holds one, so agency asks no card of the seat's own.
 pub fn admission(demand: Option<i64>) -> Value {
   match demand {
-    Some(demand) => json!({ "state": "admitted", "within": demand }),
+    Some(demand) => json!({ "state": "admitted", "demandId": demand }),
     None => json!({ "state": "admitted" }),
   }
 }
@@ -710,7 +710,7 @@ pub fn admission(demand: Option<i64>) -> Value {
 /// One research sent out (`docs/runner.md`, 「One run, step by step」): composed, seated, its session started,
 /// and the rest carried on in the background; answered at once with what it went out on. A run asked for a
 /// room queues its end for it; a deep dive's tells nothing. A run handed the arbiter demand its try was
-/// granted stands on it: its seat is admitted within it and its sessions stand on it.
+/// granted stands on it: its seat and its sessions stand on it.
 pub async fn launch(
   app: Arc<App>,
   ask: ResearchRunAsk,

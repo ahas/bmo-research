@@ -226,6 +226,42 @@ async fn a_search_is_seated_sent_asked_its_rounds_filed_and_told_to_its_room() {
 }
 
 #[tokio::test]
+async fn a_seat_s_admission_answered_past_half_a_minute_still_seats_its_run() {
+  let (ground, _base, client) = served().await;
+  {
+    let mut world = ground.world.lock().unwrap();
+    world.seat_waits = 1;
+    world.admission_wait_ms = 31_000;
+  }
+  let asked = client
+    .ask_research(&ResearchRunAsk {
+      key: "search:thorough".into(),
+      query: "Which engine serves Thing-7B fastest?".into(),
+      ..ResearchRunAsk::default()
+    })
+    .await
+    .unwrap();
+  assert_eq!(asked.state, ResearchRunState::Waiting);
+
+  let mut row = ground.app.store.research_run(asked.run_id).unwrap();
+  for _ in 0..1_200 {
+    if row.state == ResearchRunState::Closed {
+      break;
+    }
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    row = ground.app.store.research_run(asked.run_id).unwrap();
+  }
+  let run = row.view();
+  assert_eq!(run.outcome.as_deref(), Some("answered"), "{:?}", run.error);
+  let admissions = ground
+    .asked_path("agency", "PATCH", "/seat-requests/seat-1")
+    .into_iter()
+    .filter(|a| a.body["state"] == "admitted")
+    .count();
+  assert_eq!(admissions, 2, "the slow admission waited on, then the one that let the seat in");
+}
+
+#[tokio::test]
 async fn a_run_naming_its_road_and_no_room_is_told_to_none_and_a_browse_carries_no_rulebook() {
   let (ground, _base, client) = served().await;
   let asked = client

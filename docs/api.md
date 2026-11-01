@@ -420,8 +420,8 @@ the one to read.
   however long that takes, the hold in `GET /state` saying why. A demand the master no longer holds is
   asked again; a master that cannot be reached is asked again on the next pass, and said in the log once
   while the failure stays the same.
-- **The demand is held for the whole run** and handed to it: the run's seat asks its admission within it
-  and the run's sessions stand on it (「Calls this unit makes」). It is given back with
+- **The demand is held for the whole run** and handed to it: the run's seat and its sessions stand on it,
+  so agency asks no card of its own for them (「Calls this unit makes」). It is given back with
   `DELETE /demands/{demandId}` once the run has closed with its document, before the page is finished, or
   as the try ends where it ends sooner, however it ends; a pass of the loop gives back any demand whose try
   has ended or whose branch's run has closed. A daemon that starts gives back every
@@ -642,7 +642,8 @@ of these units, and reads each one's address and token from that unit's own file
   one is named, `workKey` and `source`, a run's or a branch's seat, answered with its `token`, `state`,
   `provider`, `model`, `effort` and `tier`; `PATCH /seat-requests/{token}` naming `admitted` (its place asked
   for), `bound` with `childId` (bound to its session) or `finished` with `outcome`, and `cancel` where it never
-  ran; an admission of a seat whose run or branch holds a card names `within`, that card's demand id.
+  ran; an admission of a seat whose run or branch holds a card names `demandId`, that card's demand id, the
+  seat standing on it with no card of its own asked.
   `POST /sessions` with `agent`, `scope` `apart`, `provider`, `model`, `cwd`, `line`, `systemPrompt`,
   `labels`, `toolsAllowed` and `boundMs`, and `demandId` where its run or branch holds a card, answered
   with the session's `id`, or 503 `line-not-carried`.
@@ -650,6 +651,9 @@ of these units, and reads each one's address and token from that unit's own file
   `cwd`, `name`, `title`, `chat`, `workKey`, `hearsWords`, `variables`), answered once the turn ends with its
   `answer`. `DELETE /sessions/{id}`, the session ended, answered 409 while its turn runs. `GET /roles`, the
   co-worker roles a branch role is checked against.
+  No call of the seat and session routes carries a clock of this unit's: each is waited on until agency
+  answers, however long a card it waits on takes; a turn's send alone is bounded, by its session's bound
+  and a margin past it.
   `POST /sessions/{agentName}@worker/turns` with `prompt`, a notice to an agent. `POST /translation-runs`
   with `purpose`, `language`, `text` and `note`, one part of a page's Korean side or its narration;
   answered 200 with `text`, 413 `too-large` or 503 `no-login-open`.

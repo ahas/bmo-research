@@ -82,7 +82,9 @@ of a run is this unit's.
    place, `running` once admitted), its road and the moment its web tools close. The run's clock starts at the
    ask, so a seat that waits spends the run's own time.
 6. **The admission:** a seat still waiting is asked for its place again every half second (`PATCH` naming
-   `admitted`, and `within` the run's demand where it holds one) until it is let in, then bound to the session (`PATCH` naming `bound` with the session's id). A
+   `admitted`, and `demandId` the run's demand where it holds one, which the seat stands on with no card of
+   its own asked, whatever model its work key resolved to) until it is let in, then bound to the session
+   (`PATCH` naming `bound` with the session's id). A
    seat the pool ends, or one still waiting when the clock runs out, ends the run with no answer, and the
    run is cut (「A cut run」).
 7. **The first turn:** the request, as one turn of the session (`POST /sessions/{id}/turns`) carrying the work
@@ -141,8 +143,8 @@ of a run is this unit's.
   that bound and half a minute more.
 - **A branch of a run holding a demand** asks the arbiter's master its own first, for the service the engine
   watch maps the branch's model to, `within` the run's demand, and waits for the grant until research
-  closes; its seat's admission names `within` that demand and its session stands on it as `demandId`, and
-  it is given back as the branch ends (`docs/api.md`, 「The engine」).
+  closes; its seat's admission and its session both stand on that demand, naming it as `demandId`, and it
+  is given back as the branch ends (`docs/api.md`, 「The engine」).
 - **A branch ends** `completed`, `stopped` (cut at the close, its notes as far as they got) or `failed`, its
   session ended and its seat given back with the same word; a caller that lets go of the ask ends it the same
   way.
