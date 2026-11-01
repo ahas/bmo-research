@@ -1,6 +1,7 @@
 //! The store and the queue's rules (`docs/store.md`, `docs/api.md` 「queue」): the categories it starts with,
 //! the cap per category, the queue's order, a candidate judged once, where each item came from, a stuck item's
-//! moves, and the step that stands every item a store held given up stuck.
+//! moves, an error dated by its try, the step that stands every item a store held given up stuck, and the step
+//! that dates every error the store held.
 
 mod support;
 
@@ -8,7 +9,7 @@ use bmo_research_client::{
   CategoryShape, ItemState, NewCategory, NewSource, OriginKind, RecipientKind, Running, Shape,
 };
 use research_server::sources::{Candidate, ItemKind};
-use research_server::store::{Asked, Filed, Refusal, Store, schema_version};
+use research_server::store::{Asked, Filed, Refusal, Store, now_ms, schema_version};
 
 fn store() -> Store {
   Store::open(&support::scratch().join("research")).unwrap()
@@ -230,6 +231,7 @@ fn the_step_that_keeps_repairs_stands_every_given_up_item_stuck_with_its_retry_d
          where id = {};
        insert into reports (item_id, recipient, kind, state, at) values ({}, 'room:7', 'failed', 'sent', 1);
        alter table queue drop column repair_item_id;
+       alter table queue drop column error_at;
        alter table research_runs drop column continues;
        alter table research_runs drop column answered;
        drop table translated_parts;
@@ -256,6 +258,63 @@ fn the_step_that_keeps_repairs_stands_every_given_up_item_stuck_with_its_retry_d
   let conn = rusqlite::Connection::open(dir.join("research.db")).unwrap();
   let kinds: String = conn.query_row("select group_concat(kind) from reports", [], |r| r.get(0)).unwrap();
   assert_eq!(kinds, "stuck");
+}
+
+#[test]
+fn the_step_that_dates_errors_dates_each_by_the_latest_try_that_carried_its_item() {
+  let dir = support::scratch().join("research");
+  let store = Store::open(&dir).unwrap();
+  let lead = store
+    .ask("economy", "example.org/e1", "E1", "https://example.org/e1", Shape::Brief)
+    .unwrap();
+  let other = store
+    .ask("economy", "example.org/e2", "E2", "https://example.org/e2", Shape::Brief)
+    .unwrap();
+  let quiet = store.ask("it", "example.org/q", "q", "https://example.org/q", Shape::Manual).unwrap();
+  let (run, _) = store.start_try("economy", &[lead.id, other.id]).unwrap().unwrap();
+  store.keep_run_id(run, 116).unwrap();
+  store
+    .requeue(run, "cut", Some("cut"), "agency went away, so the try is not counted", 3)
+    .unwrap();
+  drop(store);
+  // The store as it stood one step before: the try ended at a known time, and no item dated.
+  let conn = rusqlite::Connection::open(dir.join("research.db")).unwrap();
+  conn
+    .execute_batch(&format!(
+      "update runs set ended_at = 5000 where id = {run};
+       alter table queue drop column error_at;
+       pragma user_version = {};",
+      schema_version() - 1
+    ))
+    .unwrap();
+  drop(conn);
+
+  let store = Store::open(&dir).unwrap();
+  assert_eq!(store.version().unwrap(), schema_version());
+  for id in [lead.id, other.id] {
+    let item = store.item(id).unwrap();
+    assert_eq!((item.error.is_some(), item.error_at), (true, Some(5000)), "item {id}");
+  }
+  assert_eq!(store.item(quiet.id).unwrap().error_at, None, "an item with no error stays undated");
+}
+
+#[test]
+fn an_error_is_dated_by_its_try_and_cleared_as_the_next_starts() {
+  let store = store();
+  let item = store.ask("it", "example.org/d", "d", "https://example.org/d", Shape::Manual).unwrap();
+  let (run, _) = store.start_try("it", &[item.id]).unwrap().unwrap();
+  let before = now_ms();
+  store
+    .requeue(run, "cut", Some("cut"), "agency went away, so the try is not counted", 3)
+    .unwrap();
+  let back = store.item(item.id).unwrap();
+  assert!(back.error_at.is_some_and(|at| at >= before), "{back:?}");
+  let (run, _) = store.start_try("it", &[item.id]).unwrap().unwrap();
+  assert_eq!(store.item(item.id).unwrap().error_at, None, "a try under way carries no outcome yet");
+  store.fail_try(run, "the turn wrote nothing", now_ms() + 60_000, false).unwrap();
+  let failed = store.item(item.id).unwrap();
+  assert_eq!(failed.error.as_deref(), Some("the turn wrote nothing"));
+  assert!(failed.error_at.is_some_and(|at| at >= before));
 }
 
 #[test]

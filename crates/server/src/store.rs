@@ -35,7 +35,9 @@ use crate::translation::Rendering;
 /// had, so each sound is found attached and the page drawn again whole from what the store keeps; the twelfth
 /// keeps, for a run that continues, the run it continues and the rounds each run answered, and, for a deep
 /// dive's page, each part of its Korean side as it is had, the texts its review rewrote and its Korean
-/// narration's words, its one review, and how often each narration was asked anew.
+/// narration's words, its one review, and how often each narration was asked anew; the thirteenth keeps when
+/// the try an item's error names ended, an error standing before it dated by the latest try that carried the
+/// item, else by the item's last change.
 const MIGRATIONS: &[&str] = &[
   "
   create table categories (
@@ -189,6 +191,14 @@ const MIGRATIONS: &[&str] = &[
     document_id integer not null, language text not null, renewed integer not null,
     primary key (document_id, language));
 ",
+  "
+  alter table queue add column error_at integer;
+  update queue set error_at = coalesce(
+      (select max(runs.ended_at) from runs
+        where runs.item_id = queue.id or (queue.run_id is not null and runs.run_id = queue.run_id)),
+      changed_at)
+    where error is not null;
+",
 ];
 
 /// A page's one review (`docs/store.md`, `page_reviews`): what it wrote, the indices of its fixes applied or
@@ -238,7 +248,7 @@ const ITEM_COLUMNS: &str =
   job_item_id, error, found_at, created_at, changed_at, languages, narrations, pending, pending_retry_at,
   origin, because, parent_item_id, parent_document_id, parent_title, parent_share_url,
   (select sources.kind || ' (' || coalesce(sources.query, sources.address) || ')' from sources
-    where sources.id = queue.source_id), repair_item_id";
+    where sources.id = queue.source_id), repair_item_id, error_at";
 
 const SOURCE_COLUMNS: &str =
   "id, category, kind, address, query, require, exclude, every_minutes, item_limit,
@@ -1037,25 +1047,36 @@ impl Store {
       .map_err(|e| e.to_string())
   }
 
-  /// Whether a category holds a waiting or stuck item whose retry stands set and is due.
-  pub fn retry_due(&self, category: &str, now: i64) -> Result<bool, String> {
-    self
-      .lock()
-      .query_row(
-        "select exists (select 1 from queue where category = ?1 and state in ('waiting', 'stuck')
-           and retry_at is not null
-           and retry_at <= ?2)",
-        params![category, now],
-        |r| r.get(0),
-      )
-      .map_err(|e| e.to_string())
-  }
-
   /// When a category's latest try was asked, or none.
   pub fn last_try_at(&self, category: &str) -> Result<Option<i64>, String> {
     self
       .lock()
       .query_row("select max(started_at) from runs where category = ?1", params![category], |r| r.get(0))
+      .map_err(|e| e.to_string())
+  }
+
+  /// When the latest of a category's tries that filed its document was asked, or none.
+  pub fn last_filed_at(&self, category: &str) -> Result<Option<i64>, String> {
+    self
+      .lock()
+      .query_row(
+        "select max(started_at) from runs where category = ?1 and state = 'closed'",
+        params![category],
+        |r| r.get(0),
+      )
+      .map_err(|e| e.to_string())
+  }
+
+  /// Whether a category holds a waiting or stuck item whose retry is still to come.
+  pub fn retry_ahead(&self, category: &str, now: i64) -> Result<bool, String> {
+    self
+      .lock()
+      .query_row(
+        "select exists (select 1 from queue where category = ?1 and state in ('waiting', 'stuck')
+           and retry_at is not null and retry_at > ?2)",
+        params![category, now],
+        |r| r.get(0),
+      )
       .map_err(|e| e.to_string())
   }
 
@@ -1081,7 +1102,7 @@ impl Store {
       let n = tx
         .execute(
           "update queue set state = 'running', tries = tries + 1, retry_at = null, run_id = null, error = null,
-             changed_at = ?2 where id = ?1 and state in ('waiting', 'stuck')",
+             error_at = null, changed_at = ?2 where id = ?1 and state in ('waiting', 'stuck')",
           params![id, now],
         )
         .map_err(|e| e.to_string())?;
@@ -1163,7 +1184,7 @@ impl Store {
     for id in items {
       let n = conn
         .execute(
-          "update queue set state = ?2, retry_at = ?3, error = ?4, changed_at = ?5
+          "update queue set state = ?2, retry_at = ?3, error = ?4, error_at = ?5, changed_at = ?5
            where id = ?1 and state = 'running'",
           params![id, if stuck { "stuck" } else { "waiting" }, retry_at, error, now_ms()],
         )
@@ -1182,7 +1203,8 @@ impl Store {
       .lock()
       .execute(
         "update queue set state = 'finishing', document_id = ?2, title = ?3, description = ?4, share_url = ?5,
-           fit = ?6, touches = ?7, plan = ?8, error = null, languages = '[\"en\"]', narrations = '[]',
+           fit = ?6, touches = ?7, plan = ?8, error = null, error_at = null, languages = '[\"en\"]',
+           narrations = '[]',
            pending = '[]', pending_retry_at = ?10, changed_at = ?9
          where id = ?1 and state = 'running'",
         params![
@@ -1585,7 +1607,7 @@ impl Store {
       conn
         .execute(
           "update queue set state = case when max(tries - 1, 0) > ?4 then 'stuck' else 'waiting' end,
-             tries = max(tries - 1, 0), retry_at = null, error = ?3, changed_at = ?2
+             tries = max(tries - 1, 0), retry_at = null, error = ?3, error_at = ?2, changed_at = ?2
            where id = ?1 and state = 'running'",
           params![id, now_ms(), error, retries],
         )
@@ -2427,6 +2449,7 @@ fn read_item(r: &rusqlite::Row<'_>) -> rusqlite::Result<Item> {
     job_item_id: r.get(22)?,
     repair_item_id: r.get(38)?,
     error: r.get(23)?,
+    error_at: r.get(39)?,
     found_at: r.get(24)?,
     created_at: r.get(25)?,
     changed_at: r.get(26)?,

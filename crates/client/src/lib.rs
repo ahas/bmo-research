@@ -563,8 +563,10 @@ pub struct Item {
   pub job_item_id: Option<i64>,
   /// the job item filed for the helper while it is stuck, to fix the cause
   pub repair_item_id: Option<i64>,
-  /// why its latest try failed or was interrupted
+  /// why its latest try failed or was interrupted: that try's outcome, not how the item stands now
   pub error: Option<String>,
+  /// when the try `error` names ended
+  pub error_at: Option<i64>,
   pub found_at: i64,
   pub created_at: i64,
   pub changed_at: i64,

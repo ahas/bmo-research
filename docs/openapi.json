@@ -636,9 +636,17 @@
             ]
           },
           "error": {
-            "description": "why its latest try failed or was interrupted",
+            "description": "why its latest try failed or was interrupted: that try's outcome, not how the item stands now",
             "type": [
               "string",
+              "null"
+            ]
+          },
+          "errorAt": {
+            "description": "when the try `error` names ended",
+            "format": "int64",
+            "type": [
+              "integer",
               "null"
             ]
           },
@@ -813,6 +821,7 @@
           "jobItemId",
           "repairItemId",
           "error",
+          "errorAt",
           "foundAt",
           "createdAt",
           "changedAt"

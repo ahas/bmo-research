@@ -125,8 +125,12 @@ shape, its cap, its cadence, its road, and its report rooms. Three stand at the 
   past what the exposure judgement needs. A reported item says which hosts and repositories it touches.
 - **The economy category keeps facts.** Each brief's figures (an index, a rate, a price, a release) are
   written to the store with their source and date, so a later system reads a series, not documents.
-- **Each category has its own cap, cadence, road and rooms,** so one category's flood never starves
-  another, and a category can be stopped alone. The owner's private room is every category's first room.
+- **Each category has its own cap, cadence, road and rooms,** and a category can be stopped alone. The
+  owner's private room is every category's first room.
+- **The categories take turns at `concurrency`.** Of the running categories with a try due, the next try
+  goes to the one whose last try was asked longest ago, one never tried first; an item's priority orders its
+  own category's part of the queue and never another's. So one category's flood, or a string of asks in it,
+  never starves another (`docs/api.md`, 「queue」).
 - **A category the owner adds later** needs a shape: one of the three above, or a new template under
   `prompts/` with its rulebook under `prompts/rules/`, named in `prompts/runner.toml`.
 

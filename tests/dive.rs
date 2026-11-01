@@ -6,7 +6,8 @@
 //! missing one logged and asked again on every retry wait, a synthesis waited on however long with its
 //! reasons logged, and a long script cut to what the voice speaks, the pending Korean side drawn into the
 //! same page, the report held until the page is whole and told once, across a restart too, an advisory's
-//! parts to the workers of its repositories, a brief's gathering with its facts, the page opening with what
+//! parts to the workers of its repositories, a brief's gathering with its facts, a brief cut short gathered
+//! again at once and a failed one waiting its retry whole, the categories taking turns, the page opening with what
 //! its subject is and saying under its title where the research came from, a result with no opening
 //! asked again whole, and every filed page drawn again where the archive keeps it drawn otherwise. The filed documents are
 //! composed from the English words `prompts/document.toml` holds, so this file holds none of them.
@@ -1694,17 +1695,7 @@ async fn a_brief_gathers_its_category_s_items_into_one_run_and_keeps_the_figures
   let two = store
     .ask("economy", "example.org/e2", "E2", "https://example.org/e2", Shape::Brief)
     .unwrap();
-  let w = &words::document().brief[0];
-  let document = format!(
-    "# Brief\n\n## {}\n\n| {} | {} | {} | {} | {} |\n|---|---|---|---|---|\n| index-a | 2,650.1 | pt | 2026-10-29 | [page](https://example.org/e1) |\n",
-    words::document().sections.brief[0],
-    w.name,
-    w.value,
-    w.unit,
-    w.as_of,
-    w.source
-  );
-  file(&ground, 1, 300, document);
+  file(&ground, 1, 300, brief_document());
 
   settle(&ground).await;
 
@@ -1730,6 +1721,125 @@ async fn a_brief_gathers_its_category_s_items_into_one_run_and_keeps_the_figures
     .unwrap();
   settle(&ground).await;
   assert_eq!(ground.run_seats().len(), 1);
+}
+
+/// A brief document holding one figure.
+fn brief_document() -> String {
+  let w = &words::document().brief[0];
+  format!(
+    "# Brief\n\n## {}\n\n| {} | {} | {} | {} | {} |\n|---|---|---|---|---|\n| index-a | 2,650.1 | pt | 2026-10-29 | [page](https://example.org/e1) |\n",
+    words::document().sections.brief[0],
+    w.name,
+    w.value,
+    w.unit,
+    w.as_of,
+    w.source
+  )
+}
+
+#[tokio::test]
+async fn a_brief_cut_short_is_gathered_again_on_the_next_pass_uncounted() {
+  let ground = support::ground(|s| s.retry_minutes = 60).await;
+  give_owner_room(&ground.app).await;
+  let store = &ground.app.store;
+  let one = store
+    .ask("economy", "example.org/e1", "E1", "https://example.org/e1", Shape::Brief)
+    .unwrap();
+  let two = store
+    .ask("economy", "example.org/e2", "E2", "https://example.org/e2", Shape::Brief)
+    .unwrap();
+  ground.world.lock().unwrap().turns_lost.insert(1);
+  file(&ground, 2, 300, brief_document());
+
+  settle(&ground).await;
+  assert_eq!(store.research_run(1).unwrap().outcome.as_deref(), Some("cut"));
+  for id in [one.id, two.id] {
+    let waiting = store.item(id).unwrap();
+    assert_eq!((waiting.state, waiting.tries, waiting.retry_at), (ItemState::Waiting, 0, None));
+    assert!(waiting.error.unwrap().contains("not counted"));
+    assert!(waiting.error_at.is_some(), "the cut try's outcome is dated");
+  }
+
+  // The gathering time counts from a brief that was filed, so the cut one is gathered again at once.
+  settle(&ground).await;
+  for id in [one.id, two.id] {
+    let reported = store.item(id).unwrap();
+    assert_eq!(
+      (reported.state, reported.tries, reported.error, reported.error_at),
+      (ItemState::Reported, 1, None, None)
+    );
+  }
+  let tries = store.runs(None, Some("economy"), None, 10).unwrap().items;
+  let states: Vec<&str> = tries.iter().map(|r| r.state.as_str()).collect();
+  assert_eq!(states, ["closed", "cut"]);
+
+  // Once one is filed, the next gathering waits its gathering time.
+  store
+    .ask("economy", "example.org/e3", "E3", "https://example.org/e3", Shape::Brief)
+    .unwrap();
+  settle(&ground).await;
+  assert_eq!(store.runs(None, Some("economy"), None, 10).unwrap().items.len(), 2);
+}
+
+#[tokio::test]
+async fn a_brief_that_failed_waits_its_retry_whole_and_is_gathered_again_with_what_came_since() {
+  let ground = support::ground(|s| s.retry_minutes = 60).await;
+  let store = &ground.app.store;
+  let one = store
+    .ask("economy", "example.org/e1", "E1", "https://example.org/e1", Shape::Brief)
+    .unwrap();
+  let (run, _) = store.start_try("economy", &[one.id]).unwrap().unwrap();
+  store
+    .end_run(run, "failed", None, Some("the run closed with no document filed"))
+    .unwrap();
+  store
+    .fail_try(run, "the run closed with no document filed", now_ms() + 60 * 60_000, false)
+    .unwrap();
+  let two = store
+    .ask("economy", "example.org/e2", "E2", "https://example.org/e2", Shape::Brief)
+    .unwrap();
+
+  settle(&ground).await;
+  assert!(ground.run_seats().is_empty(), "the gathering waits for the failed item's retry");
+  assert_eq!(store.item(two.id).unwrap().state, ItemState::Waiting);
+
+  // Its retry due, both are gathered into one run.
+  let conn = rusqlite::Connection::open(ground.app.settings.store_dir().join("research.db")).unwrap();
+  conn.execute("update queue set retry_at = 0 where id = ?1", [one.id]).unwrap();
+  drop(conn);
+  file(&ground, 1, 300, brief_document());
+  settle(&ground).await;
+  assert_eq!(ground.run_seats().len(), 1);
+  let query = ground.turns_named("research-1")[0]["prompt"].as_str().unwrap().to_string();
+  assert!(query.contains("https://example.org/e1") && query.contains("https://example.org/e2"));
+}
+
+#[tokio::test]
+async fn the_categories_take_turns_and_one_s_priority_never_takes_another_s_turn() {
+  let ground = support::ground(|_| {}).await;
+  let store = &ground.app.store;
+  // `it` ran a try a moment ago and now holds an item moved to its front; security has not run at all.
+  let it = store.ask("it", "example.org/i", "I", "https://example.org/i", Shape::Manual).unwrap();
+  let (run, _) = store.start_try("it", &[it.id]).unwrap().unwrap();
+  store.end_run(run, "refused", None, Some("earlier")).unwrap();
+  store.fail_try(run, "earlier", 0, false).unwrap();
+  let fronted = store.front(it.id).unwrap();
+  let sec = store
+    .ask("security", "example.org/s", "S", "https://example.org/s", Shape::Advisory)
+    .unwrap();
+  assert!(fronted.priority > store.item(sec.id).unwrap().priority);
+
+  let handles = tick(&ground.app).await;
+  assert_eq!(handles.len(), 1, "one run at a time");
+  for handle in handles {
+    handle.await.unwrap();
+  }
+  let first = &ground.turns_named("research-1")[0];
+  assert!(
+    first["prompt"].as_str().unwrap().contains("https://example.org/s"),
+    "security's turn comes first"
+  );
+  assert_eq!(store.item(it.id).unwrap().tries, 1, "it waits its turn");
 }
 
 #[tokio::test]

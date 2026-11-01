@@ -166,7 +166,9 @@ the one to read.
   advisory names), `plan` (the heading of the document's plan section, as the document holds it),
   `jobItemId` (the job item the chat agent filed for it), `repairItemId` (the job item filed for the helper
   while it is stuck, 「The repair」; null where none was), `error` (why its latest try failed or was
-  interrupted, null after one that filed its document), `foundAt`, `createdAt` and `changedAt`.
+  interrupted: that try's outcome, not how the item stands now; null while a try is under way and after one
+  that filed its document), `errorAt` (when that try ended, null where `error` is), `foundAt`, `createdAt`
+  and `changedAt`.
 - **Where an item came from** is its `origin`, an object whose `kind` is one of three:
   - `source`, an item a scan took in: `source` names the source that found it, by its kind and what it
     reads (its query, else its address), null where that source no longer stands;
@@ -184,10 +186,13 @@ the one to read.
   word. No count of tries gives an item up: dismissal is the one way an item leaves the queue unreported. A
   dismissed item's key stays seen, so nothing turns it up again.
 - **The queue's order** is the order runs are taken in, within a category: `priority` from highest, then
-  `foundAt` from oldest, then `id`. Between categories, the next run goes to the highest priority waiting,
-  and among equals to the category whose last run was asked longest ago, so no category's flood starves
-  another. `GET /queue` answers the running items, then the waiting and stuck ones in their category's
-  order, then the rest newest first; `after` continues past the named item's place in it.
+  `foundAt` from oldest, then `id`. Between categories, the categories take turns: of those running with a
+  try due (an item whose retry is due, or a brief's gathering that is due, 「The deep dive」), the next try
+  goes to the one whose last try was asked longest ago, one never tried first, and the try it starts makes
+  it the latest. `priority` orders a category's own items and never crosses into another's turn, so no
+  category's flood, nor its asks, starves another of `concurrency`. `GET /queue` answers the running items,
+  then the waiting and stuck ones in their category's order, then the rest newest first; `after` continues
+  past the named item's place in it.
 - **The cap.** A category's part of the queue holds at most its `cap` items `waiting` or `running` that the
   scan took in, a stuck item not among them; an ask is never refused for the cap. A slot that frees is
   filled from the category's seen
@@ -376,9 +381,12 @@ the one to read.
   that wrote nothing while its seat stood. It counts toward `retries`: its items wait again with `retryAt`
   `retry_minutes` ahead. A failed try that takes the lead's tries past `retries` puts its items `stuck`
   (「The repair」), and every recipient of the category is told so once.
-- **A brief** gathers, once its category's `gatherMinutes` have passed since its last run was asked, every
-  waiting or stuck item of the category whose retry is due, at most its `cap`, into one run; a gathering
-  whose retry is due is asked at once.
+- **A brief** gathers every waiting or stuck item of its category whose retry is due, at most its `cap`,
+  into one run, once its category's `gatherMinutes` have passed since the last of its tries that filed its
+  document was asked (at once where none has). A try of it that was interrupted or failed has filed nothing,
+  so the gathering stays due: an interrupted one is asked again on the next pass, as any interrupted try
+  is, and a failed one once its retry wait ends, the gathering waiting while any item of it still waits on a
+  retry so the items are not split.
 - **A daemon that starts** closes every research run it left open as `cut` (`docs/runner.md`, 「A
   restart」), then takes up every try it left `running`: one with a run id is read again, and ends as a
   cut run's try, interrupted; one without puts its items back as they stood, uncounted. A page it left

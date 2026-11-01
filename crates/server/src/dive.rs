@@ -234,42 +234,47 @@ pub async fn tick(app: &Arc<App>) -> Vec<JoinHandle<()>> {
   started
 }
 
-/// The next try to ask: in each running category, its next waiting item, or a brief's whole gathering once it
-/// is due; among them, the highest priority, then the category whose last try was asked longest ago.
+/// The next try to ask: in each running category, its next waiting item whose retry is due, or a brief's whole
+/// gathering once it is due; among them, the category whose last try was asked longest ago, one never tried
+/// first, so the categories take turns and an item's priority orders its own category alone.
 fn next(app: &App) -> Option<(Category, Vec<Item>)> {
   let now = now_ms();
-  let mut best: Option<(i64, Option<i64>, Category, Vec<Item>)> = None;
+  let mut best: Option<(Option<i64>, Category, Vec<Item>)> = None;
   for category in app.store.categories().ok()? {
     if category.state == Running::Stopped {
       continue;
     }
     let last = app.store.last_try_at(&category.name).ok()?;
     let items = if category.shape == CategoryShape::Brief {
-      let gather = category.gather_minutes.unwrap_or(1440).max(1) * 60_000;
-      let due =
-        last.is_none_or(|at| now - at >= gather) || app.store.retry_due(&category.name, now).ok()?;
-      if !due {
+      if !gathering_due(app, &category, now)? {
         continue;
       }
       app.store.waiting(&category.name, now, category.cap.max(1)).ok()?
     } else {
       app.store.waiting(&category.name, now, 1).ok()?
     };
-    let Some(first) = items.first() else {
+    if items.is_empty() {
       continue;
-    };
-    let better = match &best {
+    }
+    let sooner = match &best {
       None => true,
-      Some((priority, at, _, _)) => {
-        first.priority > *priority
-          || (first.priority == *priority && last.unwrap_or(i64::MIN) < at.unwrap_or(i64::MIN))
-      }
+      Some((at, _, _)) => last.unwrap_or(i64::MIN) < at.unwrap_or(i64::MIN),
     };
-    if better {
-      best = Some((first.priority, last, category, items));
+    if sooner {
+      best = Some((last, category, items));
     }
   }
-  best.map(|(_, _, category, items)| (category, items))
+  best.map(|(_, category, items)| (category, items))
+}
+
+/// Whether a brief's gathering is due: its `gather_minutes` passed since the last of its tries that filed its
+/// document was asked, or none has, so a try interrupted or failed since leaves it due; and no item of it still
+/// waiting on a retry still to come, so a failed try's items are gathered whole.
+fn gathering_due(app: &App, category: &Category, now: i64) -> Option<bool> {
+  let gather = category.gather_minutes.unwrap_or(1440).max(1) * 60_000;
+  let filed = app.store.last_filed_at(&category.name).ok()?;
+  let ahead = app.store.retry_ahead(&category.name, now).ok()?;
+  Some(filed.is_none_or(|at| now - at >= gather) && !ahead)
 }
 
 /// The provider and the model a category's tries go out on: its own, else the settings' road.

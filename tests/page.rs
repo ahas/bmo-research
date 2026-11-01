@@ -146,6 +146,7 @@ fn the_line_saying_where_the_research_came_from_stands_under_the_title_its_marks
     job_item_id: None,
     repair_item_id: None,
     error: None,
+    error_at: None,
     found_at: 0,
     created_at: 0,
     changed_at: 0,

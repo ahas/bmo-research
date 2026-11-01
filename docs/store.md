@@ -86,7 +86,7 @@ The items (`docs/api.md`, 「queue」).
 | `plan` | The heading of the document's plan section |
 | `job_item_id` | The job item the chat agent filed for it |
 | `repair_item_id` | The job item filed for the helper while it is stuck, or null; cleared as it is asked again |
-| `error` | Why the latest try failed or was interrupted |
+| `error`, `error_at` | Why the latest try failed or was interrupted, and when that try ended; null while a try is under way and after one that filed its document |
 | `found_at`, `created_at`, `changed_at` | When its candidate was found, when it was queued and last changed |
 
 ## `runs`
