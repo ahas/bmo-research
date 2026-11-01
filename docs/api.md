@@ -532,9 +532,17 @@ search runner applies it, and the run writes its document in English, the questi
   unit (「Calls this unit makes」) in the settings' voice, a
   text of at most the 4,000 characters the voice unit speaks: a longer one is spoken up to the last sentence
   that ends within them, and the run's log says so. Each synthesis is followed until it is spoken or has
-  failed, however long its card takes to be granted: nothing ends that wait, and while it waits, each time
-  the voice unit's `waitingOn` sentence for it changes, the run's log says so once under `narration`, naming
-  the language and that sentence. Each is attached to the document with `POST /documents/{id}/attachments`: the Korean sound as `narration-ko.ogg`
+  failed, however long its card takes to be granted: nothing ends that wait, a read the voice unit does not
+  answer, or answers with a 5xx, is read again a second later, and while it waits, each time the voice
+  unit's `waitingOn` sentence for it changes, the run's log says so once under `narration`, naming the
+  language and that sentence.
+- **A narration's synthesis is kept until its sound is attached** (`docs/store.md`, `syntheses`), so a
+  narration has one synthesis living at a time, through a restart of either unit. A try that finds one kept
+  follows it and asks none, its text neither translated nor handed to the voice again; one kept that has
+  failed, or that the voice unit answers 404 for, is set aside as the try reads it first, and a new one is
+  asked in its place. A synthesis the try itself followed to its failure is set aside too, and the narration
+  stays pending until the next retry wait. A read refused otherwise leaves the narration pending with its
+  synthesis kept, to be read again on the next try. Each is attached to the document with `POST /documents/{id}/attachments`: the Korean sound as `narration-ko.ogg`
   with `role` `head`, the English as `narration-en.ogg` with no role. The page is then drawn again with its
   listen band referring to every sound attached by its name (`docs/runner.md`, 「The page」), and the
   archive plays them there. A sound already attached is not made again.
@@ -680,7 +688,7 @@ of these units, and reads each one's address and token from that unit's own file
   (`ko` or `en`), and no `spoken`, so the voice unit derives the spoken words in that language, a narration
   spoken; `GET /syntheses/{synthesisId}` read every
   second until its `state` is `done` or `failed`, however long that takes, its `waitingOn` read as it
-  stands; and
+  stands, a 404 the synthesis gone, an unanswered read or a 5xx read again; and
   `GET /syntheses/{synthesisId}/sound`, the sound, OGG/Opus.
 - **the job service:** at the address and with the token its own settings file under `env/` names
   (`docs/settings.md`, 「Peers」): `POST /items` with `title`, `brief`, `queueName`, `assigneeName` and

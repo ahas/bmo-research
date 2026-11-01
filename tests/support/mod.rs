@@ -132,6 +132,13 @@ pub struct World {
   pub voice_refusing: bool,
   /// What each synthesis waits on, one sentence for each reading of it in turn, before it is spoken.
   pub voice_waiting_on: Vec<String>,
+  /// While set, every synthesis waits for its card, every card in use, however often it is read.
+  pub voice_holding: bool,
+  /// While set, the voice unit answers every reading of a synthesis 503.
+  pub voice_down: bool,
+  /// The syntheses read as failed, and those the voice unit holds no longer, by id.
+  pub voice_failed: Vec<usize>,
+  pub voice_gone: Vec<usize>,
   /// The markup the stand-in explorer answers each page address with; an address not here answers 404.
   pub pages: BTreeMap<String, String>,
   /// How many characters one slice of a page holds, however many were asked for.
@@ -655,7 +662,25 @@ async fn voice_synthesis(
 ) -> Response {
   keep(&w, "voice", &method, &uri, &body);
   let world = w.lock().unwrap();
+  if world.voice_down {
+    let down =
+      json!({"code": "failed", "error": "the voice's database: Too many open files (os error 24)"});
+    return (StatusCode::SERVICE_UNAVAILABLE, axum::Json(down)).into_response();
+  }
+  if world.voice_gone.contains(&id) {
+    let gone = json!({"code": "not-found", "error": format!("there is no synthesis {id}")});
+    return (StatusCode::NOT_FOUND, axum::Json(gone)).into_response();
+  }
   let text = synthesis_text(&world, id);
+  if world.voice_failed.contains(&id) {
+    return axum::Json(json!({"id": id, "text": text, "state": "failed", "waitingOn": null}))
+      .into_response();
+  }
+  if world.voice_holding {
+    let on = "every card voice may have is in use: n2 by voice";
+    return axum::Json(json!({"id": id, "text": text, "state": "waiting", "waitingOn": on}))
+      .into_response();
+  }
   let path = uri.path();
   let readings = world
     .asked

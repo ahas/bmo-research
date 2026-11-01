@@ -123,6 +123,17 @@ The Korean side of a deep dive's page, kept so the page can be drawn again (`doc
 | `title`, `description`, `body` | The Korean title, description (or null) and markdown body |
 | `created_at` | When it was had |
 
+## `syntheses`
+
+The synthesis asked of the voice unit for each narration a page still lacks, kept until its sound is
+attached, so a narration has one synthesis living at a time (`docs/api.md`, 「The page」).
+
+| Column | Holds |
+|---|---|
+| `document_id`, `language` | The page's document and the narration's language, `ko` or `en`; the primary key |
+| `synthesis_id`, `characters` | The voice unit's synthesis, and how many characters it was asked to speak |
+| `asked_at` | When it was asked |
+
 ## `recipients`
 
 | Column | Holds |

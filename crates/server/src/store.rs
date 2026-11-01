@@ -29,7 +29,10 @@ use crate::translation::Rendering;
 /// an item came from — a source, an ask with its words, or a follow-up with the document it follows from —
 /// an item standing before it a source's where no ask made it, and an ask's with no words otherwise; the
 /// tenth keeps the repair a stuck item's helper is asked for, stands every item the store held given up
-/// `stuck` with its retry due and no repair yet, and names their notices `stuck`.
+/// `stuck` with its retry due and no repair yet, and names their notices `stuck`; the eleventh keeps the
+/// synthesis asked of the voice unit for each narration a page still lacks, and sets every filed page that
+/// plays a narration to be finished again at once by the item its try was asked for, with none counted as
+/// had, so each sound is found attached and the page drawn again whole from what the store keeps.
 const MIGRATIONS: &[&str] = &[
   "
   create table categories (
@@ -156,6 +159,17 @@ const MIGRATIONS: &[&str] = &[
   alter table queue add column repair_item_id integer;
   update queue set state = 'stuck', retry_at = 0 where state = 'failed';
   update reports set kind = 'stuck' where kind = 'failed';
+",
+  "
+  create table syntheses (
+    document_id integer not null, language text not null, synthesis_id integer not null,
+    characters integer not null, asked_at integer not null, primary key (document_id, language));
+  update queue set narrations = '[]', pending_retry_at = 0
+    where narrations <> '[]' and document_id is not null
+      and state in ('finishing', 'reported', 'fit', 'taken')
+      and id in (select runs.item_id from runs where runs.run_id = queue.run_id);
+  update queue set narrations = '[]'
+    where narrations <> '[]' and document_id in (select document_id from queue where pending_retry_at = 0);
 ",
 ];
 
@@ -1236,6 +1250,53 @@ impl Store {
       .execute(
         "update queue set narrations = ?2, changed_at = ?3 where document_id = ?1",
         params![document_id, words_json(narrations), now_ms()],
+      )
+      .map(|_| ())
+      .map_err(|e| e.to_string())
+  }
+
+  /// The synthesis kept for a page's narration in `language` and how many characters it was asked to speak,
+  /// or none where none is on its way.
+  pub fn synthesis(&self, document_id: i64, language: &str) -> Result<Option<(i64, i64)>, String> {
+    self
+      .lock()
+      .query_row(
+        "select synthesis_id, characters from syntheses where document_id = ?1 and language = ?2",
+        params![document_id, language],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+      )
+      .optional()
+      .map_err(|e| e.to_string())
+  }
+
+  /// The synthesis just asked for a page's narration in `language`, of a text of `characters`, kept until
+  /// its sound is attached.
+  pub fn keep_synthesis(
+    &self,
+    document_id: i64,
+    language: &str,
+    synthesis_id: i64,
+    characters: i64,
+  ) -> Result<(), String> {
+    self
+      .lock()
+      .execute(
+        "insert or replace into syntheses (document_id, language, synthesis_id, characters, asked_at)
+         values (?1, ?2, ?3, ?4, ?5)",
+        params![document_id, language, synthesis_id, characters, now_ms()],
+      )
+      .map(|_| ())
+      .map_err(|e| e.to_string())
+  }
+
+  /// A page's narration in `language` no longer on its way: its sound attached, or its synthesis ended
+  /// without one.
+  pub fn forget_synthesis(&self, document_id: i64, language: &str) -> Result<(), String> {
+    self
+      .lock()
+      .execute(
+        "delete from syntheses where document_id = ?1 and language = ?2",
+        params![document_id, language],
       )
       .map(|_| ())
       .map_err(|e| e.to_string())

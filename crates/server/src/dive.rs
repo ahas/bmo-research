@@ -21,6 +21,7 @@ use crate::App;
 use crate::document::{self, Drawn};
 use crate::engine;
 use crate::page::{self, Side, Sound};
+use crate::peers::Synthesis;
 use crate::reading::{self, Exposure};
 use crate::runner::{self, Filing, PageAsk, Refused};
 use crate::store::{Filed, now_ms};
@@ -65,8 +66,9 @@ pub struct Pages(Mutex<HashSet<i64>>);
 impl Pages {
   /// The item's page held for finishing, or none where it is being finished already.
   fn hold(&self, item: i64) -> Option<PageHold<'_>> {
+    // Built only where it is taken: a hold refused and dropped would give back the page held already.
     let taken = self.0.lock().unwrap_or_else(|e| e.into_inner()).insert(item);
-    taken.then_some(PageHold { pages: self, item })
+    taken.then(|| PageHold { pages: self, item })
   }
 }
 
@@ -509,9 +511,12 @@ pub fn speakable(text: &str, most: usize) -> &str {
 }
 
 /// One narration's sound attached beside its page, which the archive's reader plays: the one the document
-/// already keeps, else the script spoken — in Korean translated to be spoken first, and either cut to what
-/// the voice unit speaks, the run's log saying so — followed however long its synthesis waits, the run's log
-/// saying what on whenever that changes, and attached, the Korean as the sound heard at the document's head.
+/// already keeps, else the sound of the synthesis kept for it, else the script spoken — in Korean translated
+/// to be spoken first, and either cut to what the voice unit speaks, the run's log saying so — its synthesis
+/// kept until its sound is attached, so the narration has one synthesis living at a time. A kept synthesis
+/// that has failed or is gone is set aside and another asked; the one followed is followed however long it
+/// waits, the run's log saying what on whenever that changes, and attached, the Korean as the sound heard at
+/// the document's head.
 async fn narration(
   app: &App,
   run: i64,
@@ -522,30 +527,53 @@ async fn narration(
 ) -> Result<(), String> {
   let name = sound_name(code);
   if app.peers.attached(document_id, &name).await? {
+    let _ = app.store.forget_synthesis(document_id, code);
     return Ok(());
   }
-  let text = match code {
-    "en" => script.to_string(),
-    _ => translation::narration(app, &lead.name, script).await?,
-  };
-  let spoken = speakable(&text, VOICE_MOST_CHARACTERS);
-  let (whole, kept) = (text.trim().chars().count(), spoken.chars().count());
-  if kept < whole {
-    let said = format!(
-      "The {code} narration holds {whole} characters, more than the voice speaks, so the first {kept} are \
-       spoken."
-    );
-    let _ = app.store.log_research(run, "narration", &said);
+  let mut kept = app.store.synthesis(document_id, code)?;
+  if let Some((id, _)) = kept
+    && matches!(app.peers.read_synthesis(id).await, Ok(Synthesis::Failed | Synthesis::Gone))
+  {
+    app.store.forget_synthesis(document_id, code)?;
+    kept = None;
   }
-  let (bytes, media_type) = app
+  let (id, size) = match kept {
+    Some(kept) => kept,
+    None => {
+      let text = match code {
+        "en" => script.to_string(),
+        _ => translation::narration(app, &lead.name, script).await?,
+      };
+      let spoken = speakable(&text, VOICE_MOST_CHARACTERS);
+      let (whole, kept) = (text.trim().chars().count(), spoken.chars().count());
+      if kept < whole {
+        let said = format!(
+          "The {code} narration holds {whole} characters, more than the voice speaks, so the first {kept} \
+           are spoken."
+        );
+        let _ = app.store.log_research(run, "narration", &said);
+      }
+      let id = app.peers.ask_synthesis(spoken, code).await?;
+      app.store.keep_synthesis(document_id, code, id, kept as i64)?;
+      (id, kept as i64)
+    }
+  };
+  let ended = app
     .peers
-    .speak(spoken, code, |on| {
+    .follow_synthesis(id, |on| {
       let said = format!("The {code} narration waits for the voice: {on}");
       let _ = app.store.log_research(run, "narration", &said);
     })
     .await?;
+  if ended != Synthesis::Done {
+    app.store.forget_synthesis(document_id, code)?;
+    let how = if ended == Synthesis::Gone { "is gone" } else { "failed" };
+    return Err(format!("the voice unit's synthesis {id} of {size} characters {how}"));
+  }
+  let (bytes, media_type) = app.peers.synthesis_sound(id).await?;
   let role = (code == LANGUAGES[0]).then_some("head");
-  app.peers.attach(document_id, &name, &media_type, role, &bytes).await
+  app.peers.attach(document_id, &name, &media_type, role, &bytes).await?;
+  app.store.forget_synthesis(document_id, code)
 }
 
 /// The page drawn again with the sides it holds, Korean first, and its listen band referring to each narration

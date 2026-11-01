@@ -79,6 +79,17 @@ impl From<Fault> for String {
   }
 }
 
+/// How a synthesis of the voice unit stands as a reading finds it: waiting for its card or being spoken, with
+/// the voice unit's sentence on what it waits on where it says one; spoken; failed; or gone, the voice unit
+/// holding none under its id.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Synthesis {
+  Going(Option<String>),
+  Done,
+  Failed,
+  Gone,
+}
+
 /// The job service's own settings file, the part the daemon reads: where it listens and the file its token
 /// stands in.
 #[derive(Deserialize)]
@@ -413,15 +424,9 @@ impl Peers {
       .ok_or_else(|| Untranslated::Failed("agency's translation answered no text".into()))
   }
 
-  /// One text spoken by the voice unit in the settings' voice, else the first it lists, as a line of `language`,
-  /// followed until it is spoken or has failed however long that takes: the sound and its media type. `waiting` is
-  /// handed what the synthesis waits on each time the voice unit's sentence for it changes.
-  pub async fn speak(
-    &self,
-    text: &str,
-    language: &str,
-    mut waiting: impl FnMut(&str),
-  ) -> Result<(Vec<u8>, String), String> {
+  /// One text asked of the voice unit to speak in the settings' voice, else the first it lists, as a line of
+  /// `language`: the synthesis's id, answered at once while it waits for its card.
+  pub async fn ask_synthesis(&self, text: &str, language: &str) -> Result<i64, String> {
     let voice = self.voice()?;
     let name = match self.settings.voice.name.trim() {
       "" => {
@@ -444,32 +449,80 @@ impl Peers {
         "POST /syntheses",
       )
       .await?;
-    let id = made["id"].as_i64().ok_or("the voice unit answered the synthesis with no id")?;
+    made["id"]
+      .as_i64()
+      .ok_or_else(|| "the voice unit answered the synthesis with no id".to_string())
+  }
+
+  /// One reading of a synthesis: how it stands, or the failure, lost where the voice unit was not reached or
+  /// answered 5xx.
+  pub async fn read_synthesis(&self, id: i64) -> Result<Synthesis, Fault> {
+    let voice = self.voice().map_err(Fault::kept)?;
     let path = format!("/syntheses/{id}");
+    let lost = |why: String| Fault { why, lost: true };
+    let answer = self
+      .request(&voice, reqwest::Method::GET, &path)
+      .send()
+      .await
+      .map_err(|e| lost(format!("{} GET {path}: {e}", voice.name)))?;
+    let status = answer.status().as_u16();
+    if status == 404 {
+      return Ok(Synthesis::Gone);
+    }
+    let body = answer
+      .text()
+      .await
+      .map_err(|e| lost(format!("{} GET {path}: the answer did not come: {e}", voice.name)))?;
+    if !(200..300).contains(&status) {
+      let why = format!("{} GET {path} answered {status}: {body}", voice.name);
+      return Err(Fault {
+        why,
+        lost: status >= 500,
+      });
+    }
+    let read: Value = serde_json::from_str(&body)
+      .map_err(|e| Fault::kept(format!("{} GET {path}: the answer did not read: {e}", voice.name)))?;
+    Ok(match read["state"].as_str() {
+      Some("done") => Synthesis::Done,
+      Some("failed") => Synthesis::Failed,
+      _ => Synthesis::Going(
+        read["waitingOn"].as_str().map(str::trim).filter(|on| !on.is_empty()).map(str::to_owned),
+      ),
+    })
+  }
+
+  /// A synthesis followed until it is spoken, has failed or is gone, however long that takes: read every
+  /// second, a reading that did not come through read again a second later. `waiting` is handed what it waits
+  /// on each time the voice unit's sentence for it changes. Answers how it ended; a refusal other than a lost
+  /// one is the failure.
+  pub async fn follow_synthesis(
+    &self,
+    id: i64,
+    mut waiting: impl FnMut(&str),
+  ) -> Result<Synthesis, String> {
     let mut told: Option<String> = None;
     loop {
-      let read = self
-        .call(&voice, self.request(&voice, reqwest::Method::GET, &path), &format!("GET {path}"))
-        .await?;
-      match read["state"].as_str() {
-        Some("done") => break,
-        Some("failed") => {
-          let size = text.chars().count();
-          return Err(format!("the voice unit's synthesis {id} of {size} characters failed"));
-        }
-        _ => {
-          let on = read["waitingOn"].as_str().map(str::trim).filter(|on| !on.is_empty());
+      match self.read_synthesis(id).await {
+        Ok(Synthesis::Going(on)) => {
           if let Some(on) = on
-            && told.as_deref() != Some(on)
+            && told.as_deref() != Some(on.as_str())
           {
-            waiting(on);
-            told = Some(on.to_owned());
+            waiting(&on);
+            told = Some(on);
           }
-          tokio::time::sleep(Duration::from_secs(1)).await;
         }
+        Ok(ended) => return Ok(ended),
+        Err(fault) if fault.lost => {}
+        Err(fault) => return Err(fault.why),
       }
+      tokio::time::sleep(Duration::from_secs(1)).await;
     }
-    let sound = format!("{path}/sound");
+  }
+
+  /// A spoken synthesis's sound and its media type.
+  pub async fn synthesis_sound(&self, id: i64) -> Result<(Vec<u8>, String), String> {
+    let voice = self.voice()?;
+    let sound = format!("/syntheses/{id}/sound");
     self
       .bytes(&voice, self.request(&voice, reqwest::Method::GET, &sound), &format!("GET {sound}"))
       .await

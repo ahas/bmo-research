@@ -296,6 +296,11 @@ take; so its own area stays the research and the measurement, however many categ
   too long after cutting) or a narration that cannot be made leaves that part pending, and the daemon asks
   it again on every retry wait until it has it; no count of tries gives it up. Until then the recipients
   hear nothing of the item, and its state in the queue says what it waits on.
+- **A narration has one synthesis living at a time.** The synthesis asked for it is kept in the store until
+  its sound is attached, through a restart of the daemon or of the voice unit; while it stands waiting or
+  speaking it is followed, however long its card takes, and nothing is asked beside it. Only a synthesis
+  that failed, or one the voice unit no longer holds, is asked again: a narration is made anew after its
+  synthesis ended without a sound, never while one is still on its way.
 
 ## Reports and rooms
 

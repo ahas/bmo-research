@@ -230,10 +230,11 @@ fn the_step_that_keeps_repairs_stands_every_given_up_item_stuck_with_its_retry_d
          where id = {};
        insert into reports (item_id, recipient, kind, state, at) values ({}, 'room:7', 'failed', 'sent', 1);
        alter table queue drop column repair_item_id;
+       drop table syntheses;
        pragma user_version = {};",
       item.id,
       item.id,
-      schema_version() - 1
+      schema_version() - 2
     ))
     .unwrap();
   drop(conn);
