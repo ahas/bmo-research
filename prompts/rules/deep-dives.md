@@ -80,6 +80,9 @@
 - **What was read and what was not** is the middle's last section: every primary material read,
   and every one that could not be read with what it answered, or none.
 - **Tables and lists stand on lines of their own,** never run into a paragraph.
+- **A table is written whole:** its header row, then on the next line the separator row, a cell of
+  dashes under each header cell, then one line per row; every line opens and closes with a pipe and
+  holds as many cells as the header. A table without its separator row is not a table.
 
 ## The narration
 

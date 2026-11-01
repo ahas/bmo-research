@@ -154,6 +154,11 @@ async fn a_manual_is_asked_read_filed_and_told_with_what_the_owner_s_word_needs(
     (Some("page"), Some("Report 501"))
   );
   assert_eq!(filed[0]["labels"]["languages"], "en");
+  assert_eq!(
+    (filed[0]["labels"]["category"].as_str(), filed[0]["labels"]["pending"].as_str()),
+    (Some("manual"), Some("korean")),
+    "the page is filed under its item's shape, its Korean side pending"
+  );
   assert!(filed[0]["html"].as_str().unwrap().contains(&words::document().manual[0].plan_heading));
   assert_eq!(ground.asked_path("artifact", "GET", "/shares?documentId=501").len(), 1);
   let made = ground.asked_path("artifact", "POST", "/shares");
@@ -437,6 +442,12 @@ async fn a_report_waits_while_a_narration_is_pending_and_is_told_once_it_is_atta
   );
   assert!(waiting.narrations.is_empty());
   assert_eq!(waiting.pending, ["narration-ko", "narration-en", "review"]);
+  let marked = ground.label_sets(501);
+  assert_eq!(
+    (marked.last().unwrap()["pending"].as_str(), marked.last().unwrap()["category"].as_str()),
+    (Some("narration-ko,narration-en,review"), Some("manual")),
+    "the archive marks the page in progress with what it lacks"
+  );
   assert!(waiting.pending_retry_at.is_some(), "the narrations are asked again");
   assert_eq!(finishing(&ground), 1);
   assert!(orders(&ground).is_empty(), "nobody is told while a narration is pending");
@@ -468,6 +479,9 @@ async fn a_report_waits_while_a_narration_is_pending_and_is_told_once_it_is_atta
     (ItemState::Fit, true, None)
   );
   assert_eq!(finishing(&ground), 0);
+  let done = ground.label_sets(501).last().unwrap().clone();
+  assert!(done.get("pending").is_none(), "a page lacking nothing is marked done: {done}");
+  assert_eq!(done["languages"], "ko,en");
   let state = ground.app.store.page_state(item.id).unwrap();
   assert_eq!((state.narration_tries, state.translation_tries, state.retry_at), (2, 1, None));
   let said = orders(&ground);
@@ -2000,6 +2014,15 @@ async fn a_filed_page_drawn_otherwise_is_drawn_again_and_one_drawn_alike_is_left
   assert_eq!(again.len(), rewrites + 1, "the page drawn otherwise is set once");
   assert_eq!(again.last().unwrap()["html"], drawn, "as the page was drawn");
   assert_eq!(again.last().unwrap()["labels"]["languages"], "ko,en");
+
+  let labelled = again.last().unwrap()["labels"].clone();
+  let mut otherwise = labelled.clone();
+  otherwise.as_object_mut().unwrap().remove("category");
+  ground.world.lock().unwrap().kept_labels.insert(501, otherwise);
+  assert_eq!(redraw_filed(&ground.app).await, 1, "a page whose labels differ is set");
+  let labels = ground.rewrites(501).last().unwrap()["labels"].clone();
+  assert_eq!((labels.clone(), labels["category"].as_str()), (labelled, Some("manual")));
+  assert_eq!(redraw_filed(&ground.app).await, 0, "and left alone once they match");
 }
 
 /// The review turns agency was sent for research run `run`.
@@ -2497,6 +2520,11 @@ async fn a_filed_korean_side_that_does_not_agree_is_set_aside_and_only_its_broke
   assert!(set_aside.pending.contains(&"korean".to_string()), "{:?}", set_aside.pending);
   let drawn = ground.rewrites(501).last().unwrap().clone();
   assert_eq!(drawn["labels"]["languages"], "en", "drawn without the broken side");
+  let pending = drawn["labels"]["pending"].as_str().unwrap_or_default();
+  assert!(
+    pending.split(',').any(|lacks| lacks == "korean"),
+    "its labels say it lacks it: {pending}"
+  );
   assert!(!drawn["html"].as_str().unwrap().contains("data-language=\"ko\""));
   let english = english_body(501, &manual_with_a_table());
   let parts = cut(&format!("# Report 501\n\n{english}"), 400);

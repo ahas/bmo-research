@@ -38,7 +38,7 @@ pub const VOICE_MOST_CHARACTERS: usize = 4_000;
 const LANGUAGES: [&str; 2] = ["ko", "en"];
 
 /// The name the queue gives a page's pending Korean side; a pending narration is named `narration-<code>`.
-const KOREAN: &str = "korean";
+const KOREAN: &str = document::PENDING_KOREAN;
 
 /// The names the queue gives a page's pending review, and its review's fixes not yet applied.
 const REVIEW: &str = "review";
@@ -400,6 +400,7 @@ async fn carried(app: Arc<App>, run: i64, asked: Option<i64>) {
         ..ResearchRunAsk::default()
       };
       let filing = Filing::Page(PageAsk {
+        category: lead.shape.as_str().to_owned(),
         sections: words::document().sections.of(lead.shape).to_vec(),
         opening: words::document().opening.of(lead.shape).to_vec(),
         origin: origin_of(&app, &lead, LANGUAGES[1]),
@@ -700,13 +701,38 @@ fn drawing(
     .filter_map(|code| narrations.iter().find(|(had, _)| *had == code))
     .map(|(code, name)| Sound { code, name })
     .collect();
-  let mut labels = source.labels.clone();
-  labels["languages"] = sides.iter().map(|side| side.code).collect::<Vec<_>>().join(",").into();
+  let languages: Vec<&str> = sides.iter().map(|side| side.code).collect();
+  let labels = page_labels(source, lead, &languages, &lead.pending);
   Drawing {
     html: page::compose(&sides, &sounds),
     title: sides[0].title.to_owned(),
     labels,
   }
+}
+
+/// A page's document's labels: its run's, with the languages the page holds, its lead item's shape as its
+/// category, and what it still lacks as `pending`, left out where it lacks nothing (`docs/api.md`, 「The page」).
+fn page_labels(source: &Source, lead: &Item, languages: &[&str], pending: &[String]) -> Value {
+  let mut labels = source.labels.clone();
+  labels["languages"] = languages.join(",").into();
+  labels["category"] = lead.shape.as_str().into();
+  if !pending.is_empty() {
+    labels["pending"] = pending.join(",").into();
+  }
+  labels
+}
+
+/// A page's labels set in the archive alone, as what it lacks changes.
+async fn set_labels(app: &App, document_id: i64, labels: &Value) -> Result<(), String> {
+  app
+    .peers
+    .artifact_send(
+      reqwest::Method::PATCH,
+      &format!("/documents/{document_id}"),
+      &json!({ "labels": labels }),
+    )
+    .await
+    .map(|_| ())
 }
 
 /// A page drawn set in the archive.
@@ -746,8 +772,8 @@ fn played<'a>(sounds: &[String], review: Option<&Review>) -> Vec<(&'a str, Strin
 
 /// Every filed page drawn as this binary draws it (`docs/api.md`, 「The page」): the page of every item holding
 /// a document, for the item its document's run was asked for, drawn again from what is had of it and set where
-/// it differs from the page the archive keeps; a page being finished now is left to its finishing, which draws
-/// it the same way. Answers how many pages were set.
+/// its HTML or its labels differ from what the archive keeps; a page being finished now is left to its
+/// finishing, which draws it the same way. Answers how many pages were set.
 pub async fn redraw_filed(app: &App) -> usize {
   let items = match app.store.filed_pages() {
     Ok(items) => items,
@@ -786,9 +812,10 @@ struct DrawnAgain {
 }
 
 /// An item's filed page drawn again from what is had of it — its English body as its review left it, its
-/// Korean side kept and its narrations by the names their sounds are kept under — and set where it differs
-/// from the page the archive keeps. A Korean side that does not agree with its English is set aside first,
-/// the parts of it that still agree kept, and the page drawn without it (`docs/api.md`, 「The page」).
+/// Korean side kept and its narrations by the names their sounds are kept under — and set where its HTML or
+/// its labels differ from what the archive keeps. A Korean side that does not agree with its English is set
+/// aside first, the parts of it that still agree kept, and the page drawn without it, its labels saying it
+/// lacks its Korean side (`docs/api.md`, 「The page」).
 async fn drawn_again(app: &App, item: &Item, document_id: i64, run_id: i64) -> Result<DrawnAgain, String> {
   let source = source(app, run_id)?;
   let mut rendering = match item.languages.iter().any(|code| code == LANGUAGES[0]) {
@@ -821,7 +848,9 @@ async fn drawn_again(app: &App, item: &Item, document_id: i64, run_id: i64) -> R
   let review = app.store.review(document_id)?;
   let narrations = played(&item.narrations, review.as_ref());
   let drawn = drawing(app, &item, (&source, &english), rendering.as_ref(), &narrations);
-  if app.peers.kept_page(document_id).await? == drawn.html {
+  if app.peers.kept_page(document_id).await? == drawn.html
+    && app.peers.kept_labels(document_id).await? == drawn.labels
+  {
     return Ok(DrawnAgain {
       set: false,
       set_aside,
@@ -1141,6 +1170,12 @@ async fn finish(app: &App, run: i64, lead: &Item, filed: &Filed, source: &Source
   let retry = (!pending.is_empty()).then(|| now_ms() + app.settings.retry_minutes * 60_000);
   let _ = app.store.pend_page(lead.id, &pending, retry);
   let changed = pending != state.pending;
+  if changed {
+    let languages: &[&str] = if rendering.is_some() { &LANGUAGES } else { &LANGUAGES[1..] };
+    if let Err(why) = set_labels(app, document_id, &page_labels(source, lead, languages, &pending)).await {
+      eprintln!("bmo-research: item {}'s labels were not set: {why}", lead.id);
+    }
+  }
   Some(Finished {
     korean: rendering,
     pending,
