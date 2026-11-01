@@ -667,8 +667,9 @@ of these units, and reads each one's address and token from that unit's own file
   `expiresAt` a day ahead, its live link.
 - **the voice unit:** at the address and with the token its own settings file under `env/` names
   (`docs/settings.md`, 「Peers」): `GET /voices`, the first voice where the settings name none;
-  `POST /syntheses` with `voiceName` and `text`, the narration's written words, and no `spoken`, so the voice
-  unit derives the spoken words, a narration spoken; `GET /syntheses/{synthesisId}` read every
+  `POST /syntheses` with `voiceName`, `text`, the narration's written words, `language`, the narration's own
+  (`ko` or `en`), and no `spoken`, so the voice unit derives the spoken words in that language, a narration
+  spoken; `GET /syntheses/{synthesisId}` read every
   second until its `state` is `done` or `failed`, however long that takes, its `waitingOn` read as it
   stands; and
   `GET /syntheses/{synthesisId}/sound`, the sound, OGG/Opus.

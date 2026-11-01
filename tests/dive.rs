@@ -544,6 +544,9 @@ async fn a_narration_goes_to_the_voice_as_its_written_words_and_a_refusal_leaves
       synthesis.body
     );
   }
+  let languages: Vec<&str> =
+    asked.iter().filter_map(|synthesis| synthesis.body["language"].as_str()).collect();
+  assert_eq!(languages, ["ko", "en"], "each narration is said in its own language");
   assert!(ground.world.lock().unwrap().attachments.is_empty());
   let waiting = ground.app.store.item(item.id).unwrap();
   assert_eq!(waiting.state, ItemState::Finishing);
