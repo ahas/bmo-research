@@ -159,7 +159,9 @@ of a run is this unit's.
   them and carries none of them:
   - **its head:** the title the `TITLE:` line, the description the `TOPIC:` line, the kind `learning` where
     `KIND: learning` says so and `search` otherwise, `actorName` `research`, `scope` the room, and the labels
-    `research` (the run's id), `key`, `query`, and `keywords`, `rule` and `topic` where the result writes them.
+    `research` (the run's id), `key`, `query`, `category` (the key, the archive's category for the document;
+    bmo-artifact's `docs/archive.md`, 「Where a person reads it」), and `keywords`, `rule` and `topic` where the
+    result writes them.
     The `ANSWERED:` line is the run's own and stands nowhere.
   - **its body:** each block a section under a heading in the question's language, the words of
     `prompts/search/document.toml` (Korean where the question holds Hangul, English otherwise): the verdict
@@ -245,7 +247,8 @@ daemon finishes, held first to the shape the deep dive asked for.
   figures; the result keeps the order it was written in. The Korean side is translated from the body in that
   order.
 - **It is filed as a page,** `kind` `page`, its `html` the page drawn in English alone (「The page」), its head
-  and labels as a room's document's are, with the label `languages` `en`; its pictures are kept beside it as a
+  and labels as a room's document's are, with the label `languages` `en`, `category` its item's shape in place
+  of the key, and `pending` `korean`, since its Korean side is still to come; its pictures are kept beside it as a
   room's document's are, and the page draws every picture from its address.
 - **The daemon finishes it** (`docs/api.md`, 「The page」): the Korean side, with the page drawn again with
   both languages and set with `PATCH /documents/{id}`, the narration's sounds attached beside it, and then

@@ -648,6 +648,8 @@ pub enum Filing {
 /// (`docs/runner.md`, 「A run that continues」).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PageAsk {
+  /// The archive's category for the page: the item's shape.
+  pub category: String,
   pub sections: Vec<String>,
   pub opening: Vec<String>,
   pub origin: Option<String>,

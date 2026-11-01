@@ -23,6 +23,9 @@ const NEWS_SECTION: &str = "New products and prices";
 /// Who a run's document is filed by.
 pub const ACTOR: &str = "research";
 
+/// The name a page's pending Korean side goes by, in the queue's `pending` and the document's label of it.
+pub const PENDING_KOREAN: &str = "korean";
+
 /// How long a run's document's share link opens.
 pub const SHARE_LIFE: Duration = Duration::from_secs(24 * 3_600);
 
@@ -268,10 +271,11 @@ fn tidy(lines: &[String]) -> String {
   out.join("\n")
 }
 
-/// The labels a run's document carries: the run, its key, its question, and the keywords, the rule and the
-/// topic where the result writes them.
+/// The labels a run's document carries: the run, its key, its question, the key again as the archive's
+/// category for the document, and the keywords, the rule and the topic where the result writes them.
 pub fn labels(drawn: &Drawn, run: i64, key: &str, query: &str) -> Value {
-  let mut labels = json!({ "research": run.to_string(), "key": key, "query": query.trim() });
+  let mut labels =
+    json!({ "research": run.to_string(), "key": key, "query": query.trim(), "category": key });
   if let Some(keywords) = &drawn.keywords {
     labels["keywords"] = keywords.clone().into();
   }
@@ -508,7 +512,7 @@ pub fn page_body(drawn: &Drawn, title: &str, opening: &[String]) -> String {
 
 /// A deep dive's page as the artifact service files it: kind `page`, the page drawn in English alone with the
 /// line saying where the research came from and its opening first, its head and its labels as a room's
-/// document's, with the languages it holds.
+/// document's, with the languages it holds, its item's shape as its category, and its Korean side pending.
 pub fn page_filing(drawn: &Drawn, run: i64, key: &str, query: &str, title: &str, ask: &PageAsk) -> Value {
   let body = page_body(drawn, title, &ask.opening);
   let html = page::compose(
@@ -523,6 +527,8 @@ pub fn page_filing(drawn: &Drawn, run: i64, key: &str, query: &str, title: &str,
   );
   let mut labels = labels(drawn, run, key, query);
   labels["languages"] = "en".into();
+  labels["category"] = ask.category.clone().into();
+  labels["pending"] = PENDING_KOREAN.into();
   json!({
     "kind": "page",
     "title": title,

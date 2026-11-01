@@ -593,6 +593,16 @@ impl Peers {
     String::from_utf8(bytes).map_err(|e| format!("the artifact service's page did not read as text: {e}"))
   }
 
+  /// A document's labels as the archive keeps them.
+  pub async fn kept_labels(&self, document_id: i64) -> Result<Value, String> {
+    let artifact = self.artifact()?;
+    let path = format!("/documents/{document_id}");
+    let answer = self
+      .call(&artifact, self.request(&artifact, reqwest::Method::GET, &path), &format!("GET {path}"))
+      .await?;
+    Ok(answer["labels"].clone())
+  }
+
   /// Whether a document keeps a file under a name.
   pub async fn attached(&self, document_id: i64, name: &str) -> Result<bool, String> {
     let artifact = self.artifact()?;

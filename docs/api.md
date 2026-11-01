@@ -506,8 +506,14 @@ search runner applies it, and the run writes its document in English, the questi
 - **One document holds both languages:** the page the runner filed in English (`docs/runner.md`, 「The page」)
   is drawn again with the Korean side first once that side is had, and set with the artifact service's
   `PATCH /documents/{id}`: `title` the Korean title where the Korean side is had, `html` the page, and
-  `labels` the run's document's labels with `languages` naming the languages the page holds, comma-separated.
-  Every item the document was filed for keeps the languages as `languages` and the narrations as `narrations`.
+  `labels` the run's document's labels with `languages` naming the languages the page holds, comma-separated,
+  `category` the lead item's shape (`manual`, `investigation`, `advisory` or `brief`), and `pending` what the
+  page still lacks, the item's `pending` comma-separated, left out once it lacks nothing — the archive's
+  category and in-progress marks (bmo-artifact's `docs/archive.md`, 「Where a person reads it」). Every item
+  the document was filed for keeps the languages as `languages` and the narrations as `narrations`.
+- **The labels follow what the page lacks:** each time a try leaves the page lacking something other than it
+  lacked before, the document's labels are set again with `PATCH /documents/{id}` and `labels` alone, so the
+  archive marks a page in progress while it lacks a part and done once it lacks none.
 - **Each side prints where the research came from** under its title, from the item's `origin` in the side's
   own words (`prompts/page.toml`; `docs/runner.md`, 「The page」): the Korean side names a parent document
   by the Korean title its page holds where it has one, else by the title the item keeps. The line is drawn
@@ -586,8 +592,9 @@ search runner applies it, and the run writes its document in English, the questi
   drawn again from what is had of it — the run's result, or the English body its review rewrote
   (`docs/store.md`, `page_texts`), the Korean side kept (`renderings`) where its page holds one, and the
   narrations it plays, each by the name its sound is kept under — and compared with the page as the
-  archive keeps it, read with `GET /documents/{id}/content?download=true`. A page that differs is set as any
-  page drawn again, and one that matches is left alone, so a change in how a page is drawn reaches every
+  archive keeps it, read with `GET /documents/{id}/content?download=true`, its labels with the ones the
+  archive answers on `GET /documents/{id}`. A page whose HTML or labels differ is set as any page drawn
+  again, and one that matches is left alone, so a change in how a page is drawn reaches every
   filed page and nothing else is written. A page being finished at that moment is left to its finishing,
   which draws it the same way; a page whose result is not kept, or that cannot be read or set, is said in
   the log and left as it stands. Nothing a page lacks is asked here, and no one is told. The count of pages
@@ -732,9 +739,9 @@ of these units, and reads each one's address and token from that unit's own file
   narration, `role` `head`, a picture of a run's document or a narration's sound;
   `GET /documents/{documentId}/attachments`, whether a narration's sound is already attached;
   `PATCH /documents/{documentId}` with `body` and `labels` once a room's document's pictures are kept, or with
-  `title`, `html` and `labels` as a page is drawn again;
-  `GET /documents/{documentId}/content?download=true`, a page as the archive keeps it, compared with the page
-  drawn again (「The page」);
+  `title`, `html` and `labels` as a page is drawn again, or with `labels` alone as what a page lacks changes;
+  `GET /documents/{documentId}/content?download=true` and `GET /documents/{documentId}`, a page and its labels
+  as the archive keeps them, compared with the page drawn again (「The page」);
   `GET /shares?documentId=<documentId>` and `POST /shares` with `documentId` and, for a run's document,
   `expiresAt` a day ahead, its live link.
 - **the voice unit:** at the address and with the token its own settings file under `env/` names
