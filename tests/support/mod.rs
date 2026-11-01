@@ -104,6 +104,10 @@ pub struct World {
   pub raw: BTreeMap<i64, String>,
   /// What a deep dive's whole-document turn writes; none writes the run's result again.
   pub whole: Option<String>,
+  /// What a deep dive's review turn writes; none writes `PASS`.
+  pub review: Option<String>,
+  /// While set, a review turn writes nothing.
+  pub review_failing: bool,
   /// Whether a research turn writes its result as two text blocks, cut before its last section, its answer
   /// holding the second alone.
   pub two_blocks: bool,
@@ -345,6 +349,14 @@ async fn research_turn(w: &Shared, name: &str) -> Response {
   if name.ends_with("-narration") {
     let script = world.narration.clone().unwrap_or_default();
     return axum::Json(json!({"outcome": "answered", "answer": script})).into_response();
+  }
+  if name.ends_with("-review") {
+    if world.review_failing {
+      return axum::Json(json!({"state": "ended", "outcome": "failed", "answer": null, "text": []}))
+        .into_response();
+    }
+    let answer = world.review.clone().unwrap_or_else(|| "PASS".into());
+    return axum::Json(json!({"outcome": "answered", "answer": answer})).into_response();
   }
   if world.turns_lost.contains(&run) {
     return (
@@ -952,13 +964,27 @@ impl Ground {
       .collect()
   }
 
-  /// The research runs' own seats asked of agency, a branch's left out, in the order they were asked.
+  /// The research runs' own seats asked of agency, a branch's and a review's left out, in the order they were
+  /// asked.
   pub fn run_seats(&self) -> Vec<Value> {
     self
       .asked_path("agency", "POST", "/seat-requests")
       .into_iter()
       .map(|a| a.body)
-      .filter(|b| !b["requestKey"].as_str().unwrap_or_default().contains(":branch:"))
+      .filter(|b| {
+        let key = b["requestKey"].as_str().unwrap_or_default();
+        !key.contains(":branch:") && !key.ends_with(":review")
+      })
+      .collect()
+  }
+
+  /// The seats asked of agency for a page's review, in the order they were asked.
+  pub fn review_seats(&self) -> Vec<Value> {
+    self
+      .asked_path("agency", "POST", "/seat-requests")
+      .into_iter()
+      .map(|a| a.body)
+      .filter(|b| b["requestKey"].as_str().unwrap_or_default().ends_with(":review"))
       .collect()
   }
 

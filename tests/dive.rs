@@ -349,7 +349,10 @@ async fn a_result_with_no_narration_asks_its_session_for_one_before_it_is_filed(
   let prompt = asked[0]["prompt"].as_str().unwrap();
   assert!(prompt.starts_with(&words::runner().narration.question), "{prompt}");
   assert!(prompt.contains("## The narration"), "the rule is handed: {prompt}");
-  let last = turns.iter().rposition(|a| a.path.ends_with("/turns")).unwrap();
+  let last = turns
+    .iter()
+    .rposition(|a| a.path.ends_with("/turns") && a.body["name"] != "research-1-review")
+    .unwrap();
   assert_eq!(turns[last].body["name"], "research-1-narration", "it is the session's last turn");
   assert!(
     turns[last + 1..]
@@ -428,16 +431,16 @@ async fn a_report_waits_while_a_narration_is_pending_and_is_told_once_it_is_atta
     (ItemState::Finishing, vec!["ko".to_string(), "en".to_string()])
   );
   assert!(waiting.narrations.is_empty());
-  assert_eq!(waiting.pending, ["narration-ko", "narration-en"]);
+  assert_eq!(waiting.pending, ["narration-ko", "narration-en", "review"]);
   assert!(waiting.pending_retry_at.is_some(), "the narrations are asked again");
   assert_eq!(finishing(&ground), 1);
   assert!(orders(&ground).is_empty(), "nobody is told while a narration is pending");
   assert!(ground.app.store.reports(item.id).unwrap().is_empty());
   let waits = logged(&ground, "filed");
   assert!(
-    waits
-      .iter()
-      .any(|text| text.contains("waits") && text.contains("the ko narration and the en narration")),
+    waits.iter().any(
+      |text| text.contains("waits") && text.contains("the ko narration, the en narration and its review")
+    ),
     "the run's log says what the report waits on: {waits:?}"
   );
   assert!(logged(&ground, "told").is_empty());
@@ -550,7 +553,7 @@ async fn a_narration_goes_to_the_voice_as_its_written_words_and_a_refusal_leaves
   assert!(ground.world.lock().unwrap().attachments.is_empty());
   let waiting = ground.app.store.item(item.id).unwrap();
   assert_eq!(waiting.state, ItemState::Finishing);
-  assert_eq!(waiting.pending, ["narration-ko", "narration-en"]);
+  assert_eq!(waiting.pending, ["narration-ko", "narration-en", "review"]);
   let narrated = logged(&ground, "narration");
   assert!(
     narrated
@@ -589,7 +592,7 @@ async fn a_missing_english_sound_is_logged_and_retried_on_the_retry_wait() {
   assert_eq!(waiting.narrations, ["ko"]);
   assert_eq!(
     (waiting.state, waiting.pending.clone()),
-    (ItemState::Finishing, vec!["narration-en".to_string()])
+    (ItemState::Finishing, vec!["narration-en".to_string(), "review".to_string()])
   );
   let state = ground.app.store.page_state(item.id).unwrap();
   assert_eq!(state.narration_tries, 1);
@@ -1147,7 +1150,11 @@ async fn a_korean_side_no_road_carries_holds_the_report_until_a_retry_draws_it_i
     (pending.state, pending.languages.clone()),
     (ItemState::Finishing, vec!["en".to_string()])
   );
-  assert_eq!(pending.pending, ["korean"], "a result with no script waits for no narration");
+  assert_eq!(
+    pending.pending,
+    ["korean", "review"],
+    "a result with no script waits for no narration, and its review waits for the Korean side"
+  );
   let state = ground.app.store.page_state(item.id).unwrap();
   assert_eq!(state.translation_tries, 1);
   assert!(state.retry_at.is_some());
@@ -1653,4 +1660,339 @@ async fn a_translation_answered_past_ten_minutes_is_waited_on_with_no_clock() {
     "the slow translation was waited on to its answer"
   );
   assert_eq!(translations(&ground).len(), 1, "one ask, never cut and asked again");
+}
+
+/// The review turns agency was sent for research run `run`.
+fn review_turns(ground: &Ground, run: i64) -> Vec<Value> {
+  ground.turns_named(&format!("research-{run}-review"))
+}
+
+/// The manual's reproduction plan's heading, as its section's heading says it.
+fn plan_heading() -> String {
+  format!("9. {}", words::document().manual[0].plan_heading)
+}
+
+#[tokio::test]
+async fn a_whole_page_is_reviewed_once_on_a_seat_of_its_own_and_its_report_told_once_it_passes() {
+  let ground = support::ground(|_| {}).await;
+  give_owner_room(&ground.app).await;
+  let item = ground
+    .app
+    .store
+    .ask("it", "example.org/thing", "Thing-7B", "https://example.org/thing", Shape::Manual)
+    .unwrap();
+  file(&ground, 1, 501, narrated(manual_document()));
+
+  settle(&ground).await;
+
+  let seats = ground.review_seats();
+  assert_eq!(seats.len(), 1, "one review");
+  for (field, value) in [
+    ("requestKey", "research:1:review"),
+    ("owner", "research:1"),
+    ("workKey", "search:exhaustive"),
+    ("source", "search"),
+    ("provider", "registered"),
+  ] {
+    assert_eq!(seats[0][field], value, "{field}");
+  }
+  let sessions: Vec<_> = ground
+    .asked_path("agency", "POST", "/sessions")
+    .into_iter()
+    .filter(|a| a.path == "/sessions")
+    .collect();
+  let session = &sessions.last().unwrap().body;
+  let system = session["systemPrompt"].as_str().unwrap();
+  assert!(system.contains("## The review"), "the review's rules are its instructions: {system}");
+  assert_eq!(session["toolsAllowed"], serde_json::json!([]), "the review reads no tool");
+  assert!(session.get("demandId").is_none(), "agency asks the review's card");
+  let asked = review_turns(&ground, 1);
+  assert_eq!(asked.len(), 1);
+  let prompt = asked[0]["prompt"].as_str().unwrap();
+  let review = &words::runner().review;
+  assert!(prompt.starts_with(&review.question), "{prompt}");
+  for part in [&review.english, &review.korean, &review.english_narration, &review.korean_narration] {
+    assert!(prompt.contains(&format!("==== {part} ====")), "{part} is handed: {prompt}");
+  }
+  assert!(
+    prompt.contains("# Report 501") && prompt.contains(&format!("# {KO}Report 501")),
+    "{prompt}"
+  );
+  assert!(
+    prompt.contains(SCRIPT) && prompt.contains(&translated(SCRIPT)),
+    "both narrations: {prompt}"
+  );
+  assert!(logged(&ground, "review").iter().any(|text| text == "The review passed the page."));
+  let told = ground.app.store.item(item.id).unwrap();
+  assert_eq!((told.state, told.pending.clone()), (ItemState::Fit, Vec::<String>::new()));
+  assert_eq!(orders(&ground).len(), 1, "told after the review");
+  let asked = ground.world.lock().unwrap().asked.clone();
+  let reviewed = asked.iter().position(|a| a.body["name"] == "research-1-review");
+  let told = asked.iter().position(|a| a.unit == "receiver" && a.path == "/instructions");
+  assert!(reviewed.is_some() && reviewed < told, "the review comes before the report");
+  assert_eq!(ground.rewrites(501).len(), 1, "a page that passes is not drawn again");
+
+  settle(&ground).await;
+  assert_eq!(review_turns(&ground, 1).len(), 1, "the page is reviewed once");
+}
+
+#[tokio::test]
+async fn a_review_s_english_fix_redraws_that_section_alone_and_translates_only_its_rewrite() {
+  let ground = support::ground(|_| {}).await;
+  give_owner_room(&ground.app).await;
+  let item = ground
+    .app
+    .store
+    .ask("it", "example.org/thing", "Thing-7B", "https://example.org/thing", Shape::Manual)
+    .unwrap();
+  file(&ground, 1, 501, manual_document());
+  let rewrite = format!("## {}\n\n- re-measure at 38.6 tokens/s on n3", plan_heading());
+  ground.world.lock().unwrap().review = Some(format!(
+    "FIX: en {}\nWHY: The figure differs from its source.\n{rewrite}\n",
+    plan_heading()
+  ));
+
+  settle(&ground).await;
+
+  let asks = translations(&ground);
+  let before = asks.len() - 1;
+  assert_eq!(asks[before]["text"], rewrite.as_str(), "the rewrite alone is translated");
+  assert_eq!(asks[before]["note"], note("Thing-7B").as_str());
+  assert!(asks[..before].iter().all(|a| a["text"] != rewrite.as_str()));
+  let english = ground.app.store.page_text(501, "body-en").unwrap().unwrap();
+  assert!(english.contains("38.6 tokens/s") && !english.contains("- re-measure\n"), "{english}");
+  let first = english_body(501, &manual_document());
+  let opening = &first[..first.find(&format!("## {}", plan_heading())).unwrap()];
+  assert!(english.starts_with(opening), "the sections before it stand as they were");
+  let korean = ground.app.store.rendering(501).unwrap().unwrap();
+  assert!(korean.body.contains(&translated(&rewrite)), "{}", korean.body);
+  let rewrites = ground.rewrites(501);
+  assert_eq!(rewrites.len(), 1, "drawn once, with the Korean side and the fix");
+  let html = rewrites[0]["html"].as_str().unwrap();
+  assert!(html.contains("38.6 tokens/s"), "{html}");
+  let item = ground.app.store.item(item.id).unwrap();
+  assert_eq!((item.state, item.pending.clone()), (ItemState::Fit, Vec::<String>::new()));
+  assert_eq!(orders(&ground).len(), 1);
+  let review = ground.app.store.review(501).unwrap().unwrap();
+  assert_eq!(review.applied, [0]);
+  assert!(logged(&ground, "review").iter().any(|text| text.starts_with("The English section")));
+}
+
+#[tokio::test]
+async fn a_review_s_korean_fix_keeps_the_reviewer_s_korean_and_asks_no_translation() {
+  let ground = support::ground(|_| {}).await;
+  give_owner_room(&ground.app).await;
+  ground
+    .app
+    .store
+    .ask("it", "example.org/thing", "Thing-7B", "https://example.org/thing", Shape::Manual)
+    .unwrap();
+  file(&ground, 1, 501, manual_document());
+  let rewrite = format!("## {KO}{}\n\n{KO}- re-measured by hand", plan_heading());
+  ground.world.lock().unwrap().review =
+    Some(format!("FIX: ko {}\nWHY: It reads as machine output.\n{rewrite}\n", plan_heading()));
+
+  settle(&ground).await;
+
+  let asked = translations(&ground).len();
+  let korean = ground.app.store.rendering(501).unwrap().unwrap();
+  assert!(korean.body.contains(&rewrite), "{}", korean.body);
+  assert!(!korean.body.contains(&format!("{KO}- re-measure\n")), "the section it replaced is gone");
+  assert!(ground.app.store.page_text(501, "body-en").unwrap().is_none(), "the English stands");
+  let html = ground.rewrites(501).last().unwrap()["html"].as_str().unwrap().to_string();
+  assert!(html.contains("re-measured by hand"), "{html}");
+  let english_side = &html[html.find("<article data-language=\"en\"").unwrap()..];
+  assert!(!english_side.contains("re-measured by hand"), "the English side is not touched");
+  settle(&ground).await;
+  assert_eq!(translations(&ground).len(), asked, "nothing more is translated");
+  assert_eq!(orders(&ground).len(), 1);
+}
+
+#[tokio::test]
+async fn a_review_s_narration_fix_makes_that_sound_again_under_the_review_s_name() {
+  let ground = support::ground(|_| {}).await;
+  give_owner_room(&ground.app).await;
+  let item = ground
+    .app
+    .store
+    .ask("it", "example.org/thing", "Thing-7B", "https://example.org/thing", Shape::Manual)
+    .unwrap();
+  file(&ground, 1, 501, narrated(manual_document()));
+  let words = format!("{KO}Thing-7B fits one card.");
+  ground.world.lock().unwrap().review =
+    Some(format!("FIX: narration-ko\nWHY: It reads as machine output.\n{words}\n"));
+
+  settle(&ground).await;
+
+  assert_eq!(ground.spoken(), [translated(SCRIPT), SCRIPT.to_string(), words.clone()]);
+  let names: Vec<String> =
+    ground.world.lock().unwrap().attachments.iter().map(|a| a.name.clone()).collect();
+  assert_eq!(names, ["narration-ko.ogg", "narration-en.ogg", "narration-reviewed-ko.ogg"]);
+  let html = ground.rewrites(501).last().unwrap()["html"].as_str().unwrap().to_string();
+  assert!(
+    html.contains("attachment:narration-reviewed-ko.ogg") && html.contains("attachment:narration-en.ogg")
+  );
+  assert!(!html.contains("attachment:narration-ko.ogg"), "the band plays the review's sound");
+  assert_eq!(ground.app.store.page_text(501, "narration-ko").unwrap(), Some(words));
+  let told = ground.app.store.item(item.id).unwrap();
+  assert_eq!(
+    (told.state, told.narrations.clone()),
+    (ItemState::Fit, vec!["ko".to_string(), "en".to_string()])
+  );
+  assert_eq!(orders(&ground).len(), 1);
+}
+
+#[tokio::test]
+async fn a_review_that_does_not_answer_holds_the_report_and_is_asked_again_on_the_retry_wait() {
+  let ground = support::ground(|s| s.retry_minutes = 0).await;
+  give_owner_room(&ground.app).await;
+  let item = ground
+    .app
+    .store
+    .ask("it", "example.org/thing", "Thing-7B", "https://example.org/thing", Shape::Manual)
+    .unwrap();
+  file(&ground, 1, 501, manual_document());
+  ground.world.lock().unwrap().review_failing = true;
+
+  settle(&ground).await;
+
+  let waiting = ground.app.store.item(item.id).unwrap();
+  assert_eq!(
+    (waiting.state, waiting.pending.clone()),
+    (ItemState::Finishing, vec!["review".to_string()])
+  );
+  assert!(orders(&ground).is_empty(), "nobody is told before the review");
+  assert!(logged(&ground, "review").iter().any(|text| text.starts_with("The review is pending:")));
+  let asked = translations(&ground).len();
+
+  ground.world.lock().unwrap().review_failing = false;
+  settle(&ground).await;
+
+  assert_eq!(review_turns(&ground, 1).len(), 2);
+  assert_eq!(translations(&ground).len(), asked, "the Korean side is not asked again");
+  assert_eq!(ground.app.store.item(item.id).unwrap().state, ItemState::Fit);
+  assert_eq!(orders(&ground).len(), 1);
+}
+
+#[tokio::test]
+async fn a_translation_part_that_fails_is_asked_again_alone_and_the_parts_had_are_kept() {
+  let ground = support::ground(|s| {
+    s.retry_minutes = 0;
+    s.translation.part_chars = 400;
+    s.translation.parts_out = 1;
+  })
+  .await;
+  give_owner_room(&ground.app).await;
+  ground
+    .app
+    .store
+    .ask("it", "example.org/thing", "Thing-7B", "https://example.org/thing", Shape::Manual)
+    .unwrap();
+  let content = long_manual(300);
+  file(&ground, 1, 501, content.clone());
+  let parts = cut(&format!("# Report 501\n\n{}", english_body(501, &content)), 400);
+  assert_eq!(parts.len(), 3);
+  ground.world.lock().unwrap().translation_answers.extend([200, 200, 503]);
+
+  settle(&ground).await;
+
+  let first: Vec<String> =
+    translations(&ground).iter().map(|a| a["text"].as_str().unwrap().to_string()).collect();
+  assert_eq!(first, ["It is a thing. It does more.", parts[0].as_str(), parts[1].as_str()]);
+  assert!(orders(&ground).is_empty());
+
+  settle(&ground).await;
+
+  let again: Vec<String> = translations(&ground)[3..]
+    .iter()
+    .map(|a| a["text"].as_str().unwrap().to_string())
+    .collect();
+  assert_eq!(again, [parts[1].as_str(), parts[2].as_str()], "only what it lacked is asked again");
+  let korean = ground.app.store.rendering(501).unwrap().unwrap();
+  assert!(korean.body.contains(&translated(parts[1].trim())), "{}", korean.body);
+  assert_eq!(orders(&ground).len(), 1);
+}
+
+#[tokio::test]
+async fn a_try_asked_again_continues_from_what_the_run_before_it_wrote() {
+  let ground = support::ground(|s| s.retry_minutes = 0).await;
+  give_owner_room(&ground.app).await;
+  let item = ground
+    .app
+    .store
+    .ask("it", "example.org/thing", "Thing-7B", "https://example.org/thing", Shape::Manual)
+    .unwrap();
+  file(&ground, 1, 501, manual_document());
+  ground.world.lock().unwrap().raw.insert(1, tail_only());
+
+  settle(&ground).await;
+
+  assert_eq!(ground.app.store.research_run(1).unwrap().outcome.as_deref(), Some("failed"));
+  assert_eq!(ground.app.store.item(item.id).unwrap().state, ItemState::Waiting);
+  let whole = result_text(&ground.world.lock().unwrap().filed[&1]);
+  ground.world.lock().unwrap().whole = Some(whole);
+
+  settle(&ground).await;
+
+  let run = ground.app.store.research_run(2).unwrap();
+  assert_eq!(run.continues, Some(1));
+  assert!(ground.turns_named("research-2").is_empty(), "no first turn is asked");
+  for round in &words::runner().rounds["search:exhaustive"].rounds {
+    assert!(ground.turns_named(&format!("research-2-{round}")).is_empty(), "run 1 answered {round}");
+  }
+  let asked = ground.turns_named("research-2-whole");
+  assert_eq!(asked.len(), 1);
+  assert!(
+    asked[0]["prompt"].as_str().unwrap().contains(tail_only().trim()),
+    "it goes on from run 1's result"
+  );
+  let said = ground.app.store.research_log(2).unwrap();
+  assert!(
+    said
+      .iter()
+      .any(|line| line.text.starts_with("The research continues from what run 1 wrote")),
+    "the run's log says which run it continues"
+  );
+  assert_eq!((run.outcome.as_deref(), run.document_id.is_some()), (Some("answered"), true));
+  assert_eq!(ground.app.store.item(item.id).unwrap().state, ItemState::Fit);
+}
+
+#[tokio::test]
+async fn a_continuing_run_asks_the_rounds_after_the_last_its_chain_answered() {
+  let ground = support::ground(|_| {}).await;
+  let store = &ground.app.store;
+  let open = |query: &str| {
+    store
+      .open_research_run(&NewResearchRun {
+        key: "search:exhaustive",
+        line: "search",
+        query,
+        asker: None,
+        options: None,
+        room_id: None,
+        provider: "registered",
+        model: "flash-next",
+        closes_at: now_ms(),
+        branches_allowed: 0,
+        tells: false,
+      })
+      .unwrap()
+  };
+  let rounds = &words::runner().rounds["search:exhaustive"].rounds;
+  let (first, second, third) = (open("q"), open("q"), open("q"));
+  store.keep_round_answered(first, "what").unwrap();
+  store.keep_round_answered(first, "sources").unwrap();
+  store.keep_continues(second, first).unwrap();
+  store.keep_continues(third, second).unwrap();
+  assert_eq!(research_server::runner::rounds_left(&ground.app, first, rounds), 2);
+  assert_eq!(
+    research_server::runner::rounds_left(&ground.app, third, rounds),
+    2,
+    "read through the chain"
+  );
+  store.keep_round_answered(second, "facts").unwrap();
+  assert_eq!(research_server::runner::rounds_left(&ground.app, third, rounds), 3);
+  store.keep_round_answered(third, "final").unwrap();
+  assert_eq!(research_server::runner::rounds_left(&ground.app, third, rounds), rounds.len());
+  assert_eq!(research_server::runner::rounds_left(&ground.app, open("q"), rounds), 0);
 }

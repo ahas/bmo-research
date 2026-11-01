@@ -1,9 +1,11 @@
 //! The deep dive and its notices (`docs/api.md`, 「The deep dive」, 「The page」 and 「The notices」): the next
 //! run picked among the running categories, its engine's card waited for where its road is watched, asked of
 //! the runner, read until it closes, its result read and its items filed, its page finished with its Korean
-//! side and its narrations, and every recipient told once the page is whole; what a page still lacks asked
-//! again on every retry wait until it is had; an interrupted try put back uncounted and asked again at once,
-//! a failed one counted and waited, and an item stuck past its retries handed to the helper to repair.
+//! side and its narrations, then reviewed once and each of the review's fixes applied to the part it names
+//! alone, and every recipient told once the page is whole; what a page still lacks asked again on every retry
+//! wait until it is had, each part alone; a try asked again continuing from what the run before it wrote, or
+//! taking up the document it filed; an interrupted try put back uncounted and asked again at once, a failed
+//! one counted and waited, and an item stuck past its retries handed to the helper to repair.
 
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
@@ -22,8 +24,9 @@ use crate::document::{self, Drawn};
 use crate::engine;
 use crate::page::{self, Side, Sound};
 use crate::reading::{self, Exposure};
+use crate::review::{self, Answer, Part, Shown};
 use crate::runner::{self, Filing, PageAsk, Refused};
-use crate::store::{Filed, now_ms};
+use crate::store::{Filed, Review, now_ms};
 use crate::translation::{self, English, Rendering};
 use crate::words::{self, fill};
 
@@ -35,6 +38,15 @@ const LANGUAGES: [&str; 2] = ["ko", "en"];
 
 /// The name the queue gives a page's pending Korean side; a pending narration is named `narration-<code>`.
 const KOREAN: &str = "korean";
+
+/// The names the queue gives a page's pending review, and its review's fixes not yet applied.
+const REVIEW: &str = "review";
+const REVIEW_FIXES: &str = "review-fixes";
+
+/// The names a page's texts are kept under beside its run's result (`docs/store.md`, `page_texts`).
+const ENGLISH_BODY: &str = "body-en";
+const ENGLISH_SCRIPT: &str = "narration-en";
+const KOREAN_WORDS: &str = "narration-ko";
 
 /// How many of the latest research run's log lines a repair carries.
 const REPAIR_LOG_LINES: usize = 20;
@@ -94,9 +106,11 @@ struct Finished {
 fn lacking_said(pending: &[String]) -> String {
   let parts: Vec<String> = pending
     .iter()
-    .map(|part| match part.strip_prefix("narration-") {
-      Some(code) => format!("the {code} narration"),
-      None => "the Korean side".to_string(),
+    .map(|part| match (part.as_str(), part.strip_prefix("narration-")) {
+      (_, Some(code)) => format!("the {code} narration"),
+      (REVIEW, None) => "its review".to_string(),
+      (REVIEW_FIXES, None) => "its review's fixes".to_string(),
+      _ => "the Korean side".to_string(),
     })
     .collect();
   match parts.split_last() {
@@ -338,8 +352,22 @@ async fn carried(app: Arc<App>, run: i64, asked: Option<i64>) {
     let _ = app.store.end_run(run, "failed", None, Some("the try's category no longer stands"));
     return;
   };
-  let run_id = match asked {
-    Some(id) => id,
+  let earlier = app.store.earlier_research_run(lead.id, run).ok().flatten();
+  // A run before this try that filed its document for the same question is taken up rather than asked again.
+  let filed_before = earlier.filter(|id| {
+    app.store.research_run(*id).is_ok_and(|row| {
+      row.state == ResearchRunState::Closed
+        && row.document_id.is_some()
+        && row.query.trim() == question(&app, &items).trim()
+    })
+  });
+  let run_id = match asked.or(filed_before) {
+    Some(id) => {
+      if asked.is_none() {
+        let _ = app.store.keep_run_id(run, id);
+      }
+      id
+    }
     None => {
       let (provider, model) = road(&app, &category);
       let demand = match engine::watched(&app, &provider, &model) {
@@ -365,6 +393,7 @@ async fn carried(app: Arc<App>, run: i64, asked: Option<i64>) {
         sections: words::document().sections.of(lead.shape).to_vec(),
         opening: words::document().opening.of(lead.shape).to_vec(),
         origin: origin_of(&app, &lead, LANGUAGES[1]),
+        continues: earlier,
       });
       match runner::launch(app.clone(), ask, filing, demand).await {
         Ok(launched) => {
@@ -478,6 +507,20 @@ pub fn sound_name(code: &str) -> String {
   format!("narration-{code}.ogg")
 }
 
+/// The file a narration's sound the review had made again is kept under, the archive keeping one file under
+/// a name.
+pub fn reviewed_sound_name(code: &str) -> String {
+  format!("narration-reviewed-{code}.ogg")
+}
+
+/// The file the page's narration in `code` is kept under now: the review's where it had it made again.
+fn sound_of(review: Option<&Review>, code: &str) -> String {
+  match review.is_some_and(|review| review.remade.iter().any(|had| had == code)) {
+    true => reviewed_sound_name(code),
+    false => sound_name(code),
+  }
+}
+
 /// A text as the voice unit can speak it: whole where it holds at most `most` characters, else up to the last
 /// sentence that ends within them, the last word where no sentence does, or its first `most` characters.
 pub fn speakable(text: &str, most: usize) -> &str {
@@ -508,25 +551,31 @@ pub fn speakable(text: &str, most: usize) -> &str {
   text[..end].trim_end()
 }
 
-/// One narration's sound attached beside its page, which the archive's reader plays: the one the document
-/// already keeps, else the script spoken — in Korean translated to be spoken first, and either cut to what
-/// the voice unit speaks, the run's log saying so — followed however long its synthesis waits, the run's log
-/// saying what on whenever that changes, and attached, the Korean as the sound heard at the document's head.
+/// One narration's sound attached beside its page under `name`, which the archive's reader plays: the one the
+/// document already keeps, else the script spoken — in Korean the words kept for it, else the script
+/// translated to be spoken and kept, and either cut to what the voice unit speaks, the run's log saying so —
+/// followed however long its synthesis waits, the run's log saying what on whenever that changes, and
+/// attached, the Korean as the sound heard at the document's head.
 async fn narration(
   app: &App,
-  run: i64,
-  lead: &Item,
-  document_id: i64,
+  (run, lead, document_id): (i64, &Item, i64),
   code: &str,
   script: &str,
+  name: &str,
 ) -> Result<(), String> {
-  let name = sound_name(code);
-  if app.peers.attached(document_id, &name).await? {
+  if app.peers.attached(document_id, name).await? {
     return Ok(());
   }
   let text = match code {
     "en" => script.to_string(),
-    _ => translation::narration(app, &lead.name, script).await?,
+    _ => match app.store.page_text(document_id, KOREAN_WORDS).ok().flatten() {
+      Some(words) => words,
+      None => {
+        let words = translation::narration(app, &lead.name, script).await?;
+        let _ = app.store.keep_page_text(document_id, KOREAN_WORDS, &words);
+        words
+      }
+    },
   };
   let spoken = speakable(&text, VOICE_MOST_CHARACTERS);
   let (whole, kept) = (text.trim().chars().count(), spoken.chars().count());
@@ -545,20 +594,35 @@ async fn narration(
     })
     .await?;
   let role = (code == LANGUAGES[0]).then_some("head");
-  app.peers.attach(document_id, &name, &media_type, role, &bytes).await
+  app.peers.attach(document_id, name, &media_type, role, &bytes).await
 }
 
-/// The page drawn again with the sides it holds, Korean first, and its listen band referring to each narration
-/// attached, and set in the archive.
+/// The page's English body: the review's rewrite where it rewrote one, else the run's result drawn as the
+/// page holds it.
+fn english_body(app: &App, lead: &Item, document_id: i64, source: &Source) -> String {
+  match app.store.page_text(document_id, ENGLISH_BODY).ok().flatten() {
+    Some(body) => body,
+    None => document::page_body(&source.drawn, &source.title, words::document().opening.of(lead.shape)),
+  }
+}
+
+/// The page's English script: the review's rewrite where it rewrote it, else the run's result's, or none
+/// where the result has none.
+fn english_script(app: &App, document_id: i64, source: &Source) -> Option<String> {
+  let script = source.drawn.narration.clone().filter(|script| !script.trim().is_empty())?;
+  Some(app.store.page_text(document_id, ENGLISH_SCRIPT).ok().flatten().unwrap_or(script))
+}
+
+/// The page drawn again with the sides it holds, Korean first, its English body `english`, and its listen
+/// band referring to each narration attached by the name it is kept under, and set in the archive.
 async fn redraw(
   app: &App,
   lead: &Item,
   document_id: i64,
-  source: &Source,
+  (source, english): (&Source, &str),
   rendering: Option<&Rendering>,
-  narrations: &[String],
+  narrations: &[(&str, String)],
 ) -> Result<(), String> {
-  let english = document::page_body(&source.drawn, &source.title, words::document().opening.of(lead.shape));
   let origins = LANGUAGES.map(|code| origin_of(app, lead, code));
   let mut sides = Vec::new();
   if let Some(korean) = rendering {
@@ -575,14 +639,13 @@ async fn redraw(
     title: &source.title,
     description: source.drawn.description.as_deref(),
     origin: origins[1].as_deref(),
-    body: &english,
+    body: english,
   });
-  let names: Vec<(&str, String)> = LANGUAGES
+  let sounds: Vec<Sound<'_>> = LANGUAGES
     .into_iter()
-    .filter(|code| narrations.iter().any(|had| had == code))
-    .map(|code| (code, sound_name(code)))
+    .filter_map(|code| narrations.iter().find(|(had, _)| *had == code))
+    .map(|(code, name)| Sound { code, name })
     .collect();
-  let sounds: Vec<Sound<'_>> = names.iter().map(|(code, name)| Sound { code, name }).collect();
   let html = page::compose(&sides, &sounds);
   let mut labels = source.labels.clone();
   labels["languages"] = sides.iter().map(|side| side.code).collect::<Vec<_>>().join(",").into();
@@ -597,56 +660,25 @@ async fn redraw(
     .map(|_| ())
 }
 
-/// An item's page finished as far as it can be now: its Korean side asked where it lacks one, each narration
-/// its script allows asked and attached where it lacks it, the page drawn again with what was had, and what it
-/// still lacks kept, to be asked again `retry_minutes` from now. Answers how it stands, or none where the
-/// store could not be read.
-async fn finish(app: &App, run: i64, lead: &Item, filed: &Filed, source: &Source) -> Option<Finished> {
-  let document_id = filed.document_id;
-  let unread = |why: String| eprintln!("bmo-research: item {}'s page could not be read: {why}", lead.id);
-  let state = app.store.page_state(lead.id).map_err(unread).ok()?;
-  let had = state.languages.iter().any(|code| code == LANGUAGES[0]);
-  let mut rendering = if had { app.store.rendering(document_id).ok().flatten() } else { None };
-  let ask_korean = rendering.is_none();
-  let script = source.drawn.narration.clone().filter(|script| !script.trim().is_empty());
-  let lacking: Vec<&str> = LANGUAGES
-    .into_iter()
-    .filter(|code| script.is_some() && !state.narrations.iter().any(|had| had == code))
-    .collect();
-  let next = now_ms() + app.settings.retry_minutes * 60_000;
-  app
-    .store
-    .claim_page(lead.id, next, ask_korean, !lacking.is_empty())
-    .map_err(unread)
-    .ok()?;
-  let mut fresh = false;
-  if ask_korean {
-    let body = document::page_body(&source.drawn, &source.title, words::document().opening.of(lead.shape));
-    let english = English {
-      name: &lead.name,
-      title: &source.title,
-      description: source.drawn.description.as_deref(),
-      body: &body,
-    };
-    let fallback = words::page().title(LANGUAGES[0], lead.shape, &lead.name);
-    match translation::render(app, &english, &fallback).await {
-      Ok(korean) => {
-        rendering = Some(korean);
-        fresh = true;
-      }
-      Err(why) => {
-        eprintln!("bmo-research: item {}'s Korean side is pending: {why}", lead.id);
-        let _ = app.store.log_research(run, "filed", &format!("The Korean side is pending: {why}"));
-      }
-    }
-  }
-  let mut sounds: Vec<String> = state.narrations.clone();
+/// The narrations a page lacks made and attached, each under the name it is kept under now: the page's
+/// script, where it has one, spoken in each of `asked` that `sounds` does not hold yet. Answers whether any
+/// was attached, each added to `sounds`.
+async fn make_sounds(
+  app: &App,
+  (run, lead, document_id): (i64, &Item, i64),
+  (script, review): (Option<&str>, Option<&Review>),
+  asked: &[&str],
+  sounds: &mut Vec<String>,
+) -> bool {
+  let Some(script) = script else {
+    return false;
+  };
   let mut heard = false;
+  let lacking: Vec<&str> =
+    asked.iter().copied().filter(|code| !sounds.iter().any(|had| had == code)).collect();
   for code in lacking {
-    let Some(script) = script.as_deref() else {
-      continue;
-    };
-    match narration(app, run, lead, document_id, code, script).await {
+    let name = sound_of(review, code);
+    match narration(app, (run, lead, document_id), code, script, &name).await {
       Ok(()) => {
         heard = true;
         sounds.push(code.to_owned());
@@ -659,25 +691,264 @@ async fn finish(app: &App, run: i64, lead: &Item, filed: &Filed, source: &Source
       }
     }
   }
-  if fresh || heard {
-    match redraw(app, lead, document_id, source, rendering.as_ref(), &sounds).await {
+  sounds.sort_by_key(|code| LANGUAGES.iter().position(|had| had == code));
+  heard
+}
+
+/// The page's one review asked (`docs/runner.md`, 「The review」): the finished page handed to the run's own
+/// model, and what it wrote kept. Answers the review kept, or none where it did not answer, the run's log
+/// saying why under `review`.
+async fn ask_review(
+  app: &App,
+  (run, lead, document_id): (i64, &Item, i64),
+  source: &Source,
+  english: &str,
+  korean: &Rendering,
+  script: Option<&str>,
+) -> Option<Review> {
+  let words = app.store.page_text(document_id, KOREAN_WORDS).ok().flatten();
+  let page = review::page(
+    &Shown {
+      title: &source.title,
+      description: source.drawn.description.as_deref(),
+      body: english,
+    },
+    &Shown {
+      title: &korean.title,
+      description: korean.description.as_deref(),
+      body: &korean.body,
+    },
+    [script, words.as_deref()],
+  );
+  let answer = match runner::review(app, run, &runner::review_prompt(&page)).await {
+    Ok(answer) => answer,
+    Err(why) => {
+      eprintln!("bmo-research: item {}'s review is pending: {why}", lead.id);
+      let _ = app.store.log_research(run, "review", &format!("The review is pending: {why}"));
+      return None;
+    }
+  };
+  let said = match review::read(&answer) {
+    Answer::Pass => "The review passed the page.".to_string(),
+    Answer::Fixes(fixes) => format!("The review asked for {} fixes.", fixes.len()),
+    Answer::Unread => "The review wrote neither PASS nor a fix, so it asks for none.".to_string(),
+  };
+  let _ = app.store.log_research(run, "review", &said);
+  if let Err(why) = app.store.keep_review(document_id, &answer) {
+    eprintln!("bmo-research: item {}'s review was not kept: {why}", lead.id);
+    return None;
+  }
+  app.store.review(document_id).ok().flatten()
+}
+
+/// How many of a review's fixes are neither applied nor left out.
+fn unapplied(review: &Review) -> usize {
+  match review::read(&review.answer) {
+    Answer::Fixes(fixes) => (0..fixes.len()).filter(|at| !review.applied.contains(at)).count(),
+    _ => 0,
+  }
+}
+
+/// A fix done with without a change to the page, or a narration's fix applied: kept as applied at once.
+fn settle(app: &App, document_id: i64, review: &mut Review, at: usize) {
+  review.applied.push(at);
+  let _ = app.store.keep_review_applied(document_id, &review.applied, &review.remade);
+}
+
+/// The review's fixes not yet applied, each applied to the part it names alone (`docs/runner.md`, 「The
+/// review」): a section's set in place of its own on `english` and `korean`, an English one's Korean
+/// translated from it alone; a narration's kept and its sounds dropped from `sounds`, to be made again under
+/// the review's names. A fix that cannot be placed is left out; one whose translation cannot be had stays
+/// pending. Answers the fixes whose change stands on the page drawn next, kept as applied once it is set.
+async fn apply_fixes(
+  app: &App,
+  (run, lead, document_id): (i64, &Item, i64),
+  review: &mut Review,
+  english: &mut String,
+  korean: &mut Rendering,
+  sounds: &mut Vec<String>,
+) -> Vec<usize> {
+  let Answer::Fixes(fixes) = review::read(&review.answer) else {
+    return Vec::new();
+  };
+  let log = |said: String| {
+    let _ = app.store.log_research(run, "review", &said);
+  };
+  let mut drawn = Vec::new();
+  let open: Vec<usize> = (0..fixes.len()).filter(|at| !review.applied.contains(at)).collect();
+  for (at, fix) in open.into_iter().map(|at| (at, &fixes[at])) {
+    let why = fix.why.as_deref().map(|why| format!(" ({why})")).unwrap_or_default();
+    match &fix.part {
+      Part::English(heading) => {
+        let Some(place) = review::place(english, heading) else {
+          log(format!(
+            "The fix of the English section {heading} was left out: no section has that heading."
+          ));
+          settle(app, document_id, review, at);
+          continue;
+        };
+        let translated = match translation::section(app, &lead.name, &fix.text).await {
+          Ok(translated) => translated,
+          Err(why) => {
+            log(format!(
+              "The fix of the English section {heading} is pending: its Korean was not had: {why}"
+            ));
+            continue;
+          }
+        };
+        let korean_at = review::korean_place(english, &korean.body, heading, None);
+        if let Some(fixed) = review::replaced(english, place, &fix.text) {
+          *english = fixed;
+        }
+        match korean_at.and_then(|place| review::replaced(&korean.body, place, &translated)) {
+          Some(fixed) => korean.body = fixed,
+          None => log(format!(
+            "The Korean side holds no section at the place of {heading}, so only the English took its fix."
+          )),
+        }
+        log(format!("The English section {heading} was fixed{why}."));
+        drawn.push(at);
+      }
+      Part::Korean(heading) => {
+        let place = review::korean_place(english, &korean.body, heading, Some(&fix.text));
+        match place.and_then(|place| review::replaced(&korean.body, place, &fix.text)) {
+          Some(fixed) => {
+            korean.body = fixed;
+            log(format!("The Korean section under {heading} was fixed{why}."));
+            drawn.push(at);
+          }
+          None => {
+            log(format!(
+              "The fix of the Korean section under {heading} was left out: it could not be placed."
+            ));
+            settle(app, document_id, review, at);
+          }
+        }
+      }
+      Part::Narration(code) => {
+        let remade: &[&str] = match *code {
+          "en" => {
+            let _ = app.store.keep_page_text(document_id, ENGLISH_SCRIPT, &fix.text);
+            let _ = app.store.drop_page_text(document_id, KOREAN_WORDS);
+            &["ko", "en"]
+          }
+          _ => {
+            let _ = app.store.keep_page_text(document_id, KOREAN_WORDS, &fix.text);
+            &["ko"]
+          }
+        };
+        for code in remade {
+          if !review.remade.iter().any(|had| had == code) {
+            review.remade.push((*code).to_string());
+          }
+        }
+        sounds.retain(|had| !remade.contains(&had.as_str()));
+        let _ = app.store.keep_narrations(document_id, sounds);
+        log(format!("The {code} narration was fixed{why}, and its sounds are made again."));
+        settle(app, document_id, review, at);
+      }
+    }
+  }
+  drawn
+}
+
+/// An item's page finished as far as it can be now: its Korean side asked where it lacks one, the parts had
+/// before kept; each narration its script allows asked and attached where it lacks it; once whole, its one
+/// review asked while its items stand `finishing`, and each of the review's fixes not yet applied applied to
+/// the part it names alone, the narrations a fix had made again made; the page drawn again with what was had,
+/// and what it still lacks kept, to be asked again `retry_minutes` from now. Answers how it stands, or none
+/// where the store could not be read.
+async fn finish(app: &App, run: i64, lead: &Item, filed: &Filed, source: &Source) -> Option<Finished> {
+  let document_id = filed.document_id;
+  let unread = |why: String| eprintln!("bmo-research: item {}'s page could not be read: {why}", lead.id);
+  let state = app.store.page_state(lead.id).map_err(unread).ok()?;
+  let mut review = app.store.review(document_id).map_err(unread).ok()?;
+  let reviewing = app.store.item(lead.id).is_ok_and(|item| item.state == ItemState::Finishing);
+  let had = state.languages.iter().any(|code| code == LANGUAGES[0]);
+  let mut rendering = if had { app.store.rendering(document_id).ok().flatten() } else { None };
+  let ask_korean = rendering.is_none();
+  let mut english = english_body(app, lead, document_id, source);
+  let script = english_script(app, document_id, source);
+  let lacking = LANGUAGES
+    .into_iter()
+    .any(|code| script.is_some() && !state.narrations.iter().any(|had| had == code));
+  let next = now_ms() + app.settings.retry_minutes * 60_000;
+  app.store.claim_page(lead.id, next, ask_korean, lacking).map_err(unread).ok()?;
+  let mut fresh = false;
+  if ask_korean {
+    let english = English {
+      name: &lead.name,
+      title: &source.title,
+      description: source.drawn.description.as_deref(),
+      body: &english,
+    };
+    let fallback = words::page().title(LANGUAGES[0], lead.shape, &lead.name);
+    match translation::render(app, document_id, &english, &fallback).await {
+      Ok(korean) => {
+        rendering = Some(korean);
+        fresh = true;
+      }
+      Err(why) => {
+        eprintln!("bmo-research: item {}'s Korean side is pending: {why}", lead.id);
+        let _ = app.store.log_research(run, "filed", &format!("The Korean side is pending: {why}"));
+      }
+    }
+  }
+  let page = (run, lead, document_id);
+  let mut sounds: Vec<String> = state.narrations.clone();
+  let mut heard =
+    make_sounds(app, page, (script.as_deref(), review.as_ref()), &LANGUAGES, &mut sounds).await;
+  let whole = script.is_none() || LANGUAGES.iter().all(|code| sounds.iter().any(|had| had == code));
+  if reviewing
+    && review.is_none()
+    && whole
+    && let Some(korean) = rendering.as_ref()
+  {
+    review = ask_review(app, page, source, &english, korean, script.as_deref()).await;
+  }
+  let before = rendering.clone();
+  let mut fixed = Vec::new();
+  let fixing = sounds.clone();
+  if let (Some(had), Some(korean)) = (review.as_mut(), rendering.as_mut()) {
+    fixed = apply_fixes(app, page, had, &mut english, korean, &mut sounds).await;
+  }
+  // A narration a fix had made again is made now, its words the fix's.
+  let dropped: Vec<&str> = LANGUAGES
+    .into_iter()
+    .filter(|code| fixing.iter().any(|had| had == code) && !sounds.iter().any(|had| had == code))
+    .collect();
+  let script = english_script(app, document_id, source);
+  heard |= make_sounds(app, page, (script.as_deref(), review.as_ref()), &dropped, &mut sounds).await;
+  if fresh || heard || !fixed.is_empty() {
+    let names: Vec<(&str, String)> = LANGUAGES
+      .into_iter()
+      .filter(|code| sounds.iter().any(|had| had == code))
+      .map(|code| (code, sound_of(review.as_ref(), code)))
+      .collect();
+    match redraw(app, lead, document_id, (source, &english), rendering.as_ref(), &names).await {
       Ok(()) => {
-        if let Some(korean) = rendering.as_ref().filter(|_| fresh) {
+        if let Some(korean) = rendering.as_ref().filter(|_| fresh || !fixed.is_empty()) {
           let _ = app.store.keep_rendering(document_id, korean);
         }
         if heard {
           let _ = app.store.keep_narrations(document_id, &sounds);
         }
+        if let Some(had) = review.as_mut().filter(|_| !fixed.is_empty()) {
+          if english != english_body(app, lead, document_id, source) {
+            let _ = app.store.keep_page_text(document_id, ENGLISH_BODY, &english);
+          }
+          had.applied.extend(fixed.iter().copied());
+          let _ = app.store.keep_review_applied(document_id, &had.applied, &had.remade);
+        }
       }
       Err(why) => {
         // What the page was not drawn with is lacking still: a sound attached is found again on the next
-        // try, and the Korean side is asked again.
+        // try, the Korean side's parts are kept, and a fix drawn is applied again.
         eprintln!("bmo-research: item {}'s page was not drawn again: {why}", lead.id);
         let _ = app.store.log_research(run, "filed", &format!("The page was not drawn again: {why}"));
-        if fresh {
-          rendering = None;
-        }
-        sounds = state.narrations.clone();
+        rendering = if fresh { None } else { before };
+        // The narrations go back to those the store keeps, a narration's fix having dropped its own.
+        sounds = app.store.page_state(lead.id).map(|now| now.narrations).unwrap_or(state.narrations);
       }
     }
   }
@@ -689,6 +960,11 @@ async fn finish(app: &App, run: i64, lead: &Item, filed: &Filed, source: &Source
     for code in LANGUAGES.into_iter().filter(|code| !sounds.iter().any(|had| had == code)) {
       pending.push(format!("narration-{code}"));
     }
+  }
+  match review.as_ref() {
+    None if reviewing => pending.push(REVIEW.to_string()),
+    Some(had) if unapplied(had) > 0 => pending.push(REVIEW_FIXES.to_string()),
+    _ => {}
   }
   let retry = (!pending.is_empty()).then(|| now_ms() + app.settings.retry_minutes * 60_000);
   let _ = app.store.pend_page(lead.id, &pending, retry);

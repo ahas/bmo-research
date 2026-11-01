@@ -155,6 +155,8 @@ impl Engine {
 pub struct Runner {
   pub role: String,
   pub writing_margin_minutes: i64,
+  /// How long a deep dive's review session is bounded.
+  pub review_minutes: i64,
   pub capabilities: Vec<String>,
 }
 
@@ -163,6 +165,7 @@ impl Default for Runner {
     Runner {
       role: "scout".into(),
       writing_margin_minutes: 10,
+      review_minutes: 20,
       capabilities: ["room.chat", "room.tools", "web.read", "web.sites", "web.branches", "web.rulebooks"]
         .map(String::from)
         .to_vec(),

@@ -237,6 +237,17 @@ A source is a registration: a category, a kind, an address and, where the kind t
   a unit answered, a demand's answer, the seat's finish — never the words of an error (`docs/api.md`, 「The
   deep dive」; `docs/runner.md`, 「A cut run」).
 - **A try that fails on its own content waits a short while,** `retry_minutes`, and is counted.
+- **Only what failed is made again.** A report is never thrown away and researched again from its start
+  because one part of it failed or its review found a fault; the part that failed, or the part a fix names,
+  is made again alone and everything already had is kept:
+  - a translation part that failed is asked again alone, the parts already translated kept (`docs/api.md`,
+    「The page」);
+  - a narration missing is asked alone, the other kept;
+  - a review's fix redraws only the section or the narration it names (`docs/runner.md`, 「The review」);
+  - a try asked again after a try whose run wrote a result continues from that result: its first answer and
+    the rounds already answered are not asked again (`docs/runner.md`, 「A run that continues」). A try is
+    researched from its start only where no run before it wrote anything, or where its question is no
+    longer the one that result answers.
 - **No count of failures gives an item up.** Past its retries the item is `stuck`: still asked on every
   retry wait, while the helper is handed the evidence — the item, its runs, their errors and the last lines
   of their log — through a repair item in the job service, to fix the cause in the prompts, the rulebooks,
@@ -291,11 +302,14 @@ take; so its own area stays the research and the measurement, however many categ
   names, acronyms and figures as written; the voice unit derives the spoken words from it, the same words as a
   Korean reader says them aloud, and checks them before it speaks. Spoken words it refuses, or a synthesis that
   fails, leave that narration pending like any other part the page lacks.
-- **A report is told only once its page is whole:** its Korean side had and every narration its script
-  allows attached. A translation that cannot be had (no road carries the translate line, a part refused as
-  too long after cutting) or a narration that cannot be made leaves that part pending, and the daemon asks
-  it again on every retry wait until it has it; no count of tries gives it up. Until then the recipients
-  hear nothing of the item, and its state in the queue says what it waits on.
+- **A report is told only once its page is whole and reviewed:** its Korean side had, every narration its
+  script allows attached, and then the page read once whole by the run's own model, which answers that it
+  passes or names the fixes it needs, each applied to the part it names alone (`docs/runner.md`, 「The
+  review」). The review is asked once; its fixes are not reviewed again. A translation that cannot be had
+  (no road carries the translate line, a part refused as too long after cutting), a narration that cannot
+  be made, a review that does not answer or a fix that cannot be applied yet leaves that part pending, and
+  the daemon asks it again on every retry wait until it has it; no count of tries gives it up. Until then
+  the recipients hear nothing of the item, and its state in the queue says what it waits on.
 
 ## Reports and rooms
 

@@ -643,13 +643,61 @@ pub enum Filing {
 }
 
 /// What a deep dive asks of its run's page: the section headings its shape holds and its opening's, in every
-/// language a result may be written in, and the line under its title saying where the research came from, in
-/// English markdown.
+/// language a result may be written in, the line under its title saying where the research came from, in
+/// English markdown, and the earlier run whose result the run continues from, where it continues one
+/// (`docs/runner.md`, 「A run that continues」).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PageAsk {
   pub sections: Vec<String>,
   pub opening: Vec<String>,
   pub origin: Option<String>,
+  pub continues: Option<i64>,
+}
+
+/// The result a run continues from: the earlier run's, as the ledger keeps it, and the index of the first of
+/// the key's rounds still to ask.
+#[derive(Debug, Clone)]
+struct Continued {
+  from: i64,
+  written: String,
+  round: usize,
+}
+
+/// The index of the first of `rounds` the chain ending in `run` has left to ask: the one after the last any
+/// run of the chain answered, each run's own answers read before those of the run it continued; none of them
+/// where none answered.
+pub fn rounds_left(app: &App, run: i64, rounds: &[String]) -> usize {
+  let mut at = Some(run);
+  let mut seen = Vec::new();
+  while let Some(id) = at.filter(|id| !seen.contains(id)) {
+    seen.push(id);
+    let Ok(row) = app.store.research_run(id) else {
+      break;
+    };
+    if let Some(last) = row.answered.iter().rev().find_map(|name| rounds.iter().position(|r| r == name)) {
+      return last + 1;
+    }
+    at = row.continues;
+  }
+  0
+}
+
+/// What a deep dive's run continues from, where the run it names wrote a result to the same question.
+fn continued(app: &App, ask: &ResearchRunAsk, filing: &Filing) -> Option<Continued> {
+  let Filing::Page(page) = filing else {
+    return None;
+  };
+  let row = app.store.research_run(page.continues?).ok()?;
+  let written = row.written.clone().filter(|w| !w.trim().is_empty())?;
+  if row.state != ResearchRunState::Closed || row.query.trim() != ask.query.trim() {
+    return None;
+  }
+  let rounds = words::runner().rounds.get(&ask.key).map(|p| p.rounds.as_slice()).unwrap_or_default();
+  Some(Continued {
+    from: row.id,
+    written,
+    round: rounds_left(app, row.id, rounds),
+  })
 }
 
 /// A run under way: what it was composed of and what it holds.
@@ -669,6 +717,8 @@ struct Going {
   closes_at: i64,
   bound_ms: i64,
   demand: Option<i64>,
+  /// The earlier result the run continues from, or none.
+  continued: Option<Continued>,
   /// The first loss the run met, what it stands on going away (「A cut run」), or none.
   lost: Mutex<Option<String>>,
 }
@@ -758,6 +808,21 @@ pub async fn launch(
   note(&app, run, "asked", &format!("Research on {}: {}", ask.key, ask.query.trim()));
   if let Some(demand) = demand {
     let _ = app.store.demand_ran(demand, run);
+  }
+  let continued = continued(&app, &ask, &filing);
+  if let Some(earlier) = &continued {
+    let _ = app.store.keep_continues(run, earlier.from);
+    let rounds = words::runner().rounds.get(&ask.key).map(|p| p.rounds.as_slice()).unwrap_or_default();
+    let from = match rounds.get(earlier.round) {
+      Some(round) => format!("from the round {round}"),
+      None => "with no round left".to_string(),
+    };
+    note(
+      &app,
+      run,
+      "asked",
+      &format!("The research continues from what run {} wrote, {from}.", earlier.from),
+    );
   }
   let refuse = |why: String, lost: bool| {
     note(&app, run, "ended", &format!("The research was refused: {why}"));
@@ -849,6 +914,7 @@ pub async fn launch(
     closes_at,
     bound_ms,
     demand,
+    continued,
     lost: Mutex::new(None),
   };
   tokio::spawn(go(app, going));
@@ -865,7 +931,10 @@ async fn go(app: Arc<App>, going: Going) {
   let never_ran = seated.is_err();
   let result = match seated {
     Ok(seat) => {
-      let first = first_answer(&app, &going, &seat).await;
+      let first = match &going.continued {
+        Some(earlier) => Ok(earlier.written.clone()),
+        None => first_answer(&app, &going, &seat).await,
+      };
       let rounds_follow = words::runner().rounds.contains_key(&going.ask.key);
       let first = match first {
         Ok(answer) if !rounds_follow => {
@@ -1037,7 +1106,7 @@ async fn rounds(app: &App, going: &Going, seat: &Seat, first: String) -> String 
   };
   let began = now_ms();
   let mut last = first;
-  let mut asking = 0;
+  let mut asking = going.continued.as_ref().map_or(0, |earlier| earlier.round);
   while asking < process.rounds.len() {
     let name = process.rounds[asking].as_str();
     let past = (now_ms() - began) / 1000 >= process.ceiling_seconds;
@@ -1058,6 +1127,7 @@ async fn rounds(app: &App, going: &Going, seat: &Seat, first: String) -> String 
     match turn(app, going, &session, seat, &format!("research-{run}-{name}"), &prompt).await {
       Ok(answer) => {
         note(app, run, "round", &format!("The round {name} answered."));
+        let _ = app.store.keep_round_answered(run, name);
         last = answer;
       }
       Err(why) => {
@@ -1129,6 +1199,126 @@ async fn narrated(app: &App, going: &Going, session: &str, seat: &Seat, result: 
     eprintln!("bmo-research: research {run}'s result was not kept: {why}");
   }
   whole
+}
+
+/// The instructions a deep dive's review session is started with: the deep-dive rulebook's section on the
+/// review, and the rulebook against destroying the system.
+pub fn review_instructions() -> Result<String, String> {
+  let ask = &words::runner().review;
+  let rule = rulebook_sections(&ask.rulebook, std::slice::from_ref(&ask.section))?;
+  let guard = rulebook_whole(&words::runner().search.self_preservation)?;
+  Ok(format!("{rule}\n\n{guard}"))
+}
+
+/// The prompt a deep dive's review is asked with: the review question, then the finished page.
+pub fn review_prompt(page: &str) -> String {
+  format!("{}\n\n{page}", words::runner().review.question)
+}
+
+/// One review of a run's finished page (`docs/runner.md`, 「The review」): a seat and a session of its own on
+/// the run's road, held under the run, the seat waited on for its place however long that takes, one turn
+/// asked with `prompt` and waited on to the session's bound, the session ended and the seat given back.
+/// Answers what the turn wrote, or why it wrote nothing.
+pub async fn review(app: &App, run: i64, prompt: &str) -> Result<String, String> {
+  let row = app.store.research_run(run).map_err(|why| why.to_string())?;
+  let line = line_of(&row.key);
+  let system = review_instructions()?;
+  let mut asked = json!({
+    "requestKey": format!("research:{run}:review"),
+    "owner": format!("research:{run}"),
+    "role": app.settings.runner.role,
+    "selection": "auto",
+    "workKey": row.key,
+    "source": line,
+  });
+  if !row.provider.is_empty() {
+    asked["provider"] = json!(row.provider);
+  }
+  let mut seat = match app.peers.ask_seat(&asked).await.map(|said| Seat::of(&said)) {
+    Ok(Some(seat)) => seat,
+    Ok(None) => return Err("agency answered the review's seat with no token".into()),
+    Err(fault) => return Err(format!("agency gave the review no seat: {fault}")),
+  };
+  let _ = app.store.hold(run, "seat", &seat.token);
+  let provider = if row.provider.is_empty() { seat.provider.clone() } else { row.provider.clone() };
+  let model = if row.model.is_empty() { seat.model.clone() } else { row.model.clone() };
+  let bound_ms = app.settings.runner.review_minutes.max(1) * 60_000;
+  let started = start_session(
+    app,
+    run,
+    &Start {
+      line,
+      provider: &provider,
+      model: &model,
+      system: &system,
+      record: &row.record,
+      capabilities: &[],
+      bound_ms,
+      demand: None,
+    },
+  )
+  .await;
+  let session = match started {
+    Ok(session) => session,
+    Err(fault) => {
+      give_back(app, run, &seat.token, "cancelled: no session", true).await;
+      return Err(format!("agency started no session for the review: {fault}"));
+    }
+  };
+  let until = now_ms() + bound_ms + SEND_SLACK.as_millis() as i64;
+  let answered = async {
+    while !seat.admitted() {
+      if seat.ended() {
+        return Err("the review's seat was ended before it got a place".to_string());
+      }
+      tokio::time::sleep(LOOK_EVERY).await;
+      let said = app.peers.move_seat(&seat.token, &admission(None)).await;
+      match said {
+        Ok(said) => {
+          if let Some(now) = Seat::admission(&said) {
+            seat = now;
+          }
+        }
+        Err(fault) => return Err(format!("the review's seat could not be let in: {fault}")),
+      }
+    }
+    let bound = json!({ "state": "bound", "childId": session });
+    if let Err(fault) = app.peers.move_seat(&seat.token, &bound).await {
+      return Err(format!("the review's seat could not be bound to its session: {fault}"));
+    }
+    let name = format!("research-{run}-review");
+    let title = format!("{line} research {run} review");
+    let body = turn_body(
+      prompt,
+      &Turn {
+        provider: &provider,
+        model: &model,
+        seat: &seat,
+        name: &name,
+        title: &title,
+        chat: 0,
+        work_key: &row.key,
+      },
+    );
+    let within = Duration::from_millis(bound_ms as u64) + SEND_SLACK;
+    let turned = app.peers.send_turn(&session, &body, within).await;
+    let _ = app.store.keep_research_turn(run, &name, None);
+    let turned = turned.map_err(|fault| format!("the turn {name} did not come back: {fault}"))?;
+    let text = written(&turned);
+    if text.trim().is_empty() {
+      let outcome = turned["outcome"].as_str().unwrap_or("no outcome");
+      return Err(format!("the turn {name} wrote nothing ({outcome})"));
+    }
+    Ok(text)
+  }
+  .await;
+  end_session(app, run, &session, until).await;
+  let outcome = match &answered {
+    Ok(_) => "answered".to_string(),
+    Err(why) => format!("failed: {why}"),
+  };
+  give_back(app, run, &seat.token, &outcome, !seat.admitted()).await;
+  answered
 }
 
 /// Why a deep dive's result is short of the shape its page asks (`docs/runner.md`, 「The deep dive's page」),
@@ -1395,6 +1585,20 @@ pub async fn sweep(app: &Arc<App>) -> usize {
       return 0;
     }
   };
+  // A review under way at the restart holds a seat and a session under its closed run: both are given back,
+  // and the review is asked again on its page's retry wait.
+  for (run, kind, value) in app.store.closed_holds().unwrap_or_default() {
+    match kind.as_str() {
+      "session" => {
+        let app = app.clone();
+        let until = now_ms() + (app.settings.runner.review_minutes.max(1) + 1) * 60_000;
+        tokio::spawn(async move { end_session(&app, run, &value, until).await });
+      }
+      _ => {
+        give_back(app, run, &value, "stopped: the research unit restarted", false).await;
+      }
+    }
+  }
   for row in &open {
     let run = row.id;
     // A turn under way runs on in agency until its session's bound, which is the run's clock and the writing

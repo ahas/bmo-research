@@ -29,7 +29,10 @@ use crate::translation::Rendering;
 /// an item came from — a source, an ask with its words, or a follow-up with the document it follows from —
 /// an item standing before it a source's where no ask made it, and an ask's with no words otherwise; the
 /// tenth keeps the repair a stuck item's helper is asked for, stands every item the store held given up
-/// `stuck` with its retry due and no repair yet, and names their notices `stuck`.
+/// `stuck` with its retry due and no repair yet, and names their notices `stuck`; the eleventh keeps, for a
+/// run that continues, the run it continues and the rounds each run answered, and, for a deep dive's page,
+/// each part of its Korean side as it is had, the texts its review rewrote and its Korean narration's words,
+/// and its one review.
 const MIGRATIONS: &[&str] = &[
   "
   create table categories (
@@ -157,7 +160,28 @@ const MIGRATIONS: &[&str] = &[
   update queue set state = 'stuck', retry_at = 0 where state = 'failed';
   update reports set kind = 'stuck' where kind = 'failed';
 ",
+  "
+  alter table research_runs add column continues integer;
+  alter table research_runs add column answered text not null default '[]';
+  create table translated_parts (
+    document_id integer not null, english text not null, korean text not null,
+    primary key (document_id, english));
+  create table page_texts (
+    document_id integer not null, name text not null, text text not null, primary key (document_id, name));
+  create table page_reviews (
+    document_id integer primary key, answer text not null, applied text not null default '[]',
+    remade text not null default '[]', reviewed_at integer not null);
+",
 ];
+
+/// A page's one review (`docs/store.md`, `page_reviews`): what it wrote, the indices of its fixes applied or
+/// left out, and the languages whose narration it had made again.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Review {
+  pub answer: String,
+  pub applied: Vec<usize>,
+  pub remade: Vec<String>,
+}
 
 /// What an ask says of where it came from: the words it was made with, and for a follow-up, the earlier
 /// research it follows from.
@@ -306,6 +330,10 @@ pub struct ResearchRunRow {
   pub title: Option<String>,
   pub description: Option<String>,
   pub link: Option<String>,
+  /// The run whose result it continues from, or none.
+  pub continues: Option<i64>,
+  /// The rounds that answered, in the order they were asked.
+  pub answered: Vec<String>,
 }
 
 impl ResearchRunRow {
@@ -344,7 +372,7 @@ pub struct RunDocument {
 
 const RESEARCH_RUN_COLUMNS: &str = "id, key, line, query, asker, options, room_id, provider, model, state,
   outcome, error, started_at, closes_at, finished_at, branches_allowed, branches, record, tells, turns, written,
-  document_id, title, description, link";
+  document_id, title, description, link, continues, answered";
 
 /// The shape an item of a category is asked in: the category's, and in a `manual-or-investigation`
 /// category the one its item kind takes.
@@ -1078,6 +1106,19 @@ impl Store {
     Ok(())
   }
 
+  /// The research run the last try before `try_id` that asked one asked for the same lead item, or none.
+  pub fn earlier_research_run(&self, item_id: i64, try_id: i64) -> Result<Option<i64>, String> {
+    self
+      .lock()
+      .query_row(
+        "select run_id from runs where item_id = ?1 and id < ?2 and run_id is not null order by id desc limit 1",
+        params![item_id, try_id],
+        |r| r.get(0),
+      )
+      .optional()
+      .map_err(|e| e.to_string())
+  }
+
   /// A try's end in its run row.
   pub fn end_run(
     &self,
@@ -1227,6 +1268,118 @@ impl Store {
       )
       .optional()
       .map_err(|e| e.to_string())
+  }
+
+  /// A part of a page's Korean side as it was had, by its English text, or none where it was not.
+  pub fn translated_part(&self, document_id: i64, english: &str) -> Result<Option<String>, String> {
+    self
+      .lock()
+      .query_row(
+        "select korean from translated_parts where document_id = ?1 and english = ?2",
+        params![document_id, english],
+        |r| r.get(0),
+      )
+      .optional()
+      .map_err(|e| e.to_string())
+  }
+
+  /// A part of a page's Korean side had, kept by its English text.
+  pub fn keep_translated_part(&self, document_id: i64, english: &str, korean: &str) -> Result<(), String> {
+    self
+      .lock()
+      .execute(
+        "insert or replace into translated_parts (document_id, english, korean) values (?1, ?2, ?3)",
+        params![document_id, english, korean],
+      )
+      .map_err(|e| e.to_string())?;
+    Ok(())
+  }
+
+  /// A text a page holds beside its run's result (`docs/store.md`, `page_texts`), or none.
+  pub fn page_text(&self, document_id: i64, name: &str) -> Result<Option<String>, String> {
+    self
+      .lock()
+      .query_row(
+        "select text from page_texts where document_id = ?1 and name = ?2",
+        params![document_id, name],
+        |r| r.get(0),
+      )
+      .optional()
+      .map_err(|e| e.to_string())
+  }
+
+  /// A text a page holds, kept in place of the one it held.
+  pub fn keep_page_text(&self, document_id: i64, name: &str, text: &str) -> Result<(), String> {
+    self
+      .lock()
+      .execute(
+        "insert or replace into page_texts (document_id, name, text) values (?1, ?2, ?3)",
+        params![document_id, name, text],
+      )
+      .map_err(|e| e.to_string())?;
+    Ok(())
+  }
+
+  /// A text a page held, dropped.
+  pub fn drop_page_text(&self, document_id: i64, name: &str) -> Result<(), String> {
+    self
+      .lock()
+      .execute(
+        "delete from page_texts where document_id = ?1 and name = ?2",
+        params![document_id, name],
+      )
+      .map_err(|e| e.to_string())?;
+    Ok(())
+  }
+
+  /// A page's one review, or none where it was not had.
+  pub fn review(&self, document_id: i64) -> Result<Option<Review>, String> {
+    self
+      .lock()
+      .query_row(
+        "select answer, applied, remade from page_reviews where document_id = ?1",
+        params![document_id],
+        |r| {
+          let applied: String = r.get(1)?;
+          let remade: String = r.get(2)?;
+          Ok(Review {
+            answer: r.get(0)?,
+            applied: serde_json::from_str(&applied).unwrap_or_default(),
+            remade: serde_json::from_str(&remade).unwrap_or_default(),
+          })
+        },
+      )
+      .optional()
+      .map_err(|e| e.to_string())
+  }
+
+  /// A page's review kept as it answered, none of its fixes applied; a review kept before stands.
+  pub fn keep_review(&self, document_id: i64, answer: &str) -> Result<(), String> {
+    self
+      .lock()
+      .execute(
+        "insert or ignore into page_reviews (document_id, answer, reviewed_at) values (?1, ?2, ?3)",
+        params![document_id, answer, now_ms()],
+      )
+      .map_err(|e| e.to_string())?;
+    Ok(())
+  }
+
+  /// The fixes of a page's review applied or left out so far, and the narrations it had made again.
+  pub fn keep_review_applied(
+    &self,
+    document_id: i64,
+    applied: &[usize],
+    remade: &[String],
+  ) -> Result<(), String> {
+    self
+      .lock()
+      .execute(
+        "update page_reviews set applied = ?2, remade = ?3 where document_id = ?1",
+        params![document_id, serde_json::to_string(applied).unwrap_or_default(), words_json(remade)],
+      )
+      .map_err(|e| e.to_string())?;
+    Ok(())
   }
 
   /// The narrations a page plays, kept on every item its document was filed for.
@@ -1684,6 +1837,32 @@ impl Store {
     tx.commit().map_err(|e| e.to_string())
   }
 
+  /// A run kept as continuing from the result of `from`.
+  pub fn keep_continues(&self, id: i64, from: i64) -> Result<(), String> {
+    self
+      .lock()
+      .execute("update research_runs set continues = ?2 where id = ?1", params![id, from])
+      .map_err(|e| e.to_string())?;
+    Ok(())
+  }
+
+  /// A round the run asked counted as answered.
+  pub fn keep_round_answered(&self, id: i64, round: &str) -> Result<(), String> {
+    let mut conn = self.lock();
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    let answered: String = tx
+      .query_row("select answered from research_runs where id = ?1", params![id], |r| r.get(0))
+      .map_err(|e| e.to_string())?;
+    let mut answered: Vec<String> = serde_json::from_str(&answered).unwrap_or_default();
+    answered.push(round.to_string());
+    tx.execute(
+      "update research_runs set answered = ?2 where id = ?1",
+      params![id, serde_json::to_string(&answered).unwrap_or_default()],
+    )
+    .map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())
+  }
+
   /// What a run wrote, set as its result stands now.
   pub fn keep_research_written(&self, id: i64, written: &str) -> Result<(), String> {
     self
@@ -1795,6 +1974,23 @@ impl Store {
       )
       .map_err(|e| e.to_string())?;
     Ok(())
+  }
+
+  /// What closed runs still hold, each run, kind and value: a review's seat and session left at a restart.
+  pub fn closed_holds(&self) -> Result<Vec<(i64, String, String)>, String> {
+    let conn = self.lock();
+    let mut stmt = conn
+      .prepare(
+        "select h.run_id, h.kind, h.value from research_holds h
+           join research_runs r on r.id = h.run_id
+         where r.state = 'closed' order by h.id",
+      )
+      .map_err(|e| e.to_string())?;
+    stmt
+      .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+      .map_err(|e| e.to_string())?
+      .collect::<Result<Vec<_>, _>>()
+      .map_err(|e| e.to_string())
   }
 
   /// What a run still holds, each kind and value, in the order it was taken.
@@ -1958,6 +2154,8 @@ fn read_research_run(r: &rusqlite::Row<'_>) -> rusqlite::Result<ResearchRunRow> 
     title: r.get(22)?,
     description: r.get(23)?,
     link: r.get(24)?,
+    continues: r.get(25)?,
+    answered: serde_json::from_str(&r.get::<_, String>(26)?).unwrap_or_default(),
   })
 }
 

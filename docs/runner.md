@@ -91,9 +91,11 @@ of a run is this unit's.
    parts — the provider, the model, the seat's mapping (model, effort, tier), a fresh resume, an empty folder,
    the name `research-<run>`, the title, the room or 0, the key as the work key, no words heard and no
    variables — waited on until it ends; what it wrote is its whole text (「What a turn wrote」). The session is
-   then ended (`DELETE /sessions/{id}`).
-8. **The rounds:** the key's rounds are asked of a second session of their own, started the same way with the
-   round's record (the run's with `branches` 0 and no `branchesAt` or `branchesToken`) and the capabilities
+   then ended (`DELETE /sessions/{id}`). A run that continues from an earlier run's result asks no first
+   turn: that result is its first answer (「A run that continues」).
+8. **The rounds:** the key's rounds, or those a continuing run has left (「A run that continues」), are
+   asked of a second session of their own, started the same way with the round's record (the run's with
+   `branches` 0 and no `branchesAt` or `branchesToken`) and the capabilities
    less `web.branches` and `web.rulebooks`, one turn each, named `research-<run>-<round>`, each prompt the round's
    question, the task as the run was given it and the answer written last (「The rounds」). The last answer is the
    run's result. The rounds' session is ended after the last, and after the whole document and the narration
@@ -191,6 +193,23 @@ of a run is this unit's.
   sound. Where the rounds' session never started, the first answer stands without one. A run told to a room
   is asked no narration.
 
+## A run that continues
+
+- **A deep dive's try continues from the run before it** where that run wrote a result — what the ledger
+  keeps as `written` — and was asked the same question: the try hands the runner that run, and the new run
+  takes that result as its first answer instead of asking the first turn, so nothing a run wrote is
+  researched again because a later step of it failed or was cut (`docs/design.md`, 「Nothing is given up」).
+- **The rounds go on after the last one the runs before it answered,** in turn; that round and those before
+  it are not asked again, and a round that went out without answering is asked again. Where `final`
+  answered, no round is asked; where none answered, every round is. The runs before it are the run it
+  continues, the run that one continued, and so on, each run's own answered rounds read before those of the
+  run it continued; the ledger keeps each run's answered rounds (`docs/store.md`, `research_runs`).
+- **Then as any run:** the whole document where the result is short of its shape, the narration where it
+  carries none, and the filing, on the new run's own seat, sessions and clock. The run's log says which run
+  it continues and from which round.
+- **A run before it that wrote nothing,** or that was asked another question, leaves nothing to continue
+  from: the try is researched from its start.
+
 ## The deep dive's page
 
 A run the daemon asks for its own deep dive is filed differently from a run told to a room: as one page the
@@ -229,9 +248,49 @@ daemon finishes, held first to the shape the deep dive asked for.
   and labels as a room's document's are, with the label `languages` `en`; its pictures are kept beside it as a
   room's document's are, and the page draws every picture from its address.
 - **The daemon finishes it** (`docs/api.md`, 「The page」): the Korean side, with the page drawn again with
-  both languages and set with `PATCH /documents/{id}`, and the narration's sounds attached beside it, before
-  its report is told. The result stays in the ledger as `written`, which the daemon draws the page from
-  again.
+  both languages and set with `PATCH /documents/{id}`, the narration's sounds attached beside it, and then
+  the review (「The review」) and its fixes, before its report is told. The result stays in the ledger as
+  `written`, which the daemon draws the page from again.
+
+## The review
+
+- **A deep dive's page is reviewed once, whole, before its report is told,** by the run's own model: once
+  its Korean side is had and every narration its script allows is attached, and only while its items stand
+  `finishing`; a page whose report was told before is never reviewed.
+- **The review is one turn on a seat and a session of its own,** asked the way a run's are (「One run, step
+  by step」): a seat with `requestKey` `research:<run>:review`, `owner` `research:<run>`, the settings'
+  `runner.role`, `selection` `auto`, `workKey` the run's key, `source` its line and the run's provider; a
+  session on the run's line, its provider and model, its record the run's, no capabilities, and `boundMs`
+  the settings' `runner.review_minutes`, its system prompt the deep-dive rulebook's section on the review
+  (`prompts/runner.toml`, `[review]`) and the rulebook against destroying the system. The seat waits for its
+  place however long that takes, with no clock of this unit's, and is bound to the session; the one turn,
+  named `research-<run>-review`, is waited on to the session's bound; the session is then ended and the
+  seat given back. Its seat and its session are held under the run, so a restart gives them back. Agency
+  asks the card its model needs for them, as for any seat that names no demand.
+- **The turn is handed the finished page:** the review question, then the English side and the Korean side,
+  each its title, its description and its body as the page holds them, then the English narration's script
+  and the Korean narration's words as they were spoken.
+- **It answers `PASS`, or its fixes,** each a block opened by a `FIX:` line naming the side — `en` or `ko`
+  with the section's heading as the English side writes it, or `narration-en` or `narration-ko` — then a
+  `WHY:` line, then the part rewritten whole: a section with its heading line first, a narration whole.
+  An answer holding neither is taken as no fix, the run's log saying so; a turn that writes nothing, or a
+  seat or session agency cannot give, leaves the review pending, asked again on the page's retry wait.
+- **Each fix redraws the part it names alone,** every other part kept as it is:
+  - **an English section** is set in place of the section under that heading on the English side, and the
+    rewritten section alone is translated (`docs/api.md`, 「The page」) and set in place of the Korean
+    side's section that stands at the same place among its headings;
+  - **a Korean section** is set in place of the Korean side's section at that place, the English side left
+    as it is; where the Korean side holds a different number of headings, the section is placed by the
+    heading its rewrite opens with;
+  - **the English narration** replaces the script, and both sounds are made again from it, the Korean
+    translated again from the rewrite;
+  - **the Korean narration** replaces the Korean words, and the Korean sound alone is made again.
+  A sound made again is attached under a name of its own, `narration-reviewed-<code>.ogg`, since the
+  archive keeps one file under a name, and the listen band refers to it in place of the first.
+- **A fix that cannot be placed** — no section under its heading — is left out, the run's log saying so; one
+  whose translation or sound cannot be had yet stays pending, asked again on the page's retry wait. Once
+  every fix is applied, or left out, the review is done: it is never asked again, and the page is not
+  reviewed a second time.
 
 ## The page
 
@@ -313,4 +372,6 @@ daemon finishes, held first to the shape the deep dive asked for.
 
 - **A run is this unit's process's own.** A daemon that starts closes every run its store holds open as `cut`
   before its routes stand: each session the run held is ended, each seat it held given back, and its room told
-  what it had written, as a cut run is.
+  what it had written, as a cut run is. A closed run's review holds what it held at the restart the same
+  way: its session is ended and its seat given back, and the review stays pending, asked again on its
+  page's retry wait.

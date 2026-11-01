@@ -55,3 +55,17 @@ section = "The narration"
 # dive's page」): the question, `{missing}` set to what the result lacks.
 [whole]
 question = "The answer you wrote last is not the whole document: {missing}. Write the whole result again from its head, every section in order: the ANSWERED and TITLE lines and the rest of the head, the narration where the task asks for one, VERDICT with the answer, then every section the task's shape asks for, through UNCONFIRMED and the sources. Write it whole in this one answer, never as a continuation of what you wrote before: this turn's text is taken whole as the result."
+
+# What a deep dive's page is reviewed with once it is whole (docs/runner.md, 「The review」): the question, and
+# the rulebook and its section the review is held to, which stand as the review session's instructions.
+[review]
+question = "Review the finished page below by the rules you were given: its English side, its Korean side and its two narrations. Where nothing needs fixing, write the line PASS and nothing else. Otherwise write each fix as a block of its own: first a line FIX: followed by the side and the part, which is en or ko and then the section's heading exactly as the English side writes it, or narration-en, or narration-ko; then a line WHY: followed by the fault in one sentence; then the part rewritten whole, a section with its heading line first. Write nothing before the first block and nothing between two blocks: each block is applied as it stands."
+rulebook = "deep-dives"
+section = "The review"
+# The names the finished page's parts are handed under, each on a line of its own between the marks, and the
+# word standing for a part the page has none of.
+english = "The English side"
+korean = "The Korean side"
+english_narration = "The English narration"
+korean_narration = "The Korean narration"
+none = "None."

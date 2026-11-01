@@ -14,6 +14,7 @@ pub mod openapi;
 pub mod page;
 pub mod peers;
 pub mod reading;
+pub mod review;
 pub mod routes;
 pub mod runner;
 pub mod scan;

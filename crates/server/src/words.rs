@@ -370,6 +370,7 @@ pub struct RunnerWords {
   pub rounds: BTreeMap<String, Rounds>,
   pub narration: NarrationAsk,
   pub whole: WholeAsk,
+  pub review: ReviewAsk,
 }
 
 /// What a deep dive's session is asked for a narration its result lacks: the question, and the rulebook and
@@ -388,6 +389,22 @@ pub struct NarrationAsk {
 #[serde(deny_unknown_fields)]
 pub struct WholeAsk {
   pub question: String,
+}
+
+/// What a deep dive's whole page is reviewed with: the question, and the rulebook and its section the review is
+/// held to.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReviewAsk {
+  pub question: String,
+  pub rulebook: String,
+  pub section: String,
+  /// The names the page's parts are handed under, and the word standing for a part the page has none of.
+  pub english: String,
+  pub korean: String,
+  pub english_narration: String,
+  pub korean_narration: String,
+  pub none: String,
 }
 
 /// The name of the round whose answer is a run's result.

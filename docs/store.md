@@ -123,6 +123,38 @@ The Korean side of a deep dive's page, kept so the page can be drawn again (`doc
 | `title`, `description`, `body` | The Korean title, description (or null) and markdown body |
 | `created_at` | When it was had |
 
+## `translated_parts`
+
+Each part of a deep dive's Korean side as it is had, so a Korean side asked again translates only the parts
+it lacks (`docs/api.md`, 「The page」).
+
+| Column | Holds |
+|---|---|
+| `document_id`, `english` | The page's document and the part's English text; the primary key together |
+| `korean` | The part's translation |
+
+## `page_texts`
+
+What a deep dive's page holds beside the run's result: the review's rewrites and the Korean narration's
+words.
+
+| Column | Holds |
+|---|---|
+| `document_id`, `name` | The page's document and the text's name; the primary key together: `body-en` the English body as the review rewrote it, `narration-en` the English script as the review rewrote it, `narration-ko` the Korean narration's words as they were last spoken or rewritten |
+| `text` | The text |
+
+## `page_reviews`
+
+A deep dive's page's one review (`docs/runner.md`, 「The review」).
+
+| Column | Holds |
+|---|---|
+| `document_id` | The page's document; the primary key |
+| `answer` | What the review wrote |
+| `applied` | The indices of its fixes applied or left out, a JSON list |
+| `remade` | The languages whose narration the review had made again, a JSON list |
+| `reviewed_at` | When it answered |
+
 ## `recipients`
 
 | Column | Holds |
@@ -177,7 +209,9 @@ The runner's ledger (`docs/runner.md`): one row per research run.
 | `record` | The run's research record, the JSON object its sessions carry under `labels.research` |
 | `tells` | 1 where its end is told to its room, 0 for a run the deep dive asked |
 | `turns` | The names of the agency turns it went out under, a JSON list |
-| `written` | The answer it wrote last, kept for a cut run's room |
+| `written` | The answer it wrote last, kept for a cut run's room and for a run that continues from it |
+| `continues` | The run whose result it continues from (`docs/runner.md`, 「A run that continues」), or null |
+| `answered` | The rounds that answered, in the order they were asked, a JSON list |
 | `document_id`, `title`, `description`, `link` | The document it filed, its head, and its share link |
 
 ## `research_log`
@@ -190,7 +224,7 @@ The runner's ledger (`docs/runner.md`): one row per research run.
 
 ## `research_holds`
 
-What a research run holds of agency while it stands, so a restart gives it back.
+What a research run, or its page's review, holds of agency while it stands, so a restart gives it back.
 
 | Column | Holds |
 |---|---|

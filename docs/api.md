@@ -160,7 +160,8 @@ the one to read.
   Korean first: `["en"]` until the Korean side is had, `["ko", "en"]` after, empty before a document is
   filed; 「The page」), `narrations` (the languages whose narration the page plays, Korean first), `pending`
   (what the page still lacks before its report is told: `korean` for its Korean side, `narration-ko` and
-  `narration-en` for each narration its script allows; empty where it lacks nothing), `pendingRetryAt` (when
+  `narration-en` for each narration its script allows, `review` for its review and `review-fixes` for the
+  review's fixes not yet applied; empty where it lacks nothing), `pendingRetryAt` (when
   that is asked again, null where nothing is pending), `fit`, `touches` (the hosts and repositories an
   advisory names), `plan` (the heading of the document's plan section, as the document holds it),
   `jobItemId` (the job item the chat agent filed for it), `repairItemId` (the job item filed for the helper
@@ -304,12 +305,14 @@ the one to read.
   `docs/runner.md`, 「A cut run」; null while open), `startedAt`, `closesAt`,
   `finishedAt`, `documentId` and `link` (the filed document and its share link, null where none was filed),
   `error` (why it failed), `branches` (how many it opened) and `turns` (the names of the agency turns it went
-  out under, its first answer's and each round's, by which its tool calls are read in agency's log).
+  out under, its first answer's, each round's and its page's review's, by which its tool calls are read in
+  agency's log).
 - **Its log** answers `items`, each `id`, `runId`, `at`, `kind` (`asked`, `seated`, `answer`, `round`,
-  `branch`, `whole`, `narration`, `filed`, `told` or `ended`) and `text`, the run's own notes from the ask to
-  its end, and for a deep dive's run how its page was finished (「The page」): every narration sound the page
-  was given or not, and why, under `narration`; why its Korean side is pending, and what its report waits on
-  each time that changes, under `filed`; and when its report was told, under `told`.
+  `branch`, `whole`, `narration`, `filed`, `review`, `told` or `ended`) and `text`, the run's own notes from
+  the ask to its end, and for a deep dive's run how its page was finished (「The page」): every narration sound
+  the page was given or not, and why, under `narration`; why its Korean side is pending, and what its report
+  waits on each time that changes, under `filed`; what its review answered and each fix applied, left out or
+  still pending, under `review`; and when its report was told, under `told`.
 - **A branch** is asked with the token the run's record names, `run` (the run's id) and `angle`, and answered
   200 once it ends with `index` (counted from 1 per run), `state` (`completed`, `stopped` at research close,
   or `failed`), `notes` (what the branch wrote, empty where nothing) and `reason` (why, on `failed`; null
@@ -382,9 +385,15 @@ the one to read.
   `finishing`, or with a part pending, is asked again on its retry wait as any pending page is (「The page」).
 - **A filed document's page is finished before it is told** (「The page」): its items are filed `finishing`
   first, the page read from the run's result as the ledger keeps it (`written`, drawn as the runner drew
-  it), then its Korean side and its narrations are asked and the page drawn again with what was had. Once
-  the page is whole its items are `reported` or `fit` and the recipients are told; until then its pending
-  parts are asked again on every retry wait.
+  it), then its Korean side and its narrations are asked, then its review and the review's fixes
+  (`docs/runner.md`, 「The review」), and the page drawn again with what was had. Once the page is whole and
+  reviewed its items are `reported` or `fit` and the recipients are told; until then its pending parts are
+  asked again on every retry wait, each alone.
+- **A try asked again continues from the run before it** where that run wrote a result for the same
+  question (`docs/runner.md`, 「A run that continues」): the try before it that asked a run names it, and
+  the try hands the runner that run, whatever the try before ended as. Where that run filed its document
+  and the try failed after it — its share link not made, its result not read — the try asks no run and
+  takes that document up as its own, so no document is filed twice.
 
 ### The repair
 
@@ -515,6 +524,9 @@ search runner applies it, and the run writes its document in English, the questi
   a paragraph not saying it, that paragraph restates the note and is dropped, as often as the count allows.
 - **A part refused 413 `too-large`** is halved the same way and each half asked again; a part that cannot
   be halved any further, a 503 `no-login-open`, or any other failure leaves the Korean side pending.
+- **Every part translated is kept as it is had** (`docs/store.md`, `translated_parts`), by the document and
+  the part's English text, so a Korean side asked again translates only the parts it does not hold yet: one
+  part failing never has the others asked again.
 - **A part is waited on until agency answers it,** with no clock of this unit's: a translation waits as
   long as its card's grant and the translation take, so the parts out keep the card they share and its
   place in the master's line (「Calls this unit makes」).
@@ -538,9 +550,16 @@ search runner applies it, and the run writes its document in English, the questi
   with `role` `head`, the English as `narration-en.ogg` with no role. The page is then drawn again with its
   listen band referring to every sound attached by its name (`docs/runner.md`, 「The page」), and the
   archive plays them there. A sound already attached is not made again.
+- **The Korean narration's words are kept** as they are translated (`docs/store.md`, `page_texts`), so the
+  review reads what was spoken and a sound made again speaks them without translating them again.
 - **A page is whole** once it holds its Korean side and every narration its result's script allows: both
   sounds where the result has a `LISTEN:` script, none where it has none, so a page whose result has no
-  script is whole with its Korean side.
+  script is whole with its Korean side. A whole page whose items stand `finishing` is then reviewed once
+  (`docs/runner.md`, 「The review」): the review is pending until it answers, and its fixes until each is
+  applied. A fix's English section and narration, and the Korean they bring, are kept (`page_texts`,
+  `renderings`), and the page is drawn from what is kept: the English side from the reviewed English
+  body where the review rewrote one, else from the run's result. A fix is counted applied once the page
+  holding it is set in the archive.
 - **A narration that cannot be made** — no voice, a translation refused, a synthesis refused (the voice unit's
   422 `unconverted-run` for spoken words it could not clear among them) or failed — leaves the
   document without that sound for now, and the sound is pending; why is written into the run's log under

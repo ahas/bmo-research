@@ -119,7 +119,11 @@ async fn a_try_asks_its_card_first_stands_on_the_grant_and_gives_it_back_at_its_
     "the card first"
   );
 
-  let started = sessions(&ground);
+  // The page's review, asked after the run has ended and its card given back, stands on agency's own card.
+  let started: Vec<Value> = sessions(&ground)
+    .into_iter()
+    .filter(|s| s["toolsAllowed"] != serde_json::json!([]))
+    .collect();
   assert!(!started.is_empty());
   for session in &started {
     assert_eq!(session["demandId"], demand, "{session}");

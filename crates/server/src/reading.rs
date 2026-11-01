@@ -56,6 +56,12 @@ pub fn heading_starts(content: &str) -> Vec<usize> {
   headings(content).into_iter().map(|h| h.start).collect()
 }
 
+/// Each heading of the document with its section: the heading's text, and where the section starts and ends
+/// in the text, a section running to the next heading at its level or above.
+pub fn sections(content: &str) -> Vec<(String, usize, usize)> {
+  headings(content).into_iter().map(|h| (h.text, h.start, h.end)).collect()
+}
+
 /// How many of the words a heading of the document holds, each counted once, regardless of case.
 pub fn headings_held(content: &str, words: &[String]) -> usize {
   let found = headings(content);

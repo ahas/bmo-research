@@ -1,8 +1,9 @@
 //! A deep dive's page in Korean (`docs/api.md`, 「The page」): its body, the title set over it as its heading,
 //! cut at its headings into parts the translator takes, each part translated with the note that gives it its
-//! context, a part the translator finds too long or translates short halved and asked again, a note the
-//! translator answered as text taken out, and a description that is a name kept as written; and its
-//! narration's script translated to be spoken.
+//! context and kept as it is had so a part that fails has only itself asked again, a part the translator
+//! finds too long or translates short halved and asked again, a note the translator answered as text taken
+//! out, and a description that is a name kept as written; a section the review rewrote translated alone;
+//! and its narration's script translated to be spoken.
 
 use tokio::task::JoinSet;
 
@@ -250,9 +251,31 @@ pub async fn translate_part(
   Ok(join(done))
 }
 
-/// The parts translated, at most `out` of them with the translator at once, joined in their order.
+/// One part of a page's text translated, the translation kept as the page's part held already where the
+/// store holds one for its English text, else asked and kept as it is had.
+async fn kept_part(
+  app: &App,
+  document_id: i64,
+  language: &str,
+  part: &str,
+  (note, name): (&str, &str),
+) -> Result<String, String> {
+  if let Ok(Some(korean)) = app.store.translated_part(document_id, part) {
+    return Ok(korean);
+  }
+  let korean = translate_part(&app.peers, language, part, note, name).await?;
+  if let Err(why) = app.store.keep_translated_part(document_id, part, &korean) {
+    eprintln!("bmo-research: a part of document {document_id}'s Korean side was not kept: {why}");
+  }
+  Ok(korean)
+}
+
+/// The parts of a page's body translated, at most `out` of them with the translator at once, joined in their
+/// order: a part the store holds already taken as it was had, and each part asked kept as it is had, so a
+/// part that fails has only itself asked again.
 async fn translate_parts(
-  peers: &Peers,
+  app: &App,
+  document_id: i64,
   language: &str,
   parts: Vec<String>,
   (note, name): (&str, &str),
@@ -260,23 +283,43 @@ async fn translate_parts(
 ) -> Result<String, String> {
   let joiners: Vec<&'static str> = parts.iter().map(|part| joiner(part)).collect();
   let mut done: Vec<Option<String>> = vec![None; parts.len()];
-  let mut next = parts.into_iter().enumerate();
+  let mut waiting = Vec::new();
+  for (at, part) in parts.into_iter().enumerate() {
+    match app.store.translated_part(document_id, &part) {
+      Ok(Some(korean)) => done[at] = Some(korean),
+      _ => waiting.push((at, part)),
+    }
+  }
+  let mut next = waiting.into_iter();
   let mut asked = JoinSet::new();
+  let mut failed = None;
   loop {
-    while asked.len() < out.max(1) {
+    while failed.is_none() && asked.len() < out.max(1) {
       let Some((at, part)) = next.next() else {
         break;
       };
       let (peers, language, note, name) =
-        (peers.clone(), language.to_string(), note.to_string(), name.to_string());
-      asked.spawn(async move { (at, translate_part(&peers, &language, &part, &note, &name).await) });
+        (app.peers.clone(), language.to_string(), note.to_string(), name.to_string());
+      asked.spawn(async move {
+        let text = translate_part(&peers, &language, &part, &note, &name).await;
+        (at, part, text)
+      });
     }
     match asked.join_next().await {
       None => break,
-      Some(Ok((at, Ok(text)))) => done[at] = Some(text),
-      Some(Ok((_, Err(why)))) => return Err(why),
-      Some(Err(e)) => return Err(format!("a part's translation stopped: {e}")),
+      Some(Ok((at, part, Ok(text)))) => {
+        if let Err(why) = app.store.keep_translated_part(document_id, &part, &text) {
+          eprintln!("bmo-research: a part of document {document_id}'s Korean side was not kept: {why}");
+        }
+        done[at] = Some(text);
+      }
+      // The parts out beside a failed one are waited on and kept; no other is asked.
+      Some(Ok((_, _, Err(why)))) => failed = failed.or(Some(why)),
+      Some(Err(e)) => failed = failed.or(Some(format!("a part's translation stopped: {e}"))),
     }
+  }
+  if let Some(why) = failed {
+    return Err(why);
   }
   let pieces = done.into_iter().zip(joiners).filter_map(|(text, joined)| text.map(|t| (t, joined)));
   Ok(join(pieces.collect()))
@@ -285,13 +328,18 @@ async fn translate_parts(
 /// The English side rendered in Korean: the description, a name kept as written, then the body with the
 /// title set over it as its heading, so the Korean title is the translated heading, else `title` where the
 /// translation opens with none.
-pub async fn render(app: &App, english: &English<'_>, title: &str) -> Result<Rendering, String> {
+pub async fn render(
+  app: &App,
+  document_id: i64,
+  english: &English<'_>,
+  title: &str,
+) -> Result<Rendering, String> {
   let words = words::translation();
   let note = note(english.name);
   let description = match english.description.filter(|d| !d.trim().is_empty()) {
     Some(description) if is_name(description, english.name) => Some(description.trim().to_string()),
     Some(description) => Some(
-      translate_part(&app.peers, &words.language, description, &note, english.name)
+      kept_part(app, document_id, &words.language, description, (&note, english.name))
         .await?
         .trim()
         .to_string(),
@@ -301,7 +349,8 @@ pub async fn render(app: &App, english: &English<'_>, title: &str) -> Result<Ren
   let text = format!("# {}\n\n{}", english.title.trim(), english.body);
   let parts = cut(&text, app.settings.translation.part_chars);
   let body = translate_parts(
-    &app.peers,
+    app,
+    document_id,
     &words.language,
     parts,
     (&note, english.name),
@@ -317,6 +366,14 @@ pub async fn render(app: &App, english: &English<'_>, title: &str) -> Result<Ren
     description,
     body,
   })
+}
+
+/// One section of a page about `name` that its review rewrote in English, translated alone with the page's
+/// note.
+pub async fn section(app: &App, name: &str, text: &str) -> Result<String, String> {
+  let words = words::translation();
+  let korean = translate_part(&app.peers, &words.language, text, &note(name), name).await?;
+  Ok(korean.trim().to_string())
 }
 
 /// A narration's script about `name` translated to be spoken, as one text.

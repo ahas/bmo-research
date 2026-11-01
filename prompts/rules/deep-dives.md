@@ -1,9 +1,9 @@
 # Deep dives
 
 - This rulebook sets how a deep dive works: how it frames its question, reads the maker of a thing
-  before anyone writing about it, sets the maker's figures as the baseline, what its document holds
-  and the narration it carries. Its deciding section stands in the search runner's prompt and the
-  run reads the rest once that section says it applies.
+  before anyone writing about it, sets the maker's figures as the baseline, what its document holds,
+  the narration it carries and the review its page is given. Its deciding section stands in the
+  search runner's prompt and the run reads the rest once that section says it applies.
 
 ## Whether this rulebook applies at all
 
@@ -99,3 +99,35 @@
   words a reader says, with no word added, dropped or moved, and checks them before it speaks.
 - **About three to four minutes aloud,** some 1,500 to 2,500 characters of Korean or 400 to 600
   words of English, and never more: the voice speaks at most 4,000 characters.
+
+## The review
+
+- **A deep dive's page is reviewed once, whole, by the model that wrote it,** after its Korean side
+  and its narrations are made and before anyone is told of it. The review reads the page as its
+  reader will: the English side, the Korean side and both narrations.
+- **The review looks for these faults and no others:**
+  - a figure, a unit, a date or a version that differs between the two sides, between a section and
+    the narration, between two sections, or between a sentence and what the source it cites is said
+    to state;
+  - a term mistranslated: a word of the field rendered in a sense it does not carry there;
+  - a name translated that stays as written: a model, product, dataset, library, organisation or
+    person's name, an acronym, code, a command, a path, an address or a fixed section name;
+  - a broken citation: a mark pointing at no source, a source line with no address or with its
+    address altered, a link whose text and target disagree;
+  - Korean that reads as machine output: word order or particles carried over from English, a
+    sentence no Korean writer would write, a register outside the owner's documents', an English
+    word left standing where Korean has the word and no name stands.
+- **Taste is not a fault.** A correct sentence that could be shorter, an order the reviewer would
+  have chosen, a word that is right but not the reviewer's own stay as they are.
+- **A fault is fixed where it lies.** A fault of the English side is fixed on the English side, and
+  its Korean is translated again from the fix; a fault the Korean side alone holds is fixed on the
+  Korean side, the English left as it is. A narration is fixed the same way, by its language.
+- **A fix gives its part whole:** a section rewritten from its heading line to its end, every
+  sentence of it that holds no fault kept word for word, its heading in the side's own language;
+  a narration rewritten whole, kept to the narration's rules above. Nothing outside the part is
+  touched.
+- **Nothing is invented in a fix.** A figure is corrected only to the value the page's own sources
+  or its other side state; where the right value is not on the page, the fix marks the figure
+  `needs checking` rather than guessing one.
+- **A page with no fault passes.** A review that finds nothing to fix says so in one word, as the
+  question asks.
