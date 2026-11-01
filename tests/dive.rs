@@ -19,7 +19,7 @@ use research_server::dive::{VOICE_MOST_CHARACTERS, give_owner_room, speakable, t
 use research_server::document::{draw, page_body};
 use research_server::runner::narration_script;
 use research_server::store::{Asked, NewResearchRun, Parent, Store, now_ms};
-use research_server::translation::{Rendering, cut, narration_note, note};
+use research_server::translation::{Rendering, cut, narration_note, note, translate_part};
 use research_server::words;
 use serde_json::Value;
 use support::{Filed, Ground, KO, result_text, spoken, translated};
@@ -1636,4 +1636,21 @@ async fn a_restarted_daemon_cuts_the_runs_it_left_open_and_takes_up_its_tries() 
   assert!(ground.run_seats().is_empty(), "an asked run is not asked again");
   let waiting = store.item(never.id).unwrap();
   assert_eq!((waiting.state, waiting.tries), (ItemState::Waiting, 0));
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_translation_answered_past_ten_minutes_is_waited_on_with_no_clock() {
+  let ground = support::ground(|_| {}).await;
+  ground.world.lock().unwrap().translation_wait_ms = 700_000;
+  let asked = tokio::time::Instant::now();
+  let text =
+    translate_part(&ground.app.peers, "Korean", "A part whose card is granted late.", "", "Thing-7B")
+      .await
+      .unwrap();
+  assert_eq!(text, translated("A part whose card is granted late."));
+  assert!(
+    asked.elapsed() >= std::time::Duration::from_secs(700),
+    "the slow translation was waited on to its answer"
+  );
+  assert_eq!(translations(&ground).len(), 1, "one ask, never cut and asked again");
 }

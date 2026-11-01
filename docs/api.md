@@ -515,6 +515,9 @@ search runner applies it, and the run writes its document in English, the questi
   a paragraph not saying it, that paragraph restates the note and is dropped, as often as the count allows.
 - **A part refused 413 `too-large`** is halved the same way and each half asked again; a part that cannot
   be halved any further, a 503 `no-login-open`, or any other failure leaves the Korean side pending.
+- **A part is waited on until agency answers it,** with no clock of this unit's: a translation waits as
+  long as its card's grant and the translation take, so the parts out keep the card they share and its
+  place in the master's line (「Calls this unit makes」).
 - **A part translated short is halved the same way:** a part of more than 200 characters whose text ends a
   sentence — its last character, closing quotes, brackets and emphasis marks aside, a full stop, a question
   mark, an exclamation mark or an ellipsis — while its translation does not, was cut off by the translator,
@@ -659,7 +662,9 @@ of these units, and reads each one's address and token from that unit's own file
   and a margin past it.
   `POST /sessions/{agentName}@worker/turns` with `prompt`, a notice to an agent. `POST /translation-runs`
   with `purpose`, `language`, `text` and `note`, one part of a page's Korean side or its narration;
-  answered 200 with `text`, 413 `too-large` or 503 `no-login-open`.
+  answered 200 with `text`, 413 `too-large` or 503 `no-login-open`. A translation's call carries no clock
+  of this unit's either: it is waited on until agency answers, however long the card the translations
+  share takes to be granted and the part to be translated.
 - **the artifact service:** `GET /documents?q=<name>&limit=1`, the archive check a candidate passes
   (`docs/sources.md`); `POST /documents`, a run's document, `html` for a deep dive's page;
   `POST /documents/{documentId}/attachments` with `name`, `mediaType`, `content` (base64) and, for the Korean

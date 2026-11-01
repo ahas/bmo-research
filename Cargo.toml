@@ -70,5 +70,5 @@ research-tool = { path = "tools/research" }
 reqwest.workspace = true
 rusqlite.workspace = true
 serde_json.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
 toml.workspace = true

@@ -91,6 +91,8 @@ pub struct World {
   pub shares_made: i64,
   /// The statuses the next translation asks are answered with; 200 once these run out.
   pub translation_answers: VecDeque<u16>,
+  /// How long the next translation waits before it is answered, in milliseconds: a card granted late.
+  pub translation_wait_ms: u64,
   /// A text longer than this many characters is refused 413 `too-large`.
   pub too_large_over: Option<usize>,
   /// A text longer than this many characters is answered with the first half of its translation, cut off
@@ -396,7 +398,8 @@ async fn agency_translation(State(w): State<Shared>, method: Method, uri: Uri, b
     world.translating += 1;
     world.translating_most = world.translating_most.max(world.translating);
   }
-  tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+  let wait = std::mem::take(&mut w.lock().unwrap().translation_wait_ms);
+  tokio::time::sleep(std::time::Duration::from_millis(20 + wait)).await;
   let mut world = w.lock().unwrap();
   world.translating -= 1;
   let mut answer = translated(&text);
