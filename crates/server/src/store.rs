@@ -1292,6 +1292,23 @@ impl Store {
       .map_err(|e| e.to_string())
   }
 
+  /// Every item holding a page, for the item its document's run was asked for, in the order of the documents.
+  pub fn filed_pages(&self) -> Result<Vec<Item>, String> {
+    let conn = self.lock();
+    let mut stmt = conn
+      .prepare(&format!(
+        "select {ITEM_COLUMNS} from queue where document_id is not null and run_id is not null
+           and exists (select 1 from runs where runs.run_id = queue.run_id and runs.item_id = queue.id)
+           order by document_id, id"
+      ))
+      .map_err(|e| e.to_string())?;
+    stmt
+      .query_map([], read_item)
+      .map_err(|e| e.to_string())?
+      .collect::<Result<Vec<_>, _>>()
+      .map_err(|e| e.to_string())
+  }
+
   /// The tries left running, for a daemon taking them up again.
   pub fn open_runs(&self) -> Result<Vec<Run>, String> {
     let conn = self.lock();

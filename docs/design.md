@@ -34,7 +34,9 @@ research feature; agency supplies it sessions and seats and nothing more.
     a `page` source's listing through the tool host's `web/web_fetch`, so explorer's pacing and Chrome
     stand round it;
   - artifact, to file a run's document, draw a deep dive's page again and keep its narration beside it
-    (`POST /documents`, `PATCH /documents/{id}`, `POST /documents/{id}/attachments`, `POST /shares`);
+    (`POST /documents`, `PATCH /documents/{id}`, `POST /documents/{id}/attachments`, `POST /shares`), and to
+    read a filed page as it keeps it, so a page drawn otherwise now is set again
+    (`GET /documents/{id}/content`);
   - the voice unit, to speak a deep dive's narration (`POST /syntheses`);
   - the receiver, to tell a room (`POST /instructions`) and to learn the owner's private room (`GET /owner`);
   - the arbiter's master, to ask for the engine each run needs and to read why it waits (「The engine a run
