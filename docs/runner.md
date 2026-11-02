@@ -276,7 +276,7 @@ of it only once the sound is attached.
   of tries ends it.
 - **It is attached at the document's head:** `narration-<code>.ogg`, `code` the question's language, with
   `role` `head`, which the archive's listen band plays at the head of the document (bmo-artifact's
-  `docs/archive.md`, 「How a document is drawn」).
+  `docs/artifact.md`, 「How a document is drawn」).
 - **The document's page is kept as a deep dive's is** (`docs/store.md`, `pages`): the language it holds, the
   narration it plays, what it still lacks — `narration-<code>` — and when that is asked again. The document is
   filed with the labels `languages`, its language, and, where its result has a script, `pending`,
