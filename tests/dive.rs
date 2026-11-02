@@ -12,7 +12,7 @@
 //! asked again whole, and every filed page drawn again where the archive keeps it drawn otherwise. The filed documents are
 //! composed from the English words `prompts/document.toml` holds, so this file holds none of them.
 
-mod support;
+use crate::support;
 
 use bmo_research_client::{ItemState, NewStackRow, RecipientKind, ResearchRunState, Running, Shape};
 use research_server::App;

@@ -6,7 +6,7 @@
 //! folded into its document's answer, a turn's text read whole, and a room's document given its narration's
 //! sound at its head before its room is told.
 
-mod support;
+use crate::support;
 
 use std::time::Duration;
 

@@ -3,8 +3,6 @@
 //! arbiter's master and its demands, the job service's items, the tool host on its Unix socket and the
 //! sources, each keeping every request it was asked.
 
-#![allow(dead_code)]
-
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};

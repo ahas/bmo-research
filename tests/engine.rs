@@ -6,7 +6,7 @@
 //! uncounted; a card that does not come is told to the owner's room once; a stopped category takes its
 //! waiting try's demand back; and no master named asks no demand.
 
-mod support;
+use crate::support;
 
 use std::time::Duration;
 

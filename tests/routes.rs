@@ -1,7 +1,7 @@
 //! The routes `docs/api.md` states, walked over a served daemon: the token, the wire format's failures, and
 //! each resource's members and refusals.
 
-mod support;
+use crate::support;
 
 use bmo_research_client::*;
 use reqwest::StatusCode;

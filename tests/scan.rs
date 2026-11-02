@@ -3,7 +3,7 @@
 //! often than its cadence, a failing source counted, what each reading leaves on its source, and a listing
 //! page read through a stand-in explorer.
 
-mod support;
+use crate::support;
 
 use bmo_research_client::{Filter, ItemState, NewSource, Running, Shape};
 use research_server::scan::{read_source, scan};

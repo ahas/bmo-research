@@ -3,7 +3,7 @@
 //! session that does not hold the owner's capability, a research sent out, and a rulebook read whole where the
 //! record hands it.
 
-mod support;
+use crate::support;
 
 use std::path::PathBuf;
 

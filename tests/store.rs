@@ -4,7 +4,7 @@
 //! that dates every error the store held, the count of each run's review asks, and the step that takes the
 //! run's clock off its runs and its kept settings.
 
-mod support;
+use crate::support;
 
 use bmo_research_client::{
   CategoryShape, ItemState, NewCategory, NewSource, OriginKind, RecipientKind, Running, Shape,

@@ -1,7 +1,7 @@
 //! The source readers on fixture bodies (`docs/sources.md`): each kind's answer read into candidates, a
 //! listing's links by its pattern, the filter, and the key a candidate is judged by.
 
-mod support;
+use crate::support;
 
 use bmo_research_client::{Filter, Shape};
 use research_server::sources::{self, Candidate, ItemKind, LinkPattern, Strategy};
