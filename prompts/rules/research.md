@@ -34,9 +34,12 @@
     search run measures nothing, so this shape is a job's; a manual's reproduction plan is what the
     job starts from.
 - **The shape's name closes the title:** `<name> 사용설명서`, `<name> 검수 보고서`, and an
-  investigation's title names the thing, what it is and its use to us, such as
-  `<name> — 무엇의 실체와 우리 쪽 쓸모`. In an English question the same in English: `<name> manual`,
-  `<name> verification report`.
+  investigation's title names the thing and the shape, `<name> 조사`. In an English question the
+  same in English: `<name> manual`, `<name> verification report`, `<name> investigation`.
+- **A title is a noun phrase, never a sentence:** the thing's name and the shape, no predicate, no
+  verdict and no clause after a comma or a dash; the verdict stands in the body and the narration. It
+  holds at most 15 Korean syllables, spaces not counted, or 30 characters in English, as the search
+  task sets for every result; a long name is said by its short name.
 
 ## The opening
 

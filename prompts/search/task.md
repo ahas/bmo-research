@@ -38,7 +38,7 @@ The result holds the findings and nothing about the run itself. What a tool answ
 The very first line of the result, above everything else, says whether the done condition was met: "ANSWERED: yes :: <the done condition, in a few words>" once it is, or "ANSWERED: no :: <what the answer still lacks>" where it is not. It is the run's own check and stands nowhere in the document. Write yes only when the condition is really met, and no while something the answer needs is still missing.
 
 Under it comes the head, one line each:
-- "TITLE: <a headline>", short, like a news title, saying what was found; never the question restated.
+- "TITLE: <the subject's name>", a noun phrase naming what was researched, as a report's heading names its topic: "매빅급 이하 자율 추종 드론 시장 조사", "Serving engines for Thing-7B". It is never a sentence: no predicate, no verdict, no finding, no clause after a comma or a dash, and never the question restated; the verdict lives in VERDICT and the narration. At most 15 Korean syllables, spaces not counted, or 30 characters in English, so the archive shows it whole on one line of a phone's screen; drop a qualifier before the line runs over.
 - "TOPIC: <what was searched, in a few words>"
 - "KEYWORDS: <the search keywords, comma-separated>"
 - "RULE: <the rule's name>", one rulebook below sets a rule and it is prompts/rules/restaurant-search.md, so this line belongs to a restaurant or delivery recommendation and to nothing else. Write it only where that rulebook applies to this search, which that rulebook alone decides: the name alone, such as the owner's rule, with nothing after it.

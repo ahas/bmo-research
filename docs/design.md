@@ -297,7 +297,8 @@ take; so its own area stays the research and the measurement, however many categ
   translation route on the `translate` road — the registry's translation model first — part by part, each
   part's prose alone sent and set back by the daemon in the English part's own structure, checked against
   it before it is kept, each part with a note that gives the translator its context — that the text is a
-  research report about the named thing, in the register of the owner's documents — and with the terms it
+  research report about the named thing, in the register of the owner's documents, its opening heading the
+  report's title, kept a noun phrase within a title's bound — and with the terms it
   keeps exactly as written, its model and product names, figures with their units, code, links and fixed
   section names, handed to the translation model as its own reference translations rather than as an
   instruction. A switch at the page's top shows Korean first and English beside it, each named in its own
@@ -333,6 +334,18 @@ take; so its own area stays the research and the measurement, however many categ
 - **A report line** is the document's one share link and one line in Korean saying what the thing is and
   the verdict in a few words, and for a `fit` item the question. Nothing else goes into the room: the
   document holds the grounds, in both languages, and the narration.
+- **A document's title names its subject and says nothing of the verdict:** a noun phrase, as a report's
+  heading names its topic — a market survey of follow-me drones of the Mavic class and below, in the
+  question's language — never a sentence, with no predicate, no finding and no clause after a comma or a
+  dash; the verdict stands in the body and the narration. Every kind of run is held to it, a room's search
+  and every deep dive's shape alike, and the Korean title a deep dive's page is given in translation as
+  well.
+- **A title holds at most 15 Korean syllables, its spaces not counted, or 30 characters in English,** so the
+  archive shows it whole on a 360-pixel phone: the title row over a page is one line of 20-pixel type across
+  328 pixels, cut where it runs over, which holds about 15 Hangul syllables with the spaces between them or
+  30 Latin characters; the list row's two lines of 14-pixel type beside a cover picture hold more
+  (bmo-artifact's `docs/archive.md`, 「Where a person reads it」). The search task sets it on the `TITLE:`
+  line (`prompts/search/task.md`).
 - **A research asked for a room is told to it once its document carries its narration:** the answer in a
   line or two and the document's one share link, as ever, and nothing about the sound, which the archive
   plays at the document's head (`docs/runner.md`, 「The room」 and 「The narration's sound」).

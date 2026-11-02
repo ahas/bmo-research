@@ -6,7 +6,7 @@ language = "Korean"
 
 # The note every part of the body and the description carry; what a part keeps exactly as written goes to the
 # translator as its terms (docs/api.md, "The page").
-note = "This text is part of a research report about {name}, written for the owner, in the register of the owner's documents."
+note = "This text is part of a research report about {name}, written for the owner, in the register of the owner's documents. A top-level heading opening it is the report's title: keep it a noun phrase naming the subject, never a sentence, of at most 15 Korean syllables."
 
 # The note a narration's script carries when it is translated to be spoken. The translation is the narration's
 # written words; the voice unit derives the spoken words from them.

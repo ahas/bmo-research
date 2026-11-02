@@ -73,6 +73,9 @@
 - **What the maker states comes first in the middle,** a section of its own: what it says the thing
   supports, its limits and its figures with their conditions, before any section of what others
   found or what we judge.
+- **The title names the thing, never the verdict:** a noun phrase of the thing's name and the
+  shape, as `research.md` closes it and the search task bounds it, whatever the shape; the verdict
+  is a judgement that stands in the body and the narration, never in the title.
 - **The verdict is a judgement:** whether to use it, for what, and what blocks it.
 - **The next step is a reproduction plan** where the answer leans on the maker's figures: which
   figure, on which set, with which settings, about how long it takes, and whether the maker

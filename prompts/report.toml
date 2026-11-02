@@ -1,8 +1,8 @@
 # The words of the notices the daemon hands a category's recipients (docs/api.md, "The notices").
-# {title}, {summary} and {link} are the page's Korean title, the first sentence of its Korean description and
-# the document's one share link, told once the page is whole; {follows} is, for a follow-up, `follows` with
-# {parent} the title of the document it follows from, or `follows_document` with {document} its number where
-# no title is known, and empty for any other item; in `stuck`, told as an item first becomes stuck, {name}
+# {title}, {summary} and {link} are the page's Korean title, a noun phrase naming the thing and never the
+# verdict, the first sentence of its Korean description and the document's one share link, told once the page
+# is whole; {follows} is, for a follow-up, `follows` with {parent} the title of the document it follows from,
+# or `follows_document` with {document} its number where no title is known, and empty for any other item; in `stuck`, told as an item first becomes stuck, {name}
 # and {tries} are the item's name and the tries it took; {touches} is what an advisory names
 # as touched; {plan} is the heading of the document's plan section; {repository} and {rows} a touched
 # repository and its rows of the exposure table. In `restore`, {model} is a watched registration,

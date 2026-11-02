@@ -191,7 +191,9 @@ of a run is this unit's.
   and given a share link with `POST /shares` that ends a day after it is made; the document stays in the
   archive. The result is the searcher's structure lines (`prompts/search/task.md`); the document is made of
   them and carries none of them:
-  - **its head:** the title the `TITLE:` line, the description the `TOPIC:` line, the kind `learning` where
+  - **its head:** the title the `TITLE:` line — a noun phrase naming the subject, never a sentence or a
+    verdict, at most 15 Korean syllables or 30 characters in English (`docs/design.md`, 「Reports and
+    rooms」) — the description the `TOPIC:` line, the kind `learning` where
     `KIND: learning` says so and `search` otherwise, `actorName` `research`, `scope` the room, and the labels
     `research` (the run's id), `key`, `query`, `category` (the key, the archive's category for the document;
     bmo-artifact's `docs/archive.md`, 「Where a person reads it」), and `keywords`, `rule` and `topic` where the
@@ -310,7 +312,8 @@ daemon finishes, held first to the shape the deep dive asked for.
   looked for — and the deep dive's try fails with that error, so the item waits for its retry and the queue
   shows why; a run that met a loss on the way closes `cut` instead (「A cut run」). No document stands for it
   and no notice goes out.
-- **The title** is the `TITLE:` line. A body that opens with a heading saying the title loses that heading,
+- **The title** is the `TITLE:` line, a noun phrase naming the subject and its shape, as every run's is
+  (「The document」). A body that opens with a heading saying the title loses that heading,
   since the page's head says it.
 - **The opening section opens the page's body:** the first section whose heading holds one of the shape's
   opening headings is set before the answer, so the page says what the subject is before its verdict and its

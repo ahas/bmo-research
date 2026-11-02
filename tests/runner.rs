@@ -863,3 +863,29 @@ async fn a_room_s_document_whose_sound_fails_is_told_only_once_its_narration_is_
   assert_eq!(ground.asked_path("receiver", "POST", "/instructions").len(), 1, "told once");
   assert_eq!(ground.synthesis_keys().len(), 2, "a sound attached is not made again");
 }
+
+/// Every search is told its title is a noun phrase naming the subject, never a sentence or a verdict, and
+/// short enough for the archive to show it whole on a phone (`docs/design.md`, 「Reports and rooms」).
+#[test]
+fn a_search_is_told_its_title_names_its_subject_in_a_bounded_noun_phrase() {
+  let system = research_server::runner::search_instructions("- web_search").unwrap();
+  let rule = system
+    .lines()
+    .find(|line| line.starts_with("- \"TITLE: "))
+    .expect("the TITLE line's rule");
+  for words in [
+    "a noun phrase",
+    "never a sentence",
+    "no verdict",
+    "At most 15 Korean syllables, spaces not counted, or 30 characters in English",
+  ] {
+    assert!(rule.contains(words), "{words} missing from {rule}");
+  }
+  assert!(!rule.contains("headline"), "{rule}");
+  let research =
+    std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/prompts/rules/research.md")).unwrap();
+  assert!(research.contains("**A title is a noun phrase, never a sentence:**"));
+  let dives =
+    std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/prompts/rules/deep-dives.md")).unwrap();
+  assert!(dives.contains("**The title names the thing, never the verdict:**"));
+}

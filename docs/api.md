@@ -156,7 +156,8 @@ the one to read.
   `asked` for an ask), `shape` (`manual`, `investigation`, `advisory` or `brief`), `sourceId`, `asked`,
   `origin` (where it came from, below), `priority`, `state`, `tries`, `retryAt`, `runId` (the research run
   of the latest try), `documentId`, `title` and `description` (the head the run gave its document, in
-  English), `shareUrl` (the document's live link), `languages` (the languages the document's page holds,
+  English, the title a noun phrase naming the subject, never the verdict; `docs/design.md`, 「Reports and
+  rooms」), `shareUrl` (the document's live link), `languages` (the languages the document's page holds,
   Korean first: `["en"]` until the Korean side is had, `["ko", "en"]` after, empty before a document is
   filed; 「The page」), `narrations` (the languages whose narration the page plays, Korean first), `pending`
   (what the page still lacks before its report is told: `korean` for its Korean side, `narration-ko` and
@@ -569,7 +570,9 @@ search runner applies it, and the run writes its document in English, the questi
   as text, at a blank line, else a line's end, else a space, nearest its middle, each half asked again. A
   text of 200 characters or fewer is taken as it comes.
 - **Each text sent carries the `note`,** the item's name set in: the translator's context, that the text is
-  part of a research report about the thing for the owner, in the register of the owner's documents.
+  part of a research report about the thing for the owner, in the register of the owner's documents, and
+  that a top-level heading opening it is the report's title, kept a noun phrase of at most 15 Korean
+  syllables (`docs/design.md`, 「Reports and rooms」).
 - **Each text sent carries its `terms`,** what it keeps exactly as written, each a term whose target is
   itself, which agency hands the translation model as its own reference translations (agency's
   「translations」): the item's name; every inline code span, link address and bare web address; every fixed
@@ -685,8 +688,9 @@ search runner applies it, and the run writes its document in English, the questi
 ### The notices
 
 - **Every recipient of the category is told every notice:** a report, once the item's page is whole (「The
-  page」), with the words `prompts/report.toml` holds as `line`, the Korean title, the first sentence of the
-  Korean description and the document's one share link set in, and, for a follow-up, `follows` with the
+  page」), with the words `prompts/report.toml` holds as `line`, the Korean title, which names the thing,
+  the first sentence of the Korean description and the document's one share link set in, and, for a
+  follow-up, `follows` with the
   title of the document it follows from set in (its Korean title where its page has one, else the title
   the item keeps), or `follows_document` with its number where no title is known; or, as an item first
   becomes stuck, `stuck`, with the name and the tries set in. The narration is never named, and the parent's link stands
