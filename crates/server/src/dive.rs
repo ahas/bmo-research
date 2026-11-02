@@ -1509,16 +1509,23 @@ async fn tell(
       ],
     );
     for worker in workers {
-      let said = app.peers.turn(&worker, &part).await;
-      if let Err(why) = &said {
-        eprintln!("bmo-research: worker {worker} could not be told item {}: {why}", lead.id);
-      }
-      let _ =
-        app
-          .store
-          .keep_report(lead.id, &format!("agent:{worker}"), "part", None, said.err().as_deref());
+      tell_agent(app, &worker, &part, lead.id, "part");
     }
   }
+}
+
+/// A notice told to an agent on a task of its own, so the dive goes on while the agent's turn works: agency
+/// answers the send once the turn ends, however long that takes, and the report row is kept then.
+fn tell_agent(app: &App, agent: &str, notice: &str, item: i64, kind: &str) {
+  let (peers, store) = (app.peers.clone(), app.store.clone());
+  let (agent, notice, kind) = (agent.to_string(), notice.to_string(), kind.to_string());
+  tokio::spawn(async move {
+    let said = peers.turn(&agent, &notice).await;
+    if let Err(why) = &said {
+      eprintln!("bmo-research: agent {agent} refused item {item}: {why}");
+    }
+    let _ = store.keep_report(item, &format!("agent:{agent}"), &kind, None, said.err().as_deref());
+  });
 }
 
 /// One notice to every recipient of the category, each kept as a report row.
@@ -1535,7 +1542,8 @@ async fn notify(app: &App, category: &Category, lead: &Item, notice: &str, kind:
           .await,
       ),
       (RecipientKind::Agent, _, Some(agent)) => {
-        (format!("agent:{agent}"), app.peers.turn(agent, notice).await.map(|()| None))
+        tell_agent(app, agent, notice, lead.id, kind);
+        continue;
       }
       _ => continue,
     };

@@ -283,12 +283,8 @@ pub async fn call(
         model: text(arguments, "model"),
       };
       let run = client.ask_research(&ask).await?;
-      let closes = run
-        .closes_at
-        .map(|at| format!(", its web tools closing at {at} (epoch ms)"))
-        .unwrap_or_default();
       Ok(format!(
-        "Research run {} on {} is {} on {} · {}{closes}. Its result comes back to the room once it ends.",
+        "Research run {} on {} is {} on {} · {}. Its result comes back to the room once it ends.",
         run.run_id,
         run.key,
         run.state.as_str(),

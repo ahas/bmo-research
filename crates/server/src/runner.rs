@@ -19,9 +19,9 @@ use crate::App;
 use crate::config::KeyDefaults;
 use crate::document;
 use crate::peers::{Ending, Fault};
-use crate::store::{NewResearchRun, ResearchRunRow, RunDocument, now_ms};
+use crate::store::{NewResearchRun, ResearchRunRow, RunDocument};
 use crate::tool_host::ToolHost;
-use crate::words::{self, FINAL, PastCeiling, fill};
+use crate::words::{self, FINAL, fill};
 
 /// The research keys, in the order the settings answer them.
 pub const KEYS: [&str; 4] = ["search:basic", "search:thorough", "search:exhaustive", "browse"];
@@ -70,11 +70,10 @@ pub struct Held {
 }
 
 impl Held {
-  /// A key's branches, clock and budget; none and five minutes for a key the settings name nothing for.
+  /// A key's branches and budget; none for a key the settings name nothing for.
   pub fn key(&self, key: &str) -> KeyDefaults {
     self.keys.get(key).copied().unwrap_or(KeyDefaults {
       branches: 0,
-      minutes: 5,
       pages: None,
       branch_pages: None,
     })
@@ -125,8 +124,8 @@ pub fn held(app: &App) -> Result<(Held, bool), String> {
 }
 
 /// The settings with a change laid over them, or why it cannot stand: a strategy outside the three, a gap
-/// below nothing, a key that is no research key, branches below nothing, a clock of no minutes, a budget of no
-/// page, or a role agency's pool does not list.
+/// below nothing, a key that is no research key, branches below nothing, a budget of no page, or a role
+/// agency's pool does not list.
 pub fn changed(mut held: Held, change: &ResearchSettingsChange, roles: &[String]) -> Result<Held, String> {
   if let Some(strategy) = &change.strategy {
     if !STRATEGIES.contains(&strategy.as_str()) {
@@ -155,18 +154,14 @@ pub fn changed(mut held: Held, change: &ResearchSettingsChange, roles: &[String]
     let Some(kept) = held.keys.get_mut(&key.key) else {
       return Err(format!("{} is no research key: {}", key.key, KEYS.join(", ")));
     };
-    if key.branches < 0 || key.minutes < 1 {
-      return Err(format!(
-        "{}: branches are never below nothing, and a clock runs a minute at least",
-        key.key
-      ));
+    if key.branches < 0 {
+      return Err(format!("{}: branches are never below nothing", key.key));
     }
     if key.pages.is_some_and(|pages| pages < 1) || key.branch_pages.is_some_and(|pages| pages < 1) {
       return Err(format!("{}: a budget reads one page at least", key.key));
     }
     *kept = KeyDefaults {
       branches: key.branches,
-      minutes: key.minutes,
       pages: key.pages.or(kept.pages),
       branch_pages: key.branch_pages.or(kept.branch_pages),
     };
@@ -213,7 +208,6 @@ pub async fn view(app: &App, held: &Held, set: bool) -> ResearchSettings {
         held.keys.get(*key).map(|kept| ResearchKeySettings {
           key: key.to_string(),
           branches: kept.branches,
-          minutes: kept.minutes,
           pages: kept.pages,
           branch_pages: kept.branch_pages,
         })
@@ -309,19 +303,7 @@ pub fn budget_line(kept: KeyDefaults) -> String {
 /// The request a run is put to, its line's template filled with the ask.
 pub fn request(ask: &ResearchRunAsk, kept: KeyDefaults) -> String {
   if line_of(&ask.key) == "browse" {
-    let synthesis = (kept.minutes / 5).max(1);
-    let research = (kept.minutes - synthesis).max(1);
-    return fill(
-      words::BROWSE_REQUEST,
-      &[
-        ("task", ask.query.trim()),
-        ("budget", &format!("{} minutes", kept.minutes)),
-        ("research", &format!("{research} minutes")),
-        ("synthesis", &format!("{synthesis} minutes")),
-      ],
-    )
-    .trim()
-    .to_string();
+    return fill(words::BROWSE_REQUEST, &[("task", ask.query.trim())]).trim().to_string();
   }
   let branches = match kept.branches {
     0 => "no pooled branches".to_string(),
@@ -353,7 +335,6 @@ pub struct Recorded<'a> {
   pub ask: &'a ResearchRunAsk,
   pub held: &'a Held,
   pub kept: KeyDefaults,
-  pub closes_at: i64,
   pub provider: &'a str,
   pub model: &'a str,
   pub rulebooks: &'a [String],
@@ -362,7 +343,6 @@ pub struct Recorded<'a> {
 /// The run's record, which its first session carries under `labels.research` (`docs/runner.md`).
 pub fn record(app: &App, made: &Recorded<'_>) -> Value {
   let mut record = json!({
-    "closesAt": made.closes_at,
     "run": made.run,
     "source": line_of(&made.ask.key),
     "role": made.held.branch_role,
@@ -528,7 +508,7 @@ pub struct Start<'a> {
 }
 
 /// A thrown-away session started on agency's line, its id kept as the run's hold. It names no bound, so
-/// agency cuts none of its turns (`docs/runner.md`, 「The run's clock」).
+/// agency cuts none of its turns (`docs/runner.md`, 「Nothing of a run is clocked」).
 pub async fn start_session(app: &App, run: i64, start: &Start<'_>) -> Result<String, Fault> {
   let mut body = json!({
     "agent": start.line,
@@ -784,7 +764,6 @@ pub async fn launch(
     (browse_instructions().map_err(Refused::Failed)?, Vec::new())
   };
   let prompt = request(&ask, kept);
-  let closes_at = now_ms() + kept.minutes * 60_000;
   let run = app
     .store
     .open_research_run(&NewResearchRun {
@@ -796,7 +775,6 @@ pub async fn launch(
       room_id: ask.room_id.filter(|room| *room != 0),
       provider: said(&ask.provider).unwrap_or_default(),
       model: said(&ask.model).unwrap_or_default(),
-      closes_at,
       branches_allowed: kept.branches,
       tells,
     })
@@ -855,7 +833,6 @@ pub async fn launch(
       ask: &ask,
       held: &held,
       kept,
-      closes_at,
       provider: &provider,
       model: &model,
       rulebooks: &rulebooks,
@@ -891,7 +868,6 @@ pub async fn launch(
     state,
     provider: provider.clone(),
     model: model.clone(),
-    closes_at: Some(closes_at),
   };
   let going = Going {
     run,
@@ -956,8 +932,9 @@ async fn go(app: Arc<App>, going: Going) {
   ended(&app, &going, result).await;
 }
 
-/// The seat let in and bound to the run's session, asked for its place every half second however long the
-/// pool takes; or why it was not.
+/// The seat let in, asked for its place every half second however long the pool takes; or why it was not.
+/// It is bound to no child: its turns go out under run names of their own, one after another, and none
+/// stands between two of them (`docs/runner.md`, 「The seats' children」).
 async fn admitted(app: &App, going: &Going) -> Result<Seat, String> {
   let run = going.run;
   let mut seat = going.seat.clone();
@@ -981,13 +958,6 @@ async fn admitted(app: &App, going: &Going) -> Result<Seat, String> {
         return Err(going.met(fault, "the run's seat could not be let in"));
       }
     }
-  }
-  let bound = app
-    .peers
-    .move_seat(&seat.token, &json!({ "state": "bound", "childId": going.session }))
-    .await;
-  if let Err(fault) = bound {
-    return Err(going.met(fault, "the run's seat could not be bound to its session"));
   }
   let _ = app.store.research_running(run);
   note(app, run, "seated", &format!("Seated on {} · {}.", going.provider, going.model));
@@ -1051,10 +1021,9 @@ pub fn round_prompt(question: &str, task: &str, last: &str) -> String {
   format!("{question}\n\n## The task\n\n{task}\n\n## What you wrote last\n\n{last}")
 }
 
-/// The key's rounds after the first answer, in a session of their own, past the ceiling the final one asked
-/// at once or the last answer kept; a round that does not answer leaves the last answer standing. A deep
-/// dive's whole document and its narration are asked of the same session before it is ended. Answers the
-/// run's result.
+/// The key's rounds after the first answer, in a session of their own, each asked in turn to the last; a round
+/// that does not answer leaves the last answer standing. A deep dive's whole document and its narration are
+/// asked of the same session before it is ended. Answers the run's result.
 async fn rounds(app: &App, going: &Going, seat: &Seat, first: String) -> String {
   let run = going.run;
   let runner = words::runner();
@@ -1090,21 +1059,10 @@ async fn rounds(app: &App, going: &Going, seat: &Seat, first: String) -> String 
       return first;
     }
   };
-  let began = now_ms();
   let mut last = first;
   let mut asking = going.continued.as_ref().map_or(0, |earlier| earlier.round);
   while asking < process.rounds.len() {
     let name = process.rounds[asking].as_str();
-    let past = (now_ms() - began) / 1000 >= process.ceiling_seconds;
-    if past && name != FINAL {
-      match (process.past_ceiling, process.rounds.iter().position(|one| one == FINAL)) {
-        (PastCeiling::Final, Some(at)) if at >= asking => {
-          asking = at;
-          continue;
-        }
-        _ => break,
-      }
-    }
     let Some(question) = runner.questions.get(name) else {
       asking += 1;
       continue;
@@ -1270,11 +1228,11 @@ pub async fn review(app: &App, run: i64, prompt: &str) -> Result<String, String>
         Err(fault) => return Err(format!("the review's seat could not be let in: {fault}")),
       }
     }
-    let bound = json!({ "state": "bound", "childId": session });
-    if let Err(fault) = app.peers.move_seat(&seat.token, &bound).await {
-      return Err(format!("the review's seat could not be bound to its session: {fault}"));
-    }
     let name = format!("research-{run}-review");
+    let bound = json!({ "state": "bound", "childId": name });
+    if let Err(fault) = app.peers.move_seat(&seat.token, &bound).await {
+      return Err(format!("the review's seat could not be bound to its turn: {fault}"));
+    }
     let title = format!("{line} research {run} review");
     let body = turn_body(
       prompt,

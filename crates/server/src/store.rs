@@ -202,6 +202,11 @@ const MIGRATIONS: &[&str] = &[
   "
   alter table research_runs add column review_asks integer not null default 0;
 ",
+  "
+  alter table research_runs drop column closes_at;
+  update research_settings set value = json_remove(value, '$.keys.\"search:basic\".minutes',
+    '$.keys.\"search:thorough\".minutes', '$.keys.\"search:exhaustive\".minutes', '$.keys.browse.minutes');
+",
 ];
 
 /// A page's one review (`docs/store.md`, `page_reviews`): what it wrote, the indices of its fixes applied or
@@ -327,7 +332,6 @@ pub struct NewResearchRun<'a> {
   pub room_id: Option<i64>,
   pub provider: &'a str,
   pub model: &'a str,
-  pub closes_at: i64,
   pub branches_allowed: i64,
   pub tells: bool,
 }
@@ -348,7 +352,6 @@ pub struct ResearchRunRow {
   pub outcome: Option<String>,
   pub error: Option<String>,
   pub started_at: i64,
-  pub closes_at: Option<i64>,
   pub finished_at: Option<i64>,
   pub branches_allowed: i64,
   pub branches: i64,
@@ -380,7 +383,6 @@ impl ResearchRunRow {
       state: self.state,
       outcome: self.outcome.clone(),
       started_at: self.started_at,
-      closes_at: self.closes_at,
       finished_at: self.finished_at,
       document_id: self.document_id,
       link: self.link.clone(),
@@ -401,7 +403,7 @@ pub struct RunDocument {
 }
 
 const RESEARCH_RUN_COLUMNS: &str = "id, key, line, query, asker, options, room_id, provider, model, state,
-  outcome, error, started_at, closes_at, finished_at, branches_allowed, branches, record, tells, turns, written,
+  outcome, error, started_at, finished_at, branches_allowed, branches, record, tells, turns, written,
   document_id, title, description, link, continues, answered";
 
 /// The shape an item of a category is asked in: the category's, and in a `manual-or-investigation`
@@ -424,9 +426,8 @@ impl Store {
   pub fn open(dir: &Path) -> Result<Store, String> {
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let conn = Connection::open(dir.join("research.db")).map_err(|e| e.to_string())?;
-    conn
-      .execute_batch("pragma journal_mode=wal; pragma busy_timeout=5000;")
-      .map_err(|e| e.to_string())?;
+    conn.execute_batch("pragma journal_mode=wal;").map_err(|e| e.to_string())?;
+    conn.busy_handler(Some(wait_for_the_lock)).map_err(|e| e.to_string())?;
     migrate(&conn)?;
     Ok(Store {
       conn: Arc::new(Mutex::new(conn)),
@@ -1906,8 +1907,8 @@ impl Store {
     conn
       .execute(
         "insert into research_runs (key, line, query, asker, options, room_id, provider, model, state,
-           started_at, closes_at, branches_allowed, record, tells)
-         values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'waiting', ?9, ?10, ?11, '{}', ?12)",
+           started_at, branches_allowed, record, tells)
+         values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'waiting', ?9, ?10, '{}', ?11)",
         params![
           new.key,
           new.line,
@@ -1918,7 +1919,6 @@ impl Store {
           new.provider,
           new.model,
           now_ms(),
-          new.closes_at,
           new.branches_allowed,
           new.tells
         ],
@@ -2303,8 +2303,8 @@ impl Store {
 
 fn read_research_run(r: &rusqlite::Row<'_>) -> rusqlite::Result<ResearchRunRow> {
   let state: String = r.get(9)?;
-  let record: String = r.get(17)?;
-  let turns: String = r.get(19)?;
+  let record: String = r.get(16)?;
+  let turns: String = r.get(18)?;
   Ok(ResearchRunRow {
     id: r.get(0)?,
     key: r.get(1)?,
@@ -2319,20 +2319,19 @@ fn read_research_run(r: &rusqlite::Row<'_>) -> rusqlite::Result<ResearchRunRow> 
     outcome: r.get(10)?,
     error: r.get(11)?,
     started_at: r.get(12)?,
-    closes_at: r.get(13)?,
-    finished_at: r.get(14)?,
-    branches_allowed: r.get(15)?,
-    branches: r.get(16)?,
+    finished_at: r.get(13)?,
+    branches_allowed: r.get(14)?,
+    branches: r.get(15)?,
     record: serde_json::from_str(&record).unwrap_or_default(),
-    tells: r.get(18)?,
+    tells: r.get(17)?,
     turns: serde_json::from_str(&turns).unwrap_or_default(),
-    written: r.get(20)?,
-    document_id: r.get(21)?,
-    title: r.get(22)?,
-    description: r.get(23)?,
-    link: r.get(24)?,
-    continues: r.get(25)?,
-    answered: serde_json::from_str(&r.get::<_, String>(26)?).unwrap_or_default(),
+    written: r.get(19)?,
+    document_id: r.get(20)?,
+    title: r.get(21)?,
+    description: r.get(22)?,
+    link: r.get(23)?,
+    continues: r.get(24)?,
+    answered: serde_json::from_str(&r.get::<_, String>(25)?).unwrap_or_default(),
   })
 }
 
@@ -2368,6 +2367,16 @@ fn take_unqueued(tx: &Transaction<'_>, category: &Category, free: i64) -> rusqli
     made.push(id);
   }
   Ok(made)
+}
+
+/// How often a write that finds the file locked by another process looks again whether the lock is free.
+const LOCK_LOOK_EVERY: std::time::Duration = std::time::Duration::from_millis(5);
+
+/// A write that finds the file locked waits for the lock however long its holder keeps it: SQLite asks again
+/// for as long as this answers true (`docs/store.md`).
+fn wait_for_the_lock(_asked: i32) -> bool {
+  std::thread::sleep(LOCK_LOOK_EVERY);
+  true
 }
 
 /// The store's schema brought to this binary's version, a step at a time; a newer store is refused.

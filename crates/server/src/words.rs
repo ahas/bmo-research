@@ -333,21 +333,11 @@ pub fn search_document(language: &str) -> &'static SearchDocumentWords {
     .expect("prompts/search/document.toml holds en")
 }
 
-/// What a past ceiling does to a run's rounds.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum PastCeiling {
-  Final,
-  Last,
-}
-
-/// One research key's rounds.
+/// One research key's rounds, asked in turn to the last.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Rounds {
   pub rounds: Vec<String>,
-  pub ceiling_seconds: i64,
-  pub past_ceiling: PastCeiling,
 }
 
 /// The search's rulebooks: their order, those given by their deciding section alone, that section's heading,

@@ -1715,6 +1715,20 @@ async fn an_advisory_tells_each_touched_repository_s_worker_its_part_and_the_rec
   let room = orders(&ground);
   assert_eq!(room.len(), 1);
   assert!(room[0]["said"]["order"].as_str().unwrap().contains("services/beta"));
+  // An agent's notice goes out on a task of its own, its report row kept once agency answers the turn.
+  for _ in 0..500 {
+    if store
+      .reports(item.id)
+      .unwrap()
+      .iter()
+      .filter(|(who, _, _)| who.starts_with("agent:"))
+      .count()
+      == 2
+    {
+      break;
+    }
+    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+  }
   let part = ground.asked_path("agency", "POST", "/sessions/worker-a@worker/turns");
   assert_eq!(part.len(), 1);
   let prompt = part[0].body["prompt"].as_str().unwrap();
@@ -1934,7 +1948,6 @@ async fn a_restarted_daemon_cuts_the_runs_it_left_open_and_takes_up_its_tries() 
         room_id: room,
         provider: "registered",
         model: "flash-next",
-        closes_at: now_ms(),
         branches_allowed: 0,
         tells,
       })
@@ -2438,7 +2451,6 @@ async fn a_continuing_run_asks_the_rounds_after_the_last_its_chain_answered() {
         room_id: None,
         provider: "registered",
         model: "flash-next",
-        closes_at: now_ms(),
         branches_allowed: 0,
         tells: false,
       })

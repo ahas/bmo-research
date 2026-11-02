@@ -3,7 +3,8 @@
 One SQLite file, `research.db`, in the folder the settings' `store` names under the data root. Its schema
 carries a version (SQLite's `user_version`); the daemon, and `bmo-research migrate`, bring it to the version
 the binary holds as they start, one step at a time, and refuse a store newer than the binary. The step that
-makes the store registers the three first categories (`docs/api.md`, 「categories」). Times are epoch
+makes the store registers the three first categories (`docs/api.md`, 「categories」). A write that finds
+the file locked by another process waits for the lock to be let go, however long that takes. Times are epoch
 milliseconds; lists are JSON arrays.
 
 ## `categories`
@@ -226,7 +227,7 @@ The runner's ledger (`docs/runner.md`): one row per research run.
 | `query`, `asker`, `options`, `room_id` | What was asked, by whom, with which options, and the room it is told to, or null |
 | `provider`, `model` | The road it goes out on |
 | `state`, `outcome`, `error` | `waiting`, `running` or `closed`; `answered`, `failed` or `cut` once closed; and why it failed |
-| `started_at`, `closes_at`, `finished_at` | When it was asked, when its web tools close, and when it closed |
+| `started_at`, `finished_at` | When it was asked, and when it closed |
 | `branches_allowed`, `branches` | How many branches it may open, and how many it opened |
 | `record` | The run's research record, the JSON object its sessions carry under `labels.research` |
 | `tells` | 1 where its end is told to its room, 0 for a run the deep dive asked |

@@ -18,7 +18,6 @@ the daemon does not know is refused, naming it. A path may open with `~/`, the h
 | `retry_minutes` | 5 | How long a failed try, or what a page still lacks, waits before it is tried again; what a page lacks is asked on every such wait until it is had, and an interrupted try waits for none |
 | `restore_wait_minutes` | 20 | How long a run's demand for its engine waits before the owner's private room is told, once, that the engine has not come back; the demand goes on waiting |
 | `poll_seconds` | 30 | How long the daemon waits between two readings of a run under way |
-| `turn_wait_seconds` | 20 | How long a notice to an agent waits on its turn's answer before it is counted as handed |
 | `user_agent` | `bmo-research` | The `User-Agent` the daemon reads the sources with |
 
 What differs by category — its shape, its cap, its cadence, its road and its recipients — is no setting but
@@ -77,14 +76,14 @@ What every research run is held to where the owner changed nothing through `PUT 
 | `strategy` | `direct-then-browser` | How the web tools read a page: `direct-then-browser`, `browser-first` or `direct-only` |
 | `host_interval_ms` | none | The gap between two direct requests to one host; the web tools' own where none is named |
 | `engine_interval_ms` | none | The gap between two requests to one search engine; the web tools' own where none is named |
-| `keys` | below | Each research key's table: `branches`, `minutes`, and `pages` and `branch_pages` where a ceiling holds |
+| `keys` | below | Each research key's table: `branches`, and `pages` and `branch_pages` where a ceiling holds |
 
-| Key | `branches` | `minutes` | `pages` | `branch_pages` |
-|---|---|---|---|---|
-| `search:basic` | 0 | 5 | 3 | none |
-| `search:thorough` | 2 | 15 | 8 | 4 |
-| `search:exhaustive` | 5 | 30 | 20 | 6 |
-| `browse` | 0 | 15 | none | none |
+| Key | `branches` | `pages` | `branch_pages` |
+|---|---|---|---|
+| `search:basic` | 0 | 3 | none |
+| `search:thorough` | 2 | 8 | 4 |
+| `search:exhaustive` | 5 | 20 | 6 |
+| `browse` | 0 | none | none |
 
 A file naming `keys` names every key it keeps; the four above are the research keys.
 

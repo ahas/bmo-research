@@ -1,7 +1,7 @@
 //! The research runner against stand-in agency, artifact, receiver and tool host servers (`docs/runner.md`,
 //! `docs/api.md`, 「research runs」 and 「research settings」): a run end to end — its seat, its session's start
 //! with its record and capabilities, its first turn, its rounds, its filing and its room's instruction — a run
-//! agency refuses, a turn waited on past the run's clock and through a session still in a turn, the branches
+//! agency refuses, a turn waited on however long it holds and through a session still in a turn, the branches
 //! and their allowance, the settings' round trip, a summary a result still writes folded into its document's
 //! answer, and a turn's text read whole.
 
@@ -11,7 +11,6 @@ use std::time::Duration;
 
 use bmo_research_client::*;
 use reqwest::StatusCode;
-use research_server::config::KeyDefaults;
 use research_server::document::draw;
 use research_server::runner::written;
 use research_server::store::{NewResearchRun, now_ms};
@@ -77,7 +76,6 @@ async fn a_search_is_seated_sent_asked_its_rounds_filed_and_told_to_its_room() {
     (1, ResearchRunState::Running, "registered")
   );
   assert_eq!(asked.model, "seat-model", "the seat's model where the ask names none");
-  let closes_at = asked.closes_at.unwrap();
 
   let run = closed(&ground, 1).await;
   assert_eq!((run.outcome.as_deref(), run.document_id), (Some("answered"), Some(901)));
@@ -119,8 +117,8 @@ async fn a_search_is_seated_sent_asked_its_rounds_filed_and_told_to_its_room() {
   assert!(system.contains("RULEBOOK prompts/rules/self-preservation.md:\n"));
   assert!(system.contains("research/rulebook"));
   let record = &first["labels"]["research"];
+  assert!(record.get("closesAt").is_none(), "the web tools hold the run to no closing time");
   for (key, value) in [
-    ("closesAt", json!(closes_at)),
     ("run", json!(1)),
     ("owner", json!("the owner")),
     ("source", json!("search")),
@@ -180,7 +178,10 @@ async fn a_search_is_seated_sent_asked_its_rounds_filed_and_told_to_its_room() {
     .into_iter()
     .map(|a| a.body)
     .collect();
-  assert_eq!(moved[0]["state"], "bound");
+  assert!(
+    moved.iter().all(|m| m["state"] != "bound"),
+    "the run's seat is bound to no child: {moved:?}"
+  );
   assert_eq!(moved.last().unwrap(), &json!({"state": "finished", "outcome": "answered"}));
   assert_eq!(ground.asked_path("agency", "DELETE", "/sessions/").len(), 2, "both sessions ended");
 
@@ -340,25 +341,13 @@ async fn a_run_agency_refuses_is_answered_503_and_leaves_nothing_standing() {
   assert_eq!(status, StatusCode::NOT_FOUND);
 }
 
-/// A running run allowed `branches`, its clock closing `closes_in` milliseconds from now.
-/// A turn answered once the run's clock has run out, its web tools closed, is waited on and its answer kept
-/// (`docs/runner.md`, 「The run's clock」): its send carries no clock, and no session names a bound.
+/// A turn that holds is waited on until it answers and its answer kept (`docs/runner.md`, 「Nothing of a run
+/// is clocked」): its send carries no clock, no session names a bound, and the record names no closing time.
 #[tokio::test]
-async fn a_turn_answered_after_the_run_s_clock_has_run_out_is_waited_on() {
-  let ground = support::ground(|settings| {
-    let none = KeyDefaults {
-      branches: 0,
-      minutes: 0,
-      pages: None,
-      branch_pages: None,
-    };
-    settings.research_settings.keys.insert("search:basic".into(), none);
-  })
-  .await;
-  let base = support::serve(research_server::routes::router(ground.app.clone())).await;
-  let client = ResearchClient::new(&base).with_token("test-token");
+async fn a_turn_that_holds_is_waited_on_until_it_answers() {
+  let (ground, _base, client) = served().await;
   ground.world.lock().unwrap().holding = true;
-  let asked = client
+  client
     .ask_research(&ResearchRunAsk {
       key: "search:basic".into(),
       query: "Which engine serves Thing-7B fastest?".into(),
@@ -366,12 +355,11 @@ async fn a_turn_answered_after_the_run_s_clock_has_run_out_is_waited_on() {
     })
     .await
     .unwrap();
-  let closes_at = asked.closes_at.unwrap();
   while ground.turns_named("research-1").is_empty() {
     tokio::time::sleep(Duration::from_millis(10)).await;
   }
   tokio::time::sleep(Duration::from_millis(300)).await;
-  assert!(now_ms() > closes_at, "the turn still writes past the run's clock");
+  assert_eq!(ground.app.store.research_run(1).unwrap().state, ResearchRunState::Running);
   ground.world.lock().unwrap().holding = false;
 
   let run = closed(&ground, 1).await;
@@ -379,6 +367,7 @@ async fn a_turn_answered_after_the_run_s_clock_has_run_out_is_waited_on() {
   assert_eq!(run.turns, ["research-1", "research-1-final"]);
   let started = sessions(&ground);
   assert!(!started.is_empty() && started.iter().all(|s| s.get("boundMs").is_none()), "{started:?}");
+  assert!(started.iter().all(|s| s["labels"]["research"].get("closesAt").is_none()), "{started:?}");
 }
 
 /// A turn sent into a session still in a turn an earlier send lost is answered busy, waits for that turn's
@@ -415,7 +404,8 @@ async fn a_turn_sent_into_a_session_still_in_a_turn_waits_for_its_end_and_is_sen
   assert!(log.iter().all(|line| !line.text.contains("session-busy")), "no turn failed busy");
 }
 
-fn running(ground: &support::Ground, branches: i64, closes_in: i64) -> i64 {
+/// A running run allowed `branches`.
+fn running(ground: &support::Ground, branches: i64) -> i64 {
   let store = &ground.app.store;
   let run = store
     .open_research_run(&NewResearchRun {
@@ -427,7 +417,6 @@ fn running(ground: &support::Ground, branches: i64, closes_in: i64) -> i64 {
       room_id: Some(5),
       provider: "registered",
       model: "flash-next",
-      closes_at: now_ms() + closes_in,
       branches_allowed: branches,
       tells: true,
     })
@@ -441,7 +430,7 @@ fn running(ground: &support::Ground, branches: i64, closes_in: i64) -> i64 {
 #[tokio::test]
 async fn a_branch_is_seated_run_and_counted_against_its_run_s_allowance() {
   let (ground, base, client) = served().await;
-  let run = running(&ground, 2, 60_000);
+  let run = running(&ground, 2);
   let end = client
     .branch(&BranchAsk {
       run,
@@ -481,6 +470,12 @@ async fn a_branch_is_seated_run_and_counted_against_its_run_s_allowance() {
     (Some("search"), Some("search branch 1"), Some(5))
   );
   let given_back = ground.asked_path("agency", "PATCH", "/seat-requests/seat-1");
+  assert!(
+    given_back
+      .iter()
+      .any(|a| a.body == json!({"state": "bound", "childId": "research-1-branch-1"})),
+    "the branch's seat is bound to its turn's run name: {given_back:?}"
+  );
   assert_eq!(given_back.last().unwrap().body, json!({"state": "finished", "outcome": "completed"}));
   assert_eq!(ground.asked_path("agency", "DELETE", "/sessions/").len(), 1);
 
@@ -497,7 +492,7 @@ async fn a_branch_is_seated_run_and_counted_against_its_run_s_allowance() {
   assert!(said["error"].as_str().unwrap().contains("the 2 branches it is allowed"), "{said}");
   assert_eq!(client.research_run(run).await.unwrap().branches, 2);
 
-  let none = running(&ground, 0, 60_000);
+  let none = running(&ground, 0);
   let (_, said) = raw(&base, reqwest::Method::POST, "/branches", json!({"run": none, "angle": "x"})).await;
   assert!(said["error"].as_str().unwrap().contains("allowed no branches"), "{said}");
   let (status, _) = raw(&base, reqwest::Method::POST, "/branches", json!({"run": run, "angle": " "})).await;
@@ -511,11 +506,13 @@ async fn a_branch_is_seated_run_and_counted_against_its_run_s_allowance() {
   assert!(said["error"].as_str().unwrap().contains("no longer running"), "{said}");
 }
 
+/// A branch's turn is waited on until it answers, and its seat for its place however long the pool takes
+/// (`docs/runner.md`, 「Branches」).
 #[tokio::test]
-async fn a_branch_still_writing_at_research_close_is_stopped_and_a_seat_waiting_past_it_still_seated() {
+async fn a_slow_branch_is_waited_on_and_a_waiting_seat_still_seated() {
   let (ground, base, client) = served().await;
   ground.world.lock().unwrap().branch_wait_ms = 400;
-  let run = running(&ground, 2, 200);
+  let run = running(&ground, 2);
   let end = client
     .branch(&BranchAsk {
       run,
@@ -523,13 +520,12 @@ async fn a_branch_still_writing_at_research_close_is_stopped_and_a_seat_waiting_
     })
     .await
     .unwrap();
-  assert_eq!(end.state, BranchState::Stopped);
-  assert_eq!(end.notes, "notes of research-1-branch-1", "the notes as far as they got");
+  assert_eq!(end.state, BranchState::Completed);
+  assert_eq!(end.notes, "notes of research-1-branch-1");
   let given_back = ground.asked_path("agency", "PATCH", "/seat-requests/seat-1");
-  assert_eq!(given_back.last().unwrap().body["outcome"], "stopped at research close");
+  assert_eq!(given_back.last().unwrap().body["outcome"], "completed");
 
-  // A seat still waiting at the close is waited for however long the pool takes.
-  let late = running(&ground, 2, 300);
+  let late = running(&ground, 2);
   {
     let mut world = ground.world.lock().unwrap();
     world.branch_wait_ms = 0;
@@ -539,29 +535,16 @@ async fn a_branch_still_writing_at_research_close_is_stopped_and_a_seat_waiting_
     raw(&base, reqwest::Method::POST, "/branches", json!({"run": late, "angle": "x"})).await;
   assert_eq!(status, StatusCode::OK, "{said}");
   assert_eq!(said["notes"], format!("notes of research-{late}-branch-1"));
-  let row = ground.app.store.research_run(late).unwrap();
-  assert!(now_ms() > row.closes_at.unwrap(), "seated past the close");
   let moved = ground.asked_path("agency", "PATCH", "/seat-requests/seat-2");
   assert!(moved.iter().all(|a| a.body.get("cancel").is_none()), "the seat was never cancelled");
   assert_eq!(client.research_run(late).await.unwrap().branches, 1);
 }
 
-/// A run's seat still waiting once the run's clock has run out is waited for however long the pool takes,
-/// and the run goes on to its answer (`docs/runner.md`, 「One run, step by step」).
+/// A run's seat still waiting is asked for its place until it is let in, however long the pool takes, and the
+/// run goes on to its answer (`docs/runner.md`, 「One run, step by step」).
 #[tokio::test]
-async fn a_run_s_seat_waiting_past_the_run_s_clock_is_still_seated_and_answered() {
-  let ground = support::ground(|settings| {
-    let none = KeyDefaults {
-      branches: 0,
-      minutes: 0,
-      pages: None,
-      branch_pages: None,
-    };
-    settings.research_settings.keys.insert("search:basic".into(), none);
-  })
-  .await;
-  let base = support::serve(research_server::routes::router(ground.app.clone())).await;
-  let client = ResearchClient::new(&base).with_token("test-token");
+async fn a_run_s_waiting_seat_is_asked_for_its_place_until_seated_and_answered() {
+  let (ground, _base, client) = served().await;
   ground.world.lock().unwrap().seat_waits = 3;
   let asked = client
     .ask_research(&ResearchRunAsk {
@@ -580,10 +563,9 @@ async fn a_run_s_seat_waiting_past_the_run_s_clock_is_still_seated_and_answered(
     .into_iter()
     .filter(|a| a.body["state"] == "admitted")
     .count();
-  assert!(admitted >= 3, "asked for its place past the clock: {admitted}");
+  assert!(admitted >= 3, "asked for its place until let in: {admitted}");
   let seated = ground.app.store.research_log(1).unwrap();
-  let seated_at = seated.iter().find(|line| line.kind == "seated").unwrap().at;
-  assert!(seated_at > asked.closes_at.unwrap(), "seated after the run's clock ran out");
+  assert!(seated.iter().any(|line| line.kind == "seated"), "{seated:?}");
 }
 
 #[tokio::test]
@@ -599,6 +581,7 @@ async fn the_research_settings_are_read_changed_and_refused_where_they_do_not_st
   assert_eq!(read.engines.unwrap()[0].name, "example-engine");
   let issued = &ground.asked_path("tool-host", "POST", "/tool-sessions")[0].body;
   assert_eq!(issued["namespaces"], json!(["explorer"]));
+  assert!(issued.get("ttlMs").is_none(), "the record stands until its call ends: {issued}");
   assert!(issued["variables"]["BMO_DATA_DIR"].as_str().is_some());
   assert_eq!(ground.asked_path("tool-host", "DELETE", "/tool-sessions/tool-session-1").len(), 1);
 
@@ -609,7 +592,6 @@ async fn the_research_settings_are_read_changed_and_refused_where_they_do_not_st
       keys: Some(vec![ResearchKeySettings {
         key: "search:thorough".into(),
         branches: 3,
-        minutes: 20,
         pages: None,
         branch_pages: Some(5),
       }]),
@@ -622,10 +604,7 @@ async fn the_research_settings_are_read_changed_and_refused_where_they_do_not_st
     ("set", "verifier", Some(250))
   );
   let thorough = changed.keys.iter().find(|k| k.key == "search:thorough").unwrap();
-  assert_eq!(
-    (thorough.branches, thorough.minutes, thorough.pages, thorough.branch_pages),
-    (3, 20, Some(8), Some(5))
-  );
+  assert_eq!((thorough.branches, thorough.pages, thorough.branch_pages), (3, Some(8), Some(5)));
   assert_eq!(client.research_settings().await.unwrap().keys, changed.keys);
 
   let (_, said) =
@@ -635,8 +614,8 @@ async fn the_research_settings_are_read_changed_and_refused_where_they_do_not_st
     json!({"branchRole": "nobody"}),
     json!({"strategy": "guess"}),
     json!({"engineIntervalMs": -1}),
-    json!({"keys": [{"key": "search:deep", "branches": 1, "minutes": 1}]}),
-    json!({"keys": [{"key": "browse", "branches": 0, "minutes": 0}]}),
+    json!({"keys": [{"key": "search:deep", "branches": 1}]}),
+    json!({"keys": [{"key": "browse", "branches": -1}]}),
   ] {
     let (status, said) = raw(&base, reqwest::Method::PUT, "/research-settings", body.clone()).await;
     assert_eq!(

@@ -673,7 +673,7 @@ impl ResearchRunState {
   }
 }
 
-/// A research run as it was asked: its id, its key, its seat's state, its road and when its web tools close.
+/// A research run as it was asked: its id, its key, its seat's state and its road.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ResearchRun {
@@ -682,8 +682,6 @@ pub struct ResearchRun {
   pub state: ResearchRunState,
   pub provider: String,
   pub model: String,
-  /// epoch milliseconds; when its web tools close
-  pub closes_at: Option<i64>,
 }
 
 /// One research run as the runner's ledger holds it.
@@ -702,8 +700,6 @@ pub struct ResearchRunView {
   pub outcome: Option<String>,
   /// epoch milliseconds
   pub started_at: i64,
-  /// epoch milliseconds; when its web tools close
-  pub closes_at: Option<i64>,
   /// epoch milliseconds
   pub finished_at: Option<i64>,
   pub document_id: Option<i64>,
@@ -748,7 +744,6 @@ pub struct BranchAsk {
 #[serde(rename_all = "lowercase")]
 pub enum BranchState {
   Completed,
-  Stopped,
   Failed,
 }
 
@@ -762,13 +757,12 @@ pub struct BranchEnd {
   pub reason: Option<String>,
 }
 
-/// One research key's settings: its branches, its clock and its budget.
+/// One research key's settings: its branches and its budget.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ResearchKeySettings {
   pub key: String,
   pub branches: i64,
-  pub minutes: i64,
   /// the most pages the first answer fetches; none for no ceiling. Left out of a change, it keeps what the
   /// key holds.
   #[serde(default)]

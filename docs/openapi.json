@@ -189,7 +189,6 @@
         "description": "How a branch ended.",
         "enum": [
           "completed",
-          "stopped",
           "failed"
         ],
         "type": "string"
@@ -1311,7 +1310,7 @@
         "type": "string"
       },
       "ResearchKeySettings": {
-        "description": "One research key's settings: its branches, its clock and its budget.",
+        "description": "One research key's settings: its branches and its budget.",
         "properties": {
           "branchPages": {
             "default": null,
@@ -1329,10 +1328,6 @@
           "key": {
             "type": "string"
           },
-          "minutes": {
-            "format": "int64",
-            "type": "integer"
-          },
           "pages": {
             "default": null,
             "description": "the most pages the first answer fetches; none for no ceiling. Left out of a change, it keeps what the\nkey holds.",
@@ -1346,7 +1341,6 @@
         "required": [
           "key",
           "branches",
-          "minutes",
           "pages",
           "branchPages"
         ],
@@ -1401,16 +1395,8 @@
         "type": "object"
       },
       "ResearchRun": {
-        "description": "A research run as it was asked: its id, its key, its seat's state, its road and when its web tools close.",
+        "description": "A research run as it was asked: its id, its key, its seat's state and its road.",
         "properties": {
-          "closesAt": {
-            "description": "epoch milliseconds; when its web tools close",
-            "format": "int64",
-            "type": [
-              "integer",
-              "null"
-            ]
-          },
           "key": {
             "type": "string"
           },
@@ -1433,8 +1419,7 @@
           "key",
           "state",
           "provider",
-          "model",
-          "closesAt"
+          "model"
         ],
         "type": "object"
       },
@@ -1511,14 +1496,6 @@
             "description": "how many branches it opened",
             "format": "int64",
             "type": "integer"
-          },
-          "closesAt": {
-            "description": "epoch milliseconds; when its web tools close",
-            "format": "int64",
-            "type": [
-              "integer",
-              "null"
-            ]
           },
           "documentId": {
             "format": "int64",
@@ -1605,7 +1582,6 @@
           "state",
           "outcome",
           "startedAt",
-          "closesAt",
           "finishedAt",
           "documentId",
           "link",

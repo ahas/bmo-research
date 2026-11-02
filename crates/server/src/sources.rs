@@ -356,13 +356,10 @@ async fn read_page(app: &App, source: &Source) -> Result<Vec<Candidate>, String>
   read_listing(&markup, &at, &pattern, source.limit)
 }
 
-/// One request of the daemon's own client answered with a success: its body.
+/// One request of the daemon's own client answered with a success, waited on until the source answers or its
+/// connection breaks: its body.
 async fn ask(request: reqwest::RequestBuilder, source: &Source) -> Result<Vec<u8>, String> {
-  let answer = request
-    .timeout(std::time::Duration::from_secs(60))
-    .send()
-    .await
-    .map_err(|e| format!("{}: {e}", source.address))?;
+  let answer = request.send().await.map_err(|e| format!("{}: {e}", source.address))?;
   let status = answer.status();
   if !status.is_success() {
     return Err(format!("{} answered {}", source.address, status.as_u16()));

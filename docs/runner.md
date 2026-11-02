@@ -19,8 +19,7 @@ of a run is this unit's.
   changed, the settings file's `[research_settings]` stand (`docs/settings.md`):
   - **the branch role:** the co-worker role a search's branches are seated under, one agency's `GET /roles`
     lists;
-  - **each key's branches and clock:** how many branches a run of it may open, and how many minutes its web
-    tools stay open from the moment it is asked (「The run's clock」);
+  - **each key's branches:** how many branches a run of it may open;
   - **each key's budget:** how many pages its first answer may fetch, and how many each branch may. The request
     states it as a ceiling; the record carries it as `pages` and `branchPages` for the web tools that hold a
     run to it;
@@ -28,7 +27,7 @@ of a run is this unit's.
     two direct requests to one host and between two requests to one search engine, each null where the web
     tools' own default stands.
 - **The settings travel on the run's session record** under `labels.research`, written by agency from the
-  `labels` this unit hands at the session's start: `closesAt`, `run` (this unit's run id), `owner` (who asked),
+  `labels` this unit hands at the session's start: `run` (this unit's run id), `owner` (who asked),
   `source` (the line), `role` (the branch role), `branches`, `pages`, `branchPages`, `chat` (the room, 0 where
   none), `strategy`, `hostIntervalMs`, `engineIntervalMs`, `rulebooks` (the rulebooks the run is handed for the
   reader), `provider` and `model` (the run's road), and, on a run allowed branches, `branchesAt` (this unit's
@@ -54,8 +53,8 @@ of a run is this unit's.
 - **A branch's system prompt** is the branch instructions (`prompts/search/branch.md`) with the same listing,
   and the rulebook against destroying the system. Agency puts the platform's harness opening before each.
 - **The request** is the line's request template filled with the ask: a search's the question, who asked,
-  when, the options, the depth, the branches it may open and its budget line; a browse's the task, its time in
-  all, the time for researching and the time kept for writing, a fifth of the clock and at least a minute.
+  when, the options, the depth, the branches it may open and its budget line; a browse's the task. Neither
+  names a span of time: nothing of a run is bounded by a clock (「Nothing of a run is clocked」).
 
 ## One run, step by step
 
@@ -77,20 +76,18 @@ of a run is this unit's.
 4. **The session:** agency's `POST /sessions` with `agent` the line, `scope` `apart`, the provider and the model
    the ask names, else the seat's, `cwd` empty, `line` the line, `systemPrompt` the composed instructions,
    `labels` `{research: <the run's record>}`, `toolsAllowed` the run's capabilities, and `demandId` the run's
-   demand where it holds one; it names no `boundMs`, since no turn of a run is cut (「The run's clock」). A
-   seat or a session agency cannot be asked for — agency not reached, or answering with a failure of
-   its own (5xx) — is answered 503 with agency's sentence; one agency refuses for what it asks, or a seat
-   with no token or no model, is answered 502. Either way a seat already asked is cancelled and nothing is
-   left standing.
+   demand where it holds one; it names no `boundMs`, since no turn of a run is cut (「Nothing of a run is
+   clocked」). A seat or a session agency cannot be asked for — agency not reached, or answering with a
+   failure of its own (5xx) — is answered 503 with agency's sentence; one agency refuses for what it asks,
+   or a seat with no token or no model, is answered 502. Either way a seat already asked is cancelled and
+   nothing is left standing.
 5. **The answer at once:** 202 with the run's id, its key, its state (`waiting` while its seat waits for a
-   place, `running` once admitted), its road and the moment its web tools close. The run's clock starts at the
-   ask, so a seat that waits spends the run's own time: a run seated past its clock finds its web tools
-   closed, and writes its answer from what it has.
+   place, `running` once admitted) and its road.
 6. **The admission:** a seat still waiting is asked for its place again every half second (`PATCH` naming
    `admitted`, and `demandId` the run's demand where it holds one, which the seat stands on with no card of
-   its own asked, whatever model its work key resolved to) until it is let in, however long the pool takes,
-   then bound to the session (`PATCH` naming `bound` with the session's id). A seat the pool ends ends the
-   run with no answer, and the run is cut (「A cut run」).
+   its own asked, whatever model its work key resolved to) until it is let in, however long the pool takes.
+   The run's seat is bound to no child (「The seats' children」). A seat the pool ends ends the run with no
+   answer, and the run is cut (「A cut run」).
 7. **The first turn:** the request, as one turn of the session (`POST /sessions/{id}/turns`) carrying the work
    parts — the provider, the model, the seat's mapping (model, effort, tier), a fresh resume, an empty folder,
    the name `research-<run>`, the title, the room or 0, the key as the work key, no words heard and no
@@ -114,14 +111,29 @@ of a run is this unit's.
    page」), the run is closed in the ledger with its outcome, the document and its link, and its room is told
    (「The room」). Every step is written into the run's log.
 
-## The run's clock
+## Nothing of a run is clocked
 
-- **The clock is held between turns, never by cutting one.** The key's minutes close the run's web tools at
-  `closesAt`: from then on they answer RESEARCH CLOSED, and the turn writes its answer from what it has. The
-  rounds' ceiling is read before each round (「The rounds」), and decides whether another round is started.
-  Nothing else of the clock reaches a turn or a wait: no session this unit starts names `boundMs`, so agency
-  cuts none of its turns; no turn's send carries a clock of this unit's; and a seat, the run's or a
-  branch's, and a branch's card are waited for however long the pool and the arbiter take.
+- **A run ends when its work ends:** its last turn answered, a step of it failing on its own, or a loss
+  (「A cut run」). No span of time ends, refuses or shortens any of it: the record names no closing time, so
+  the web tools stay open to the run for as long as it works, held to its page budget alone; the rounds are
+  asked in turn to the last; no session this unit starts names `boundMs`, so agency cuts none of its turns;
+  no turn's send carries a clock of this unit's; and a seat, the run's or a branch's, and a branch's card are
+  waited for however long the pool and the arbiter take.
+- **A turn whose agent never ends is stopped, never timed out:** the owner interrupts it through agency, by
+  the run name it goes out under (「One run, step by step」), and the turn answers with what it wrote by then,
+  the run going on from there as from any turn that answered; the daemon's restart cuts the whole run
+  (「A restart」).
+
+## The seats' children
+
+- **A seat is bound to the run name of the one turn it carries,** so agency's pool reads that turn standing
+  while it goes and gives the seat back on its own once the turn's pane has ended (agency's
+  `docs/coworker-pool.md`): a branch's seat to `research-<run>-branch-<index>`, a review's to
+  `research-<run>-review`, each bound once it is let in and before its turn is sent.
+- **The run's seat is bound to no child.** It carries every turn of the run's two sessions — the first
+  answer, each round, the whole document and the narration — each under a run name of its own, and between
+  two of them none stands, so no one name stands for the seat's whole life. It is given back by this unit
+  alone: at the run's end, or at the daemon's start for a run its store holds open (「A restart」).
 
 ## A turn's send
 
@@ -141,8 +153,6 @@ of a run is this unit's.
   and the final answer. A list ends in `final` and holds it nowhere else.
 - **A round's prompt** is its question, then the task as the run was given it under a heading of its own, then
   the answer written last under another. Each round is a fresh turn: the session carries nothing between them.
-- **The ceiling:** `ceiling_seconds` bounds the rounds from the first answer. Past it, the key's `past_ceiling`
-  says what follows: `final` asks the final question at once, `last` keeps the answer already written.
 - **A round that does not answer** leaves the answer written last standing as the result.
 
 ## What a turn wrote
@@ -164,16 +174,15 @@ of a run is this unit's.
 - **A branch** is a seat of the common co-worker pool under the settings' branch role and a thrown-away session
   on the run's provider and model, on the branch instructions, its record the run's with `branchOf` the run's
   id, `pages` the run's `branchPages`, `branches` 0 and no `branchPages`, `branchesAt` or `branchesToken`. Its
-  seat is waited for however long the pool takes, while its run is running. Its one turn carries the angle,
-  framed as data, and how long is left before research closes; the turn is waited on until it ends (「A
-  turn's send」), its web tools answering RESEARCH CLOSED past the close, as the run's do.
+  seat is waited for however long the pool takes, while its run is running, and is bound to the branch's
+  turn's run name (「The seats' children」). Its one turn carries the angle, framed as data; the turn is
+  waited on until it ends (「A turn's send」).
 - **A branch of a run holding a demand** asks the arbiter's master its own first, for the service the engine
   watch maps the branch's model to, `within` the run's demand, and waits for the grant however long it takes,
   while its run is running; its seat's admission and its session both stand on that demand, naming it as
   `demandId`, and it is given back as the branch ends (`docs/api.md`, 「The engine」).
-- **A branch ends** `completed`, `stopped` (ended after research closed, its notes as far as they got) or
-  `failed`, its session ended and its seat given back with the same word; a caller that lets go of the ask
-  ends it the same way.
+- **A branch ends** `completed` or `failed`, its session ended and its seat given back with the same word; a
+  caller that lets go of the ask ends it the same way, its seat given back as stopped.
 
 ## The document
 
@@ -194,9 +203,10 @@ of a run is this unit's.
     last, one link a line, titled by what each supports. A set's entries stand as sections of their own; a menu
     as its own list.
   - **its pictures:** every `IMAGE:` line's picture fetched by a guarded direct fetch — every hop's host a
-    public address, at most three redirects, an image type, at most 15 MB — at most twelve within forty seconds,
-    attached under a name of its own (`POST /documents/{id}/attachments`), and the body set again with
-    `PATCH /documents/{id}`; a picture not kept is drawn from its address.
+    public address, at most three redirects, an image type, at most 15 MB — at most twelve, each fetch waited
+    on until its host answers or its connection breaks, attached under a name of its own
+    (`POST /documents/{id}/attachments`), and the body set again with `PATCH /documents/{id}`; a picture not
+    kept is drawn from its address.
   - **the narration:** a `LISTEN:` script is lifted out of the body. A run told to its room files it nowhere;
     the deep dive's document is given it as sound, attached beside its page (「The deep dive's page」).
 
@@ -231,7 +241,7 @@ of a run is this unit's.
   continues, the run that one continued, and so on, each run's own answered rounds read before those of the
   run it continued; the ledger keeps each run's answered rounds (`docs/store.md`, `research_runs`).
 - **Then as any run:** the whole document where the result is short of its shape, the narration where it
-  carries none, and the filing, on the new run's own seat, sessions and clock. The run's log says which run
+  carries none, and the filing, on the new run's own seat and sessions. The run's log says which run
   it continues and from which round.
 - **A run before it that wrote nothing,** or that was asked another question, leaves nothing to continue
   from: the try is researched from its start.
@@ -292,10 +302,10 @@ daemon finishes, held first to the shape the deep dive asked for.
   session on the run's line, its provider and model, its record the run's, no capabilities and no
   `boundMs`, its system prompt the deep-dive rulebook's section on the review (`prompts/runner.toml`,
   `[review]`) and the rulebook against destroying the system. The seat waits for its place however long that
-  takes, with no clock of this unit's, and is bound to the session; the one turn, named
-  `research-<run>-review`, is waited on until it ends (「A turn's send」); the session is then ended and the
-  seat given back. Its seat and its session are held under the run, so a restart gives them back. Agency
-  asks the card its model needs for them, as for any seat that names no demand.
+  takes, with no clock of this unit's, and is bound to its turn's run name (「The seats' children」); the one
+  turn, named `research-<run>-review`, is waited on until it ends (「A turn's send」); the session is then
+  ended and the seat given back. Its seat and its session are held under the run, so a restart gives them
+  back. Agency asks the card its model needs for them, as for any seat that names no demand.
 - **The turn is handed the finished page:** the review question, then the English side and the Korean side,
   each its title, its description and its body as the page holds them, then the English narration's script
   and the Korean narration's words as they were spoken.

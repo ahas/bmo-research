@@ -199,8 +199,8 @@ A source is a registration: a category, a kind, an address and, where the kind t
 - **A run asks for its engine before it starts.** For a category whose road is one of the engine watch's
   registrations (`docs/settings.md`, `[engine]`), where the watch names a master, the daemon asks the
   arbiter's master for one card of that registration's service, as the run's own, with the run as the work
-  it continues, and starts the run once a card is granted. The wait has no clock of the daemon's; the run's
-  own clock starts when it is asked of the runner, after the grant. A category stopped while its run waits
+  it continues, and starts the run once a card is granted. The wait has no clock of the daemon's, and
+  neither has the run (`docs/runner.md`, 「Nothing of a run is clocked」). A category stopped while its run waits
   takes the demand back and its items wait again, the try uncounted. The run's seat and sessions are asked with the demand's id, so agency asks none
   of its own for them and places them on the granted card. The demand is held for the whole run and given
   back when the run ends; the daemon gives back, at its start, every demand its store holds for a run no
@@ -220,8 +220,7 @@ A source is a registration: a category, a kind, an address and, where the kind t
 - **A try the arbiter cut is retried, not counted against its tries.** A try of a watched road that
   fails after its demand's card was taken by a bench or a claim, or after the master stopped holding it, is
   the eviction's: its item waits again at once with the try uncounted. The words of the refusal are not
-  read; the demand's answer is the evidence. A run's own closing time and its retries are its own budget,
-  and stand as they are.
+  read; the demand's answer is the evidence. A try's retries stand as they are.
 - **The owner hears of an engine that stays away:** a run's demand still waiting after
   `restore_wait_minutes` is told to the owner's private room once; the demand goes on waiting.
 - **Why nothing runs is shown:** the state route answers each hold — the demand and its reason (the

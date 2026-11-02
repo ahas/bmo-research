@@ -22,7 +22,6 @@ pub struct Settings {
   pub retry_minutes: i64,
   pub restore_wait_minutes: i64,
   pub poll_seconds: u64,
-  pub turn_wait_seconds: u64,
   pub user_agent: String,
   pub road: Road,
   pub translation: Translation,
@@ -52,7 +51,6 @@ impl Default for Settings {
       retry_minutes: 5,
       restore_wait_minutes: 20,
       poll_seconds: 30,
-      turn_wait_seconds: 20,
       user_agent: "bmo-research".into(),
       road: Road::default(),
       translation: Translation::default(),
@@ -171,12 +169,11 @@ impl Default for Runner {
   }
 }
 
-/// One research key's branches, clock and budget.
+/// One research key's branches and budget.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct KeyDefaults {
   pub branches: i64,
-  pub minutes: i64,
   #[serde(default)]
   pub pages: Option<i64>,
   #[serde(default)]
@@ -196,9 +193,8 @@ pub struct ResearchDefaults {
 
 impl Default for ResearchDefaults {
   fn default() -> Self {
-    let key = |branches, minutes, pages, branch_pages| KeyDefaults {
+    let key = |branches, pages, branch_pages| KeyDefaults {
       branches,
-      minutes,
       pages,
       branch_pages,
     };
@@ -208,10 +204,10 @@ impl Default for ResearchDefaults {
       host_interval_ms: None,
       engine_interval_ms: None,
       keys: BTreeMap::from([
-        ("search:basic".to_string(), key(0, 5, Some(3), None)),
-        ("search:thorough".to_string(), key(2, 15, Some(8), Some(4))),
-        ("search:exhaustive".to_string(), key(5, 30, Some(20), Some(6))),
-        ("browse".to_string(), key(0, 15, None, None)),
+        ("search:basic".to_string(), key(0, Some(3), None)),
+        ("search:thorough".to_string(), key(2, Some(8), Some(4))),
+        ("search:exhaustive".to_string(), key(5, Some(20), Some(6))),
+        ("browse".to_string(), key(0, None, None)),
       ]),
     }
   }

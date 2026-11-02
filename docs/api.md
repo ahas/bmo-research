@@ -303,31 +303,29 @@ the one to read.
   it asks, or gives a seat with no token or no model, it is 502 `upstream-failed`. Either carries the
   sentence, and nothing is left standing.
 - **The ask is answered at once,** 202 with `runId`, `key`, `state` (`waiting` while its seat waits for a
-  place, `running` once let in), `provider`, `model` and `closesAt` (when its web tools close; the clock runs
-  from the ask). The run goes on in the background to its end.
+  place, `running` once let in), `provider` and `model`. The run goes on in the background to its end, with
+  no clock (`docs/runner.md`, 「Nothing of a run is clocked」).
 - **A research run** is `runId`, `key`, `query`, `asker`, `roomId`, `provider`, `model`, `state` (`waiting`,
   `running` or `closed`), `outcome` (`answered`, `failed`, or `cut` where what it stood on went away,
-  `docs/runner.md`, 「A cut run」; null while open), `startedAt`, `closesAt`,
-  `finishedAt`, `documentId` and `link` (the filed document and its share link, null where none was filed),
-  `error` (why it failed), `branches` (how many it opened) and `turns` (the names of the agency turns it went
-  out under, its first answer's, each round's and its page's review's, by which its tool calls are read in
-  agency's log).
+  `docs/runner.md`, 「A cut run」; null while open), `startedAt`, `finishedAt`, `documentId` and `link` (the
+  filed document and its share link, null where none was filed), `error` (why it failed), `branches` (how
+  many it opened) and `turns` (the names of the agency turns it went out under, its first answer's, each
+  round's and its page's review's, by which its tool calls are read in agency's log).
 - **Its log** answers `items`, each `id`, `runId`, `at`, `kind` (`asked`, `seated`, `answer`, `round`,
   `branch`, `whole`, `narration`, `filed`, `review`, `told` or `ended`) and `text`, the run's own notes from
   the ask to its end, and for a deep dive's run how its page was finished (「The page」): every narration sound
   the page was given or not, and why, under `narration`; why its Korean side is pending, and what its report
   waits on each time that changes, under `filed`; what its review answered and each fix applied, left out or
   still pending, under `review`; and when its report was told, under `told`.
-- **A branch** is asked with the token the run's record names, `run` (the run's id) and `angle`, and answered
-  200 once it ends with `index` (counted from 1 per run), `state` (`completed`, `stopped` at research close,
-  or `failed`), `notes` (what the branch wrote, empty where nothing) and `reason` (why, on `failed`; null
-  otherwise). A run that does not stand is 404 `not-found`, an empty angle 400 `bad-request`. It is 409
-  `branch-refused`, the sentence saying why, where the run is no longer running or its research has closed,
-  the run is allowed no branches, or it has opened every branch it is allowed (the sentence names how many);
-  every ask past the first two checks counts against the allowance. Its seat is waited for however long the
-  pool takes, and a run that stops running meanwhile has the branch refused the same way, with nothing left
-  standing. A caller that lets go ends its branch: its session ended once its turn is over, its seat
-  given back and its demand with them.
+- **A branch** is asked with the token the run's record names, `run` (the run's id) and `angle`, and
+  answered 200 once it ends with `index` (counted from 1 per run), `state` (`completed` or `failed`),
+  `notes` (what the branch wrote, empty where nothing) and `reason` (why, on `failed`; null otherwise). A
+  run that does not stand is 404 `not-found`, an empty angle 400 `bad-request`. It is 409 `branch-refused`,
+  the sentence saying why, where the run is no longer running, the run is allowed no branches, or it has
+  opened every branch it is allowed (the sentence names how many); every ask past the first two checks
+  counts against the allowance. Its seat is waited for however long the pool takes, and a run that stops
+  running meanwhile has the branch refused the same way, with nothing left standing. A caller that lets go
+  ends its branch: its session ended once its turn is over, its seat given back and its demand with them.
 - **A branch of a run holding a card** (「The engine」) asks its own demand first, for the service the
   engine watch maps the branch's model to, within the run's demand; it waits for the grant however long it
   takes, and a run that stops running meanwhile has it refused 409 `branch-refused` with nothing left
@@ -342,14 +340,14 @@ the one to read.
 
 - **The settings** (`docs/runner.md`, 「What a run is held to」) are `branchRole`, `strategy`,
   `hostIntervalMs` and `engineIntervalMs` (null where the web tools' default stands), `keys` (each `key`,
-  `branches`, `minutes`, `pages` and `branchPages`, the last two null for no ceiling), `source` (`default`
+  `branches`, `pages` and `branchPages`, the last two null for no ceiling), `source` (`default`
   where the settings file's stand, `set` once changed), `engines` (each `name`, `category`, `state`, `reason`,
   `observedAt` and `suspendedUntil`, as the web tools answer them; null where they could not be read) and
   `enginesUnread` (why not, or null).
 - **A change** names any of `branchRole`, `strategy`, `hostIntervalMs`, `engineIntervalMs` (null returns to
   the web tools' default) and `keys`; a key's `pages` or `branchPages` left out keeps what it holds. A role
   agency's `GET /roles` does not list, a strategy outside the three, a gap below 0, a key that is no research
-  key, branches below 0, a clock under a minute or a budget under a page is 400 `bad-request`; it is answered
+  key, branches below 0 or a budget under a page is 400 `bad-request`; it is answered
   with the settings as they now stand.
 
 ## The deep dive
@@ -682,9 +680,10 @@ search runner applies it, and the run writes its document in English, the questi
   A page whose report was already told is not told again when a part it lacked is had later.
 - **A room** is told with the receiver's `POST /instructions`: `room`, `sort` `notice`, `kind`
   `research-report:<itemId>` (a brief's first item), `said` `{"order": "<the notice>"}` and `summary`.
-- **An agent** is told with agency's `POST /sessions/<agentName>@worker/turns`, the notice as `prompt`.
-  The daemon waits at most `turn_wait_seconds` for the answer; a turn still working then is counted as
-  handed, since agency carries a sent turn to its end.
+- **An agent** is told with agency's `POST /sessions/<agentName>@worker/turns`, the notice as `prompt`, sent
+  on a task of its own so the deep dive goes on while the agent's turn works. Agency answers the send once
+  the turn ends, however long that takes; its report row is kept then, `sent` on an answer and `refused` with
+  agency's sentence on a refusal.
 - **A `fit` item's notice carries what its recipient needs to act,** after the line: what its shape says
   (`fit` for a manual, the question for the owner's word; `touches` for an advisory, what it touches set
   in), the thing's name (`name`), and the plan's place (`plan`, the heading set in). The chat agent files
@@ -727,8 +726,10 @@ daemon's settings name, read under the data root the session record's `BMO_DATA_
 - **An entry that both reads and changes** is shown to a session holding `research.ask`, and the tool
   refuses its changing actions to a session whose record does not also hold `research.owner`.
 - **Each answers a short text** for the model to read, and a refusal as a result marked as an error.
-- **`research/run` sends a research out** and is answered at once with the run's id, its state, its road and
-  when its web tools close, or why it cannot go out now. What the chat agent is told of it, in the entry's
+- **No entry is held to a clock:** the manifest names no `timeout`, and a call ends with the daemon's answer,
+  its connection breaking, or its caller going away.
+- **`research/run` sends a research out** and is answered at once with the run's id, its state and its road,
+  or why it cannot go out now. What the chat agent is told of it, in the entry's
   description: the depth is the key — `search:basic` for a question after one value or one fact,
   `search:thorough` for a question with a few angles, `search:exhaustive` for a deep dive, `browse` for a
   task that must open and click through pages — and the question is written whole, as the owner means it;
@@ -763,9 +764,10 @@ of these units, and reads each one's address and token from that unit's own file
 - **agency:** `POST /seat-requests` with `requestKey`, `owner`, `role`, `selection` `auto`, `provider` where
   one is named, `workKey` and `source`, a run's or a branch's seat, answered with its `token`, `state`,
   `provider`, `model`, `effort` and `tier`; `PATCH /seat-requests/{token}` naming `admitted` (its place asked
-  for), `bound` with `childId` (bound to its session) or `finished` with `outcome`, and `cancel` where it never
-  ran; an admission of a seat whose run or branch holds a card names `demandId`, that card's demand id, the
-  seat standing on it with no card of its own asked.
+  for), `bound` with `childId` (a branch's or a review's seat, bound to its one turn's run name; the run's
+  seat is bound to none, `docs/runner.md`, 「The seats' children」) or `finished` with `outcome`, and
+  `cancel` where it never ran; an admission of a seat whose run or branch holds a card names `demandId`,
+  that card's demand id, the seat standing on it with no card of its own asked.
   `POST /sessions` with `agent`, `scope` `apart`, `provider`, `model`, `cwd`, `line`, `systemPrompt`,
   `labels` and `toolsAllowed`, and `demandId` where its run or branch holds a card, and never `boundMs`,
   answered with the session's `id`, or 503 `line-not-carried`.
@@ -777,7 +779,8 @@ of these units, and reads each one's address and token from that unit's own file
   co-worker roles a branch role is checked against.
   No call of the seat and session routes carries a clock of this unit's, a turn's send among them: each is
   waited on until agency answers, however long a card it waits on takes and however long the turn writes.
-  `POST /sessions/{agentName}@worker/turns` with `prompt`, a notice to an agent. `POST /translation-runs`
+  `POST /sessions/{agentName}@worker/turns` with `prompt`, a notice to an agent, waited on until agency
+  answers it (「The notices」). `POST /translation-runs`
   with `purpose`, `language`, `text`, `note` and `terms` (each a `source` alone, kept as written), one part
   of a page's Korean side or its narration;
   answered 200 with `text`, 413 `too-large` or 503 `no-login-open`. A translation's call carries no clock
@@ -814,16 +817,18 @@ of these units, and reads each one's address and token from that unit's own file
   「The tool host」): `GET /namespaces/web/tools` page by page, read for each tool's `listing`;
   `POST /tool-sessions` with a record naming the namespace `explorer` and `BMO_DATA_DIR`,
   `POST /tool-calls` under that session's token calling `explorer/search_engines`, and
-  `DELETE /tool-sessions/{token}`, the search engines' state. A `page` source's listing the same way under
+  `DELETE /tool-sessions/{token}`, the search engines' state. A record names no `ttlMs`: it stands until
+  the call it was made for ends, and is then taken back. A `page` source's listing the same way under
   a record naming the namespace `web`, the capability `web.read`, `BMO_DATA_DIR` and the label `research`
   with its `strategy` (explorer's `direct-then-browser` for `direct`, `browser-first` for `browser`), whose
   calls of `web/web_fetch` hand `url`, `raw` true, `max_chars` and `offset` and read the page's markup on
-  slice by slice, waiting at most two minutes for each (`docs/sources.md`, 「A page」).
+  slice by slice, each slice waited on until the tool host answers it (`docs/sources.md`, 「A page」). No
+  call of the control socket carries a clock of this unit's.
 - **the arbiter:** at the engine watch's master address, with its token where one is named (「The engine」):
   `POST /demands` with `serviceName`, `count` 1, `workKey`, `ref` and, for a branch, `within`, answered with
   the demand (`id`, `state`, `taken`, `reason`); `GET /demands/{demandId}?waitMs=<ms>`, read until it is
   `granted`, a 404 asked again; `DELETE /demands/{demandId}`, given back, a 404 counted as given back. The
   bench lock of a verification is the job's; the daemon asks no ticket.
 - **The job service is never called:** the work a report calls for is the chat agent's to file.
-- **the sources:** each source's own address, read with the daemon's HTTP client, a `page` source's
-  through the tool host as above (`docs/sources.md`).
+- **the sources:** each source's own address, read with the daemon's HTTP client and waited on until it
+  answers or its connection breaks, a `page` source's through the tool host as above (`docs/sources.md`).

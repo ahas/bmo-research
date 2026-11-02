@@ -278,12 +278,8 @@ impl Peers {
     })
   }
 
+  /// A request with no clock of this unit's, waited on until its unit answers or its connection breaks.
   fn request(&self, peer: &Peer, method: reqwest::Method, path: &str) -> reqwest::RequestBuilder {
-    self.unclocked(peer, method, path).timeout(Duration::from_secs(60))
-  }
-
-  /// A request with no clock of this unit's, waited on until its unit answers.
-  fn unclocked(&self, peer: &Peer, method: reqwest::Method, path: &str) -> reqwest::RequestBuilder {
     let request = self.http.request(method, format!("{}{path}", peer.address.trim_end_matches('/')));
     match &peer.token {
       Some(token) => request.bearer_auth(token),
@@ -326,15 +322,14 @@ impl Peers {
     serde_json::from_value(answer).map_err(|e| format!("the arbiter's demand did not read: {e}"))
   }
 
-  /// A demand read, its answer held open up to `wait_ms` for a change; none where the master no longer
-  /// holds it.
+  /// A demand read, its answer held open at the master up to `wait_ms` for a change and waited on until it
+  /// comes; none where the master no longer holds it.
   pub async fn read_demand(&self, id: i64, wait_ms: u64) -> Result<Option<Demand>, String> {
     let arbiter = self.arbiter()?;
     let path = format!("/demands/{id}");
     let answer = self
       .request(&arbiter, reqwest::Method::GET, &path)
       .query(&[("waitMs", wait_ms)])
-      .timeout(Duration::from_millis(wait_ms) + Duration::from_secs(30))
       .send()
       .await
       .map_err(|e| format!("the arbiter GET {path}: {e}"))?;
@@ -367,15 +362,12 @@ impl Peers {
     }
   }
 
-  /// A notice told to an agent by a turn into its worker session. A turn still working after the wait is
-  /// handed: agency carries a sent turn to its end.
+  /// A notice told to an agent by a turn into its worker session, answered once agency answers the turn,
+  /// however long the turn works.
   pub async fn turn(&self, agent: &str, prompt: &str) -> Result<(), String> {
     let agency = self.agency()?;
     let path = format!("/sessions/{agent}@worker/turns");
-    let request = self
-      .request(&agency, reqwest::Method::POST, &path)
-      .timeout(Duration::from_secs(self.settings.turn_wait_seconds.max(1)))
-      .json(&json!({ "prompt": prompt }));
+    let request = self.request(&agency, reqwest::Method::POST, &path).json(&json!({ "prompt": prompt }));
     match request.send().await {
       Ok(answer) if answer.status().is_success() => Ok(()),
       Ok(answer) => {
@@ -385,7 +377,6 @@ impl Peers {
           answer.text().await.unwrap_or_default()
         ))
       }
-      Err(e) if e.is_timeout() => Ok(()),
       Err(e) => Err(format!("agency POST {path}: {e}")),
     }
   }
@@ -410,7 +401,7 @@ impl Peers {
       "purpose": "document", "language": language, "text": text, "note": note, "terms": terms,
     });
     let answer = self
-      .unclocked(&agency, reqwest::Method::POST, "/translation-runs")
+      .request(&agency, reqwest::Method::POST, "/translation-runs")
       .json(&body)
       .send()
       .await
@@ -711,7 +702,7 @@ impl Peers {
   /// A seat asked of the co-worker pool: the request as agency answers it.
   pub async fn ask_seat(&self, ask: &Value) -> Result<Value, Fault> {
     let agency = self.agency().map_err(Fault::kept)?;
-    let request = self.unclocked(&agency, reqwest::Method::POST, "/seat-requests").json(ask);
+    let request = self.request(&agency, reqwest::Method::POST, "/seat-requests").json(ask);
     self.held_call(&agency, request, "POST /seat-requests", false).await
   }
 
@@ -719,14 +710,14 @@ impl Peers {
   pub async fn move_seat(&self, token: &str, change: &Value) -> Result<Value, Fault> {
     let agency = self.agency().map_err(Fault::kept)?;
     let path = format!("/seat-requests/{}", segment(token));
-    let request = self.unclocked(&agency, reqwest::Method::PATCH, &path).json(change);
+    let request = self.request(&agency, reqwest::Method::PATCH, &path).json(change);
     self.held_call(&agency, request, &format!("PATCH {path}"), true).await
   }
 
   /// A thrown-away session started: its id.
   pub async fn start_session(&self, start: &Value) -> Result<String, Fault> {
     let agency = self.agency().map_err(Fault::kept)?;
-    let request = self.unclocked(&agency, reqwest::Method::POST, "/sessions").json(start);
+    let request = self.request(&agency, reqwest::Method::POST, "/sessions").json(start);
     let answer = self.held_call(&agency, request, "POST /sessions", false).await?;
     answer["id"]
       .as_str()
@@ -743,7 +734,7 @@ impl Peers {
     let path = format!("/sessions/{}/turns", segment(session));
     let what = format!("POST {path}");
     loop {
-      let request = self.unclocked(&agency, reqwest::Method::POST, &path).json(body);
+      let request = self.request(&agency, reqwest::Method::POST, &path).json(body);
       let answer = request.send().await.map_err(|e| Fault {
         why: format!("{} {what}: {e}", agency.name),
         lost: true,
@@ -768,7 +759,7 @@ impl Peers {
     let what = format!("GET {path}");
     loop {
       tokio::time::sleep(BUSY_EVERY).await;
-      let request = self.unclocked(agency, reqwest::Method::GET, &path);
+      let request = self.request(agency, reqwest::Method::GET, &path);
       if self.held_call(agency, request, &what, true).await?["run"].is_null() {
         return Ok(());
       }
@@ -790,7 +781,7 @@ impl Peers {
     let agency = self.agency().map_err(Ending::Failed)?;
     let path = format!("/sessions/{}", segment(session));
     let answer = self
-      .unclocked(&agency, reqwest::Method::DELETE, &path)
+      .request(&agency, reqwest::Method::DELETE, &path)
       .send()
       .await
       .map_err(|e| Ending::Failed(format!("agency DELETE {path}: {e}")))?;

@@ -1,7 +1,8 @@
 //! The store and the queue's rules (`docs/store.md`, `docs/api.md` 「queue」): the categories it starts with,
 //! the cap per category, the queue's order, a candidate judged once, where each item came from, a stuck item's
 //! moves, an error dated by its try, the step that stands every item a store held given up stuck, the step
-//! that dates every error the store held, and the count of each run's review asks.
+//! that dates every error the store held, the count of each run's review asks, and the step that takes the
+//! run's clock off its runs and its kept settings.
 
 mod support;
 
@@ -235,6 +236,7 @@ fn the_step_that_keeps_repairs_stands_every_given_up_item_stuck_with_its_retry_d
        alter table research_runs drop column continues;
        alter table research_runs drop column answered;
        alter table research_runs drop column review_asks;
+       alter table research_runs add column closes_at integer;
        drop table translated_parts;
        drop table page_texts;
        drop table page_reviews;
@@ -285,6 +287,7 @@ fn the_step_that_dates_errors_dates_each_by_the_latest_try_that_carried_its_item
       "update runs set ended_at = 5000 where id = {run};
        alter table queue drop column error_at;
        alter table research_runs drop column review_asks;
+       alter table research_runs add column closes_at integer;
        pragma user_version = 12;"
     ))
     .unwrap();
@@ -477,7 +480,6 @@ fn each_review_ask_of_a_run_is_counted_anew_from_one_and_a_store_from_before_cou
         room_id: None,
         provider: "registered",
         model: "flash-next",
-        closes_at: now_ms(),
         branches_allowed: 0,
         tells: false,
       })
@@ -485,10 +487,13 @@ fn each_review_ask_of_a_run_is_counted_anew_from_one_and_a_store_from_before_cou
   };
   let (before, other) = (open(), open());
   drop(store);
-  // The store as it stood one step before, holding runs with no count.
+  // The store as it stood before the count's step, holding runs with no count and a closing time.
   let conn = rusqlite::Connection::open(dir.join("research.db")).unwrap();
   conn
-    .execute_batch("alter table research_runs drop column review_asks; pragma user_version = 13;")
+    .execute_batch(
+      "alter table research_runs drop column review_asks; alter table research_runs add column closes_at \
+       integer; pragma user_version = 13;",
+    )
     .unwrap();
   drop(conn);
 
@@ -498,4 +503,41 @@ fn each_review_ask_of_a_run_is_counted_anew_from_one_and_a_store_from_before_cou
   assert_eq!(store.count_review_ask(before).unwrap(), 2);
   assert_eq!(store.count_review_ask(other).unwrap(), 1, "each run counts its own");
   assert!(store.count_review_ask(other + 1).is_err(), "no run, no count");
+}
+
+#[test]
+fn the_step_that_drops_the_run_s_clock_takes_it_off_the_runs_and_the_kept_settings() {
+  let dir = support::scratch().join("research");
+  let store = Store::open(&dir).unwrap();
+  store
+    .keep_research_settings(
+      r#"{"branchRole":"researcher","strategy":"direct-then-browser","hostIntervalMs":null,
+"engineIntervalMs":null,"keys":{"browse":{"branches":0,"minutes":15},
+"search:basic":{"branches":0,"minutes":5,"pages":3}}}"#,
+    )
+    .unwrap();
+  drop(store);
+  // The store as it stood one step before, its runs and its kept settings holding a clock.
+  let conn = rusqlite::Connection::open(dir.join("research.db")).unwrap();
+  conn
+    .execute_batch("alter table research_runs add column closes_at integer; pragma user_version = 14;")
+    .unwrap();
+  drop(conn);
+
+  let store = Store::open(&dir).unwrap();
+  assert_eq!(store.version().unwrap(), schema_version());
+  let kept: serde_json::Value =
+    serde_json::from_str(&store.kept_research_settings().unwrap().unwrap()).unwrap();
+  assert_eq!(kept["keys"]["browse"], serde_json::json!({"branches": 0}));
+  assert_eq!(kept["keys"]["search:basic"], serde_json::json!({"branches": 0, "pages": 3}));
+  drop(store);
+  let conn = rusqlite::Connection::open(dir.join("research.db")).unwrap();
+  let columns: Vec<String> = conn
+    .prepare("select name from pragma_table_info('research_runs')")
+    .unwrap()
+    .query_map([], |row| row.get(0))
+    .unwrap()
+    .map(Result::unwrap)
+    .collect();
+  assert!(!columns.iter().any(|column| column == "closes_at"), "{columns:?}");
 }

@@ -1237,7 +1237,6 @@ pub async fn ground(change: impl FnOnce(&mut Settings)) -> Ground {
   settings.concurrency = 1;
   settings.tool_host.socket = socket.to_string_lossy().into_owned();
   settings.poll_seconds = 0;
-  settings.turn_wait_seconds = 5;
   change(&mut settings);
   let store = Store::open(&settings.store_dir()).unwrap();
   let app = App::new(settings, store, "test-token".into());

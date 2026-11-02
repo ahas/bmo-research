@@ -13,9 +13,8 @@ self_preservation = "self-preservation"
 
 # The rounds a run asks a session of their own after its first answer (docs/runner.md, 「The rounds」): the
 # questions by name, each a rule the session is asked, and each research key's list, the depth deciding how
-# hard an answer is checked. A list ends in `final` and holds it nowhere else. `ceiling_seconds` bounds the
-# rounds from the first answer; past it `past_ceiling` says what follows: `final` asks the final question at
-# once, `last` keeps the answer already written.
+# hard an answer is checked. A list ends in `final` and holds it nowhere else, and every round of it is asked
+# in turn, however long the rounds take.
 [questions]
 what = "Decide what this task must establish: the question it asks, each part of that question, and what would count as an answer. Say plainly what the sources this run may read cannot reach."
 sources = "Name the sources the answer needs: the kind of page or document each fact can come from, and the search wordings that reach them. Read them with the web tools; a page the run did not read is not a source."
@@ -26,23 +25,15 @@ final = "Write the result now: the whole answer to the task, in the form the tas
 
 [rounds."search:basic"]
 rounds = ["final"]
-ceiling_seconds = 900
-past_ceiling = "final"
 
 [rounds."search:thorough"]
 rounds = ["what", "sources", "facts", "coverage", "establish", "final"]
-ceiling_seconds = 900
-past_ceiling = "final"
 
 [rounds."search:exhaustive"]
 rounds = ["what", "sources", "facts", "coverage", "establish", "final"]
-ceiling_seconds = 900
-past_ceiling = "final"
 
 [rounds.browse]
 rounds = ["what", "sources", "facts", "coverage", "establish", "final"]
-ceiling_seconds = 900
-past_ceiling = "final"
 
 # What a deep dive's session is asked where its result carries no `LISTEN:` script (docs/runner.md, 「The
 # narration」): the question, and the rulebook and its section the narration is written by.

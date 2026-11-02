@@ -303,11 +303,9 @@ pub fn filing(drawn: &Drawn, run: i64, key: &str, query: &str, room: Option<i64>
   })
 }
 
-// How many pictures one document keeps, how long one fetch and the whole keeping may take, and the most
-// bytes one picture may be.
+// How many pictures one document keeps, and the most bytes one picture may be. A fetch is waited on until its
+// host answers or its connection breaks.
 const MOST_PICTURES: usize = 12;
-const FETCH_WITHIN: Duration = Duration::from_secs(10);
-const KEEPING_WITHIN: Duration = Duration::from_secs(40);
 const MOST_PICTURE_BYTES: usize = 15 * 1024 * 1024;
 const MOST_REDIRECTS: usize = 3;
 
@@ -352,11 +350,7 @@ async fn reachable(url: &url::Url) -> bool {
 /// One picture fetched through the guarded direct fetch: every hop's host checked, at most a few redirects,
 /// a picture's type and size; none where any check fails.
 pub async fn fetch_picture(address: &str) -> Option<(Vec<u8>, String)> {
-  let client = reqwest::Client::builder()
-    .redirect(reqwest::redirect::Policy::none())
-    .timeout(FETCH_WITHIN)
-    .build()
-    .ok()?;
+  let client = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).build().ok()?;
   let mut at = url::Url::parse(address).ok()?;
   for _ in 0..=MOST_REDIRECTS {
     if !reachable(&at).await {
@@ -383,18 +377,13 @@ pub async fn fetch_picture(address: &str) -> Option<(Vec<u8>, String)> {
   None
 }
 
-/// The pictures kept beside a filed document, at most the bound and within the keeping's time; a picture not
-/// kept is drawn from its address in the body. Answers the body as it is to stand, and how many were kept.
+/// The pictures kept beside a filed document, at most the bound; a picture not kept is drawn from its address
+/// in the body. Answers the body as it is to stand, and how many were kept.
 pub async fn keep_pictures(app: &App, document: i64, drawn: &Drawn) -> (String, usize) {
   let mut body = drawn.body.clone();
   let mut kept = 0;
-  let began = std::time::Instant::now();
   for (at, picture) in drawn.pictures.iter().enumerate() {
-    let fetched = if at < MOST_PICTURES && began.elapsed() < KEEPING_WITHIN {
-      fetch_picture(&picture.url).await
-    } else {
-      None
-    };
+    let fetched = if at < MOST_PICTURES { fetch_picture(&picture.url).await } else { None };
     let attached = match fetched {
       Some((bytes, media)) => app
         .peers

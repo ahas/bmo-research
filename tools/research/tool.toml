@@ -1,5 +1,6 @@
 # The research unit's tool: every entry of the namespace `research`, answered by one executable calling the
-# daemon's routes (docs/api.md, "The tools"). The tests hold the entries here to the executable's.
+# daemon's routes (docs/api.md, "The tools"). The tests hold the entries here to the executable's. A call ends
+# with the daemon's answer or its caller going away, never on a clock.
 
 [tool]
 name = "researcher"
@@ -8,7 +9,6 @@ language = "rust"
 build = 'cargo build --release -p research-tool && cp "$BMO_CARGO_TARGET/release/research-tool" "$BMO_TOOL_OUT/"'
 check = 'cargo test -p research-checks --test tool'
 run = ["research-tool"]
-timeout = 60
 
 [[entry]]
 namespace = "research"
@@ -135,7 +135,7 @@ order = 10
 namespace = "research"
 name = "run"
 title = "Run a research"
-description = "Send a web research out at a depth, answered at once with the run's id, its state, the road it went out on and when its web tools close, or why it cannot go out now. The key is the depth: search:basic for a question after one value or one fact, search:thorough for a question with a few angles, search:exhaustive for a deep dive, browse for a task that must open and click through pages. Write the question whole, as the owner means it, and name roomId, the room this turn answers, so the result comes back there. Name a model, with its provider where one is meant, only where the owner named one for this research; with none named, the seat's own road carries it. The result comes back to the room as an instruction once the run ends: the answer in a line or two and its document's link."
+description = "Send a web research out at a depth, answered at once with the run's id, its state and the road it went out on, or why it cannot go out now. The key is the depth: search:basic for a question after one value or one fact, search:thorough for a question with a few angles, search:exhaustive for a deep dive, browse for a task that must open and click through pages. Write the question whole, as the owner means it, and name roomId, the room this turn answers, so the result comes back there. Name a model, with its provider where one is meant, only where the owner named one for this research; with none named, the seat's own road carries it. The result comes back to the room as an instruction once the run ends: the answer in a line or two and its document's link."
 input = "run.json"
 capabilities = ["research.ask"]
 

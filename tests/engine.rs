@@ -12,7 +12,7 @@ use std::time::Duration;
 use bmo_research_client::{BranchAsk, BranchState, HoldReason, ItemState, ResearchClient, Running, Shape};
 use research_server::dive::tick;
 use research_server::engine::{give_back_all, holds};
-use research_server::store::{NewResearchRun, now_ms};
+use research_server::store::NewResearchRun;
 use research_server::words;
 use serde_json::{Value, json};
 use support::{Filed, Ground};
@@ -224,7 +224,6 @@ async fn a_branch_of_a_run_holding_a_card_asks_its_own_within_the_run_s() {
       room_id: None,
       provider: "registered",
       model: "flash-next",
-      closes_at: now_ms() + 60_000,
       branches_allowed: 2,
       tells: false,
     })
@@ -274,15 +273,13 @@ async fn a_branch_of_a_run_holding_a_card_asks_its_own_within_the_run_s() {
   assert_eq!(store.run_demand(run).unwrap(), Some(3000));
 }
 
-/// A branch's card still not granted at research's close is waited for however long the arbiter takes, while
-/// the run is running.
+/// A branch's card not granted yet is waited for however long the arbiter takes, while the run is running.
 #[tokio::test]
-async fn a_branch_s_card_granted_after_research_closed_still_opens_the_branch() {
+async fn a_branch_s_card_granted_late_still_opens_the_branch() {
   let ground = support::ground(|_| {}).await;
   let base = support::serve(research_server::routes::router(ground.app.clone())).await;
   let client = ResearchClient::new(&base).with_token("test-token");
   let store = &ground.app.store;
-  let closes_at = now_ms() + 200;
   let run = store
     .open_research_run(&NewResearchRun {
       key: "search:thorough",
@@ -293,7 +290,6 @@ async fn a_branch_s_card_granted_after_research_closed_still_opens_the_branch() 
       room_id: None,
       provider: "registered",
       model: "flash-next",
-      closes_at,
       branches_allowed: 2,
       tells: false,
     })
@@ -314,14 +310,12 @@ async fn a_branch_s_card_granted_after_research_closed_still_opens_the_branch() 
       .await
   });
   until("the branch's demand", || !demands_asked(&ground).is_empty()).await;
-  while now_ms() <= closes_at + 300 {
-    tokio::time::sleep(Duration::from_millis(20)).await;
-  }
-  assert!(!asked.is_finished(), "still waiting for its card past the close");
+  tokio::time::sleep(Duration::from_millis(500)).await;
+  assert!(!asked.is_finished(), "still waiting for its card");
   ground.world.lock().unwrap().grant_cards();
 
   let end = asked.await.unwrap().unwrap();
-  assert_eq!(end.state, BranchState::Stopped, "{:?}", end.reason);
+  assert_eq!(end.state, BranchState::Completed, "{:?}", end.reason);
   assert_eq!(sessions(&ground)[0]["demandId"], 4001);
   assert_eq!(given_back(&ground), ["/demands/4001"]);
 }
