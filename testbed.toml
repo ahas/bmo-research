@@ -13,8 +13,12 @@ languages = ["cargo"]
 dir = "tools"
 
 [check]
-quick = ["layout", "dependencies", "korean", "cargo-profile"]
+quick = ["layout", "dependencies", "korean", "cargo-profile", "shared-versions"]
 korean_ledger = "korean-ledger.json"
+
+# The repository whose root holds the shared versions the manifests and the lock hold to.
+[check.shared_versions]
+repository = "bmo-chat"
 
 [[check.step]]
 id = "check"
