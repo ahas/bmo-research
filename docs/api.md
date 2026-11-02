@@ -168,8 +168,8 @@ the one to read.
   `jobItemId` (the job item the chat agent filed for it), `repairItemId` (the job item filed for the helper
   while it is stuck, 「The repair」; null where none was), `error` (why its latest try failed or was
   interrupted: that try's outcome, not how the item stands now; null while a try is under way and after one
-  that filed its document), `errorAt` (when that try ended, null where `error` is), `foundAt`, `createdAt`
-  and `changedAt`.
+  that filed its document, until that document is gone, which it then names; 「The page」), `errorAt` (when
+  that try ended, null where `error` is), `foundAt`, `createdAt` and `changedAt`.
 - **Where an item came from** is its `origin`, an object whose `kind` is one of three:
   - `source`, an item a scan took in: `source` names the source that found it, by its kind and what it
     reads (its query, else its address), null where that source no longer stands;
@@ -648,7 +648,8 @@ search runner applies it, and the run writes its document in English, the questi
   again, and one that matches is left alone, so a change in how a page is drawn reaches every
   filed page and nothing else is written. A page being finished at that moment is left to its finishing,
   which draws it the same way; a page whose result is not kept, or that cannot be read or set, is said in
-  the log and left as it stands. Nothing a page lacks is asked here, and no one is told. The count of pages
+  the log and left as it stands; a page whose document the archive answers 404 for is closed as failed
+  (`docs/runner.md`, 「The page」). Nothing a page lacks is asked here, and no one is told. The count of pages
   drawn again is said in the log, and printed by the step.
 - **A filed Korean side that does not agree with its English is set aside** as its page is drawn again: its
   body, the Korean title set over it as its heading, checked against the English body with the title set
@@ -688,7 +689,9 @@ search runner applies it, and the run writes its document in English, the questi
   ends it. A try that fails waits for the next; nothing a page lacks is
   given up on. A page whose try is still under way when its wait ends — a narration still waiting for its
   synthesis — is not asked a second time beside it, and its next wait runs from that try's end. A dismissed
-  item's page is no longer asked. The tries are counted apart from the run's tries.
+  item's page is no longer asked, nor a page whose document is gone: the archive answering
+  `GET /documents/{id}` with 404 closes it as failed, its `finishing` items waiting for a try of their own
+  (`docs/runner.md`, 「The page」). The tries are counted apart from the run's tries.
 
 ### The notices
 

@@ -653,8 +653,9 @@ fn the_step_that_names_slots_takes_every_hold_of_a_seat_request_as_a_slot() {
   conn
     .execute_batch(&format!(
       "insert into research_holds (run_id, kind, value) values ({run}, 'seat', 'token-1');
+       alter table pages drop column gone_at;
        pragma user_version = {};",
-      schema_version() - 1
+      schema_version() - 2
     ))
     .unwrap();
   drop(conn);

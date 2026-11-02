@@ -574,6 +574,27 @@ impl Peers {
     Ok(answer["labels"].clone())
   }
 
+  /// Whether the archive no longer holds a document: true where `GET /documents/{id}` answers 404, false where
+  /// it answers it; any other answer is the failure's sentence.
+  pub async fn document_gone(&self, document_id: i64) -> Result<bool, String> {
+    let artifact = self.artifact()?;
+    let path = format!("/documents/{document_id}");
+    let answer = self
+      .request(&artifact, reqwest::Method::GET, &path)
+      .send()
+      .await
+      .map_err(|e| format!("{} GET {path}: {e}", artifact.name))?;
+    match answer.status().as_u16() {
+      404 => Ok(true),
+      200..300 => Ok(false),
+      status => Err(format!(
+        "{} GET {path} answered {status}: {}",
+        artifact.name,
+        answer.text().await.unwrap_or_default()
+      )),
+    }
+  }
+
   /// Whether a document keeps a file under a name.
   pub async fn attached(&self, document_id: i64, name: &str) -> Result<bool, String> {
     let artifact = self.artifact()?;

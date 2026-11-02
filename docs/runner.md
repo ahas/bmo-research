@@ -101,30 +101,31 @@ run is this unit's.
    children」). It names no `boundMs` either, since no turn of a run is cut (「Nothing of a
    run is clocked」). Agency answers the session's id, `<role>@run:<n>`, which every later call on it names.
    A session agency cannot start ends the run with no answer: cut where agency was not reached or failed on
-   its own side (「A cut run」), failed where it refused what was asked.
+   its own side (「A cut run」), failed where it refused what was asked. A run that continues from an earlier
+   run's result asks no first turn, so it starts no session here: its first is the rounds' (「A run that
+   continues」).
 7. **The first turn:** the request, as one turn of the session (`POST /sessions/{id}/turns`) carrying the
    turn's own parts — a fresh resume, the name `research-<run>`, the title, the room or 0, no words heard and
    no variables — its road, effort and folder the session's, waited on until it ends (「A turn's send」); what
-   it wrote is its whole text (「What a turn wrote」). The session stands until the run's end, since the run's
-   slot ends with it (「The slots' children」). A run that continues from an earlier run's result asks no first
-   turn: that result is its first answer (「A run that continues」).
+   it wrote is its whole text (「What a turn wrote」). A run that continues from an earlier run's result asks no
+   first turn: that result is its first answer (「A run that continues」).
 8. **The rounds:** the key's rounds, or those a continuing run has left (「A run that continues」), are
-   asked of a second session of their own, started the same way on the run's slot, while the first still
-   stands, with the round's record
-   (the run's with `branches` 0 and no `branchesAt` or `branchesToken`) and the capabilities less
-   `web.branches` and `web.rulebooks`, one turn each, named `research-<run>-<round>`, each prompt the round's
-   question, the task as the run was given it and the answer written last (「The rounds」). The last answer is
-   the run's result. The rounds' session is ended after the last, and after the whole document and the narration
-   where they are asked.
-9. **The whole document and the narration:** before the session that wrote it is ended — the rounds'
-   session, else the first where the key has no rounds — a deep dive's result short of its shape is asked
+   asked of a session of their own, started the same way on the run's slot, with the round's record (the
+   run's with `branches` 0 and no `branchesAt` or `branchesToken`) and the capabilities less `web.branches`
+   and `web.rulebooks`; its start moves the slot onto it, and the first answer's session is then ended
+   (「The slots' children」). One turn each, named `research-<run>-<round>`, each prompt the round's question,
+   the task as the run was given it and the answer written last (「The rounds」). The last answer is the run's
+   result. A rounds' session that does not start leaves the first answer standing as the result, on the
+   session the slot is still bound to.
+9. **The whole document and the narration:** in the session that wrote the result — the rounds' session,
+   else the first answer's where the key has no rounds, started on the run's slot for them where the run asked
+   no first turn — a deep dive's result short of its shape is asked
    once more for the whole document (「The deep dive's page」), and any result that carries no `LISTEN:`
    script is asked for one (「The narration」).
-10. **The end:** the slot is given back (`finished`, its outcome `answered` or `failed: <why>`) and the first
-   session then ended (`DELETE /sessions/{id}`), the rounds' session ended already (「The slots'
-   children」); the result is
-   drawn into its document and filed (「The document」; a deep dive's held to its shape first, 「The deep dive's
-   page」), and the run is closed in the ledger with its outcome, the document and its link. A run told to its
+10. **The end:** the slot is given back (`finished`, its outcome `answered` or `failed: <why>`) and the
+   session it is bound to then ended (`DELETE /sessions/{id}`), every session before it ended already (「The
+   slots' children」); the result is drawn into its document and filed (「The document」; a deep dive's held to
+   its shape first, 「The deep dive's page」), and the run is closed in the ledger with its outcome, the document and its link. A run told to its
    room then has its document's narration spoken and attached, and its room is told once the sound is
    (「The narration's sound」, 「The room」). Every step is written into the run's log.
 
@@ -143,16 +144,18 @@ run is this unit's.
 
 ## The slots' children
 
-- **Agency binds a slot to the first role session started on it,** as it starts that session, and gives the
-  slot back once that session ends (agency's `docs/role-slots.md`, 「The line」). This unit binds no slot
-  itself.
+- **Agency binds a slot to each role session started on it,** as it starts that session: the start moves the
+  slot's lease onto the session it opens, the session the lease was bound to before is bound to it no longer,
+  and ending the session the lease is bound to gives the slot back (agency's `docs/role-slots.md`, 「The
+  line」). This unit binds no slot itself.
 - **A branch's, a review's and a notice's slot carries one session,** started once the slot is let in and
   ended once its one turn is over, which gives the slot back with it.
-- **The run's slot carries the run's two sessions,** the first answer's and the rounds', and is bound to the
-  first: that session therefore stands until the run's end, while the rounds' session is started on the same
-  slot beside it and ended after its last turn. The run's turns go out each under a run name of its own.
+- **The run's slot carries the run's sessions one after another:** the first answer's, then the rounds',
+  which also asks the whole document and the narration. Each is started on the slot before the session the
+  slot is bound to is ended, so the slot is bound to the session the run works in and to no other, and no
+  session stands open for the slot's sake alone. The run's turns go out each under a run name of its own.
 - **Each slot is still given back by this unit,** with the word its work came to. The run's is given back
-  before its first session is ended, so its finish answers whether agency still held it then (「A cut
+  before the session it is bound to is ended, so its finish answers whether agency still held it then (「A cut
   run」). A branch's, a review's and a notice's is given back after its session is ended, so the slot stands
   until the turn is over; agency answers that finish as no longer held, the session's end having given it
   back, and it changes nothing.
@@ -354,7 +357,13 @@ daemon finishes, held first to the shape the deep dive asked for.
 
 - **A deep dive's page is reviewed once, whole, before its report is told,** by the run's own model: once
   its Korean side is had and every narration its script allows is attached, and only while its items stand
-  `finishing`; a page whose report was told before is never reviewed.
+  `finishing` and its document stands; a page whose report was told before, or whose document is gone
+  (「The page」), is never reviewed.
+- **Each ask of the review first gives back what its run still holds of agency,** by its owner
+  (`DELETE /slot-requests?owner=research:<run>`): the run is closed, so all that can stand under its owner is
+  an earlier review ask whose admission or give-back never reached agency, which agency keeps in the role's
+  line, passed over but never dropped. A page therefore holds one review request at most. A release that
+  does not go through leaves the review pending, asked again on the page's retry wait.
 - **The review is one turn on a slot and a session of its own,** asked the way a run's are (「One run, step by
   step」): a slot with `requestKey` `research:<run>:review:<n>`, `n` the count of the review's asks the ledger
   keeps, counted before each ask so a review asked again is never asked under a request agency gave back,
@@ -450,6 +459,16 @@ daemon finishes, held first to the shape the deep dive asked for.
   The footnotes' look is a style marked `data-archive` and drawn in the design's colour variables, set only
   on a page whose text cites an entry. The page runs no script for them.
 - **A page with one language** has no switch and no hidden side.
+- **A page whose document is gone is closed as failed.** Before a page is drawn again or asked for what it
+  lacks — a deep dive's or the document of a run told to its room — its document is read with the artifact
+  service's `GET /documents/{id}`. Where the archive answers 404, the document no longer stands: the page is
+  closed (`docs/store.md`, `pages`), lacking nothing, and is never drawn, asked for a part or reviewed again;
+  its run's log says so under `filed`. Every item the document was filed for keeps the document's being gone
+  as its `error`, and one still `finishing`, whose report nobody was told, waits for a try of its own after
+  the retry wait, as after a failed try, so a fresh run researches it again. A run told to its room whose room
+  was still waiting for the document is told once, its result whole, as a result that could not be filed is
+  (「The room」). Any other answer to the read leaves the page to its work as it stands.
+
 ## The room
 
 - **The room is told through the receiver's `POST /instructions`,** as a `notice` under the kind

@@ -809,6 +809,9 @@ pub async fn redraw_filed(app: &App) -> usize {
     let Some(_held) = app.pages.hold(document_id) else {
       continue;
     };
+    if gone(app, run_id, document_id).await {
+      continue;
+    }
     match drawn_again(app, &item, document_id, run_id).await {
       Ok(again) => {
         set += again.set as usize;
@@ -822,6 +825,40 @@ pub async fn redraw_filed(app: &App) -> usize {
   eprintln!("bmo-research: {set} filed pages were drawn again");
   eprintln!("bmo-research: {set_aside} Korean sides that did not agree with their English were set aside");
   set
+}
+
+/// Whether a page's document is gone, the page closed as failed where it is (`docs/runner.md`, 「The page」):
+/// read with the artifact service's `GET /documents/{id}`, and on its 404 the page closed, never asked again,
+/// every item its document was filed for keeping why, one still `finishing` waiting for a try of its own, and
+/// its run's log saying so. A read answered otherwise leaves the page to its work as it stands.
+pub async fn gone(app: &App, run: i64, document_id: i64) -> bool {
+  match app.peers.document_gone(document_id).await {
+    Ok(false) => false,
+    Err(why) => {
+      eprintln!("bmo-research: whether research {run}'s document {document_id} stands was not read: {why}");
+      false
+    }
+    Ok(true) => {
+      let why = format!("its document {document_id} is gone: the artifact service answers 404 for it");
+      let retry = now_ms() + app.settings.retry_minutes * 60_000;
+      let said = match app.store.close_gone_page(document_id, &why, retry) {
+        Ok(waiting) if waiting.is_empty() => {
+          format!("The page was closed as failed and is not asked again, since {why}.")
+        }
+        Ok(waiting) => format!(
+          "The page was closed as failed and is not asked again, since {why}; its items {waiting:?}, whose report \
+           nobody was told, wait for a try of their own."
+        ),
+        Err(failed) => {
+          eprintln!("bmo-research: research {run}'s page {document_id} was not closed: {failed}");
+          format!("The page was not closed, though {why}: {failed}")
+        }
+      };
+      eprintln!("bmo-research: research {run}: {said}");
+      let _ = app.store.log_research(run, "filed", &said);
+      true
+    }
+  }
 }
 
 /// What drawing a filed page again did: whether the page was set, and whether its Korean side was set aside.
@@ -1235,6 +1272,9 @@ async fn render_again(app: Arc<App>, item: Item) {
   let Some(_held) = app.pages.hold(document_id) else {
     return;
   };
+  if gone(&app, run_id, document_id).await {
+    return;
+  }
   let source = match source(&app, run_id) {
     Ok(source) => source,
     Err(why) => {

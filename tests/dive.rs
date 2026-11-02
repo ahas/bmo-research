@@ -2128,6 +2128,69 @@ async fn a_filed_page_drawn_otherwise_is_drawn_again_and_one_drawn_alike_is_left
   assert_eq!(redraw_filed(&ground.app).await, 0, "and left alone once they match");
 }
 
+#[tokio::test]
+async fn a_page_whose_document_is_gone_is_closed_as_failed_and_never_drawn_again() {
+  let ground = support::ground(|_| {}).await;
+  give_owner_room(&ground.app).await;
+  let item = ground
+    .app
+    .store
+    .ask("it", "example.org/thing", "Thing-7B", "https://example.org/thing", Shape::Manual)
+    .unwrap();
+  file(&ground, 1, 501, manual_document());
+  settle(&ground).await;
+  let told = ground.app.store.item(item.id).unwrap().state;
+  ground.world.lock().unwrap().gone_documents.insert(501);
+
+  assert_eq!(redraw_filed(&ground.app).await, 0);
+  let kept = ground.app.store.item(item.id).unwrap();
+  assert_eq!(kept.state, told, "an item whose report was told keeps its state");
+  assert!(
+    kept.error.as_deref().is_some_and(|e| e.contains("document 501 is gone")),
+    "{:?}",
+    kept.error
+  );
+  assert!(kept.pending.is_empty(), "a closed page lacks nothing");
+  let filed = logged(&ground, "filed");
+  assert!(filed.iter().any(|text| text.starts_with("The page was closed as failed")), "{filed:?}");
+  let read = ground.asked_path("artifact", "GET", "/documents/501").len();
+
+  assert_eq!(redraw_filed(&ground.app).await, 0);
+  assert_eq!(
+    ground.asked_path("artifact", "GET", "/documents/501").len(),
+    read,
+    "a closed page is not read again"
+  );
+  assert!(ground.app.store.filed_pages().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_finishing_item_whose_document_is_gone_waits_for_a_try_of_its_own() {
+  let ground = support::ground(|s| s.retry_minutes = 0).await;
+  give_owner_room(&ground.app).await;
+  let item = ground
+    .app
+    .store
+    .ask("it", "example.org/thing", "Thing-7B", "https://example.org/thing", Shape::Manual)
+    .unwrap();
+  file(&ground, 1, 501, manual_document());
+  ground.world.lock().unwrap().translation_answers.push_back(503);
+  settle(&ground).await;
+  assert_eq!(ground.app.store.item(item.id).unwrap().state, ItemState::Finishing);
+  ground.world.lock().unwrap().gone_documents.insert(501);
+
+  let started = tick(&ground.app).await;
+  for handle in started {
+    let _ = handle.await;
+  }
+
+  let waiting = ground.app.store.item(item.id).unwrap();
+  assert_eq!(waiting.state, ItemState::Waiting, "nobody was told, so it is researched again");
+  assert!(waiting.error.as_deref().is_some_and(|e| e.contains("document 501 is gone")));
+  assert!(orders(&ground).is_empty(), "nobody is told of a page that is gone");
+  assert!(ground.app.store.pages_due(i64::MAX).unwrap().is_empty(), "the page is not asked again");
+}
+
 /// The review turns agency was sent for research run `run`.
 fn review_turns(ground: &Ground, run: i64) -> Vec<Value> {
   ground.turns_named(&format!("research-{run}-review"))
@@ -2422,8 +2485,9 @@ async fn a_review_cut_by_a_restart_asks_again_under_a_fresh_key_and_gets_a_slot(
     let world = ground.world.lock().unwrap();
     assert_eq!(
       world.owners_released,
-      ["research:1"],
-      "the review's slot is given back by its run's owner"
+      ["research:1", "research:1"],
+      "the review's ask gives back what its run held before it, and the restart gives back its slot by the \
+       run's owner"
     );
     let review = world.slot_keys["research:1:review:1"].0.clone();
     assert_eq!(world.given_back[&review].1, "owner");
@@ -2502,6 +2566,16 @@ async fn a_try_asked_again_continues_from_what_the_run_before_it_wrote() {
   let run = ground.app.store.research_run(2).unwrap();
   assert_eq!(run.continues, Some(1));
   assert!(ground.turns_named("research-2").is_empty(), "no first turn is asked");
+  let sessions = ground
+    .asked_path("agency", "POST", "/sessions")
+    .into_iter()
+    .filter(|a| a.path == "/sessions" && a.body["labels"]["research"]["run"] == 2)
+    .filter(|a| a.body["toolsAllowed"].as_array().is_some_and(|tools| !tools.is_empty()))
+    .count();
+  assert_eq!(
+    sessions, 1,
+    "the run's slot carries the rounds' session alone: no session is started for a first turn it does not ask"
+  );
   for round in &words::runner().rounds["search:exhaustive"].rounds {
     assert!(ground.turns_named(&format!("research-2-{round}")).is_empty(), "run 1 answered {round}");
   }

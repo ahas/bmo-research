@@ -233,6 +233,9 @@ const MIGRATIONS: &[&str] = &[
   "
   update research_holds set kind = 'slot' where kind = 'seat';
 ",
+  "
+  alter table pages add column gone_at integer;
+",
 ];
 
 /// A page's one review (`docs/store.md`, `page_reviews`): what it wrote, the indices of its fixes applied or
@@ -1592,6 +1595,42 @@ impl Store {
       .map_err(|e| e.to_string())
   }
 
+  /// A page whose document the archive no longer holds closed as failed (`docs/runner.md`, 「The page」): lacking
+  /// nothing and never asked again, every item its document was filed for keeping `error`, and one still
+  /// `finishing` waiting again until `retry_at`. Answers the items that wait again.
+  pub fn close_gone_page(&self, document_id: i64, error: &str, retry_at: i64) -> Result<Vec<i64>, String> {
+    let mut conn = self.lock();
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    let now = now_ms();
+    tx.execute(
+      "insert into pages (document_id, gone_at) values (?1, ?2)
+       on conflict (document_id) do update set gone_at = excluded.gone_at, pending = '[]',
+         pending_retry_at = null",
+      params![document_id, now],
+    )
+    .map_err(|e| e.to_string())?;
+    let waiting: Vec<i64> = {
+      let mut stmt = tx
+        .prepare("select id from queue where document_id = ?1 and state = 'finishing' order by id")
+        .map_err(|e| e.to_string())?;
+      stmt
+        .query_map(params![document_id], |r| r.get(0))
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?
+    };
+    tx.execute(
+      "update queue set state = case when state = 'finishing' then 'waiting' else state end,
+         retry_at = case when state = 'finishing' then ?3 else retry_at end,
+         error = ?2, error_at = ?4, changed_at = ?4
+       where document_id = ?1",
+      params![document_id, error, retry_at, now],
+    )
+    .map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(waiting)
+  }
+
   /// What a document's page still lacks, and when it is asked again, or none where it lacks nothing.
   pub fn pend_page(
     &self,
@@ -1640,7 +1679,8 @@ impl Store {
       .prepare(&format!(
         "select {ITEM_COLUMNS} from queue where state in ('finishing', 'reported', 'fit', 'taken')
            and exists (select 1 from pages where pages.document_id = queue.document_id
-             and pages.item_id = queue.id and pages.pending_retry_at is not null and pages.pending_retry_at <= ?1)
+             and pages.item_id = queue.id and pages.gone_at is null
+             and pages.pending_retry_at is not null and pages.pending_retry_at <= ?1)
            order by (select pages.pending_retry_at from pages where pages.document_id = queue.document_id), id"
       ))
       .map_err(|e| e.to_string())?;
@@ -1659,7 +1699,8 @@ impl Store {
       .prepare(&format!(
         "select {RESEARCH_RUN_COLUMNS} from research_runs where tells = 1 and state = 'closed'
            and exists (select 1 from pages where pages.document_id = research_runs.document_id
-             and pages.item_id is null and pages.pending_retry_at is not null and pages.pending_retry_at <= ?1)
+             and pages.item_id is null and pages.gone_at is null
+             and pages.pending_retry_at is not null and pages.pending_retry_at <= ?1)
            order by id"
       ))
       .map_err(|e| e.to_string())?;
@@ -1677,6 +1718,8 @@ impl Store {
       .prepare(&format!(
         "select {ITEM_COLUMNS} from queue where document_id is not null and run_id is not null
            and exists (select 1 from runs where runs.run_id = queue.run_id and runs.item_id = queue.id)
+           and not exists (select 1 from pages where pages.document_id = queue.document_id
+             and pages.gone_at is not null)
            order by document_id, id"
       ))
       .map_err(|e| e.to_string())?;

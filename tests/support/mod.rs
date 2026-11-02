@@ -56,6 +56,8 @@ pub struct Attached {
 /// How the stand-ins answer, and what they were asked.
 #[derive(Default)]
 pub struct World {
+  /// The documents the archive no longer holds, which it answers 404 for.
+  pub gone_documents: BTreeSet<i64>,
   pub asked: Vec<Asked>,
   /// The statuses the next session starts are answered with; 201 once these run out.
   pub session_answers: VecDeque<u16>,
@@ -72,7 +74,7 @@ pub struct World {
   pub slots_finished: BTreeSet<String>,
   /// Each slot's owner, by token, as its ask named it.
   pub slot_owners: BTreeMap<String, String>,
-  /// The role session each slot is bound to, by token: the first one started on it.
+  /// The role session each slot is bound to, by token: the last one started on it.
   pub slot_sessions: BTreeMap<String, String>,
   /// How each slot was given back, by token: its state, who gave it back and the words it was given back
   /// with.
@@ -460,8 +462,8 @@ async fn agency_session(State(w): State<Shared>, method: Method, uri: Uri, body:
   }
   world.next_session += 1;
   let id = format!("{role}@run:{}", world.next_session);
-  // A role's start binds the slot it names to the session it opens, where the slot is bound to none yet.
-  world.slot_sessions.entry(token.to_string()).or_insert_with(|| id.clone());
+  // A role's start moves the slot it names onto the session it opens, whatever it was bound to before.
+  world.slot_sessions.insert(token.to_string(), id.clone());
   (
     StatusCode::CREATED,
     axum::Json(json!({"id": id, "agentName": role, "scope": "role", "provider": road["provider"], "model": road["model"], "boundMs": asked["boundMs"]})),
@@ -837,6 +839,10 @@ async fn artifact_document(
 ) -> Response {
   keep(&w, "artifact", &method, &uri, &body);
   let mut world = w.lock().unwrap();
+  if world.gone_documents.contains(&id) {
+    return (StatusCode::NOT_FOUND, axum::Json(json!({"code": "not-found", "error": "not found"})))
+      .into_response();
+  }
   if method == Method::GET {
     let labels = world.kept_labels.get(&id).cloned().unwrap_or_else(|| json!({}));
     return axum::Json(json!({"id": id, "labels": labels})).into_response();

@@ -208,23 +208,30 @@ async fn a_search_is_let_in_sent_asked_its_rounds_filed_and_told_to_its_room() {
   assert_eq!(
     started.iter().map(|s| s["slot"].clone()).collect::<Vec<_>>(),
     [json!("slot-1"), json!("slot-1")],
-    "the rounds' session starts on the run's slot while the first, which agency bound it to, stands"
+    "the rounds' session starts on the run's slot, which its start moves onto it"
   );
   let order: Vec<String> = ground
     .asked("agency")
     .into_iter()
     .filter(|a| {
       (a.method == "DELETE" && a.path.starts_with("/sessions/"))
+        || (a.method == "POST" && a.path == "/sessions")
         || (a.path == "/slot-requests/slot-1" && a.body["state"] == "finished")
     })
     .map(|a| format!("{} {}", a.method, a.path))
     .collect();
   assert_eq!(
-    order.iter().map(|o| o.split(' ').next().unwrap()).collect::<Vec<_>>(),
-    ["DELETE", "PATCH", "DELETE"],
-    "the rounds' session is ended, then the slot given back, then the first session: {order:?}"
+    order,
+    [
+      "POST /sessions",
+      "POST /sessions",
+      "DELETE /sessions/searcher@run:1",
+      "PATCH /slot-requests/slot-1",
+      "DELETE /sessions/searcher@run:2",
+    ],
+    "the first session is ended once the rounds' session stands on the slot, and the slot is given back \
+     before the session it is bound to then is ended"
   );
-  assert_ne!(order[0], order[2], "two sessions: {order:?}");
 
   let filed = ground.run_documents();
   assert_eq!(filed.len(), 1);
@@ -966,6 +973,46 @@ async fn a_room_s_document_whose_sound_fails_is_told_only_once_its_narration_is_
   finish_told(&ground.app, &row).await;
   assert_eq!(ground.asked_path("receiver", "POST", "/instructions").len(), 1, "told once");
   assert_eq!(ground.synthesis_keys().len(), 2, "a sound attached is not made again");
+}
+
+#[tokio::test]
+async fn a_room_s_document_gone_before_its_room_was_told_is_told_whole_once_and_not_asked_again() {
+  let (ground, _base, client) = served().await;
+  {
+    let mut world = ground.world.lock().unwrap();
+    world.raw.insert(1, narrated_result(1, "Thing-7B is a model."));
+    world.voice_failing = true;
+  }
+  client
+    .ask_research(&ResearchRunAsk {
+      key: "search:basic".into(),
+      query: "Which engine serves Thing-7B?".into(),
+      room_id: Some(5),
+      ..ResearchRunAsk::default()
+    })
+    .await
+    .unwrap();
+  let run = closed_saying(&ground, 1, "narration", "was not made").await;
+  assert_eq!(run.pending, ["narration-en"]);
+  ground.world.lock().unwrap().gone_documents.insert(901);
+
+  let due = ground.app.store.run_pages_due(now_ms() + 3_600_000).unwrap();
+  finish_told(&ground.app, &due[0]).await;
+
+  let told = ground.asked_path("receiver", "POST", "/instructions");
+  assert_eq!(told.len(), 1, "the room is told once");
+  let order = told[0].body["said"]["order"].as_str().unwrap();
+  assert!(
+    order.contains("Its result, as the run wrote it") && order.contains("Run 1 answered."),
+    "{order}"
+  );
+  assert!(ground.synthesis_keys().len() == 1, "no sound is made for a document that is gone");
+  assert!(
+    ground.app.store.run_pages_due(i64::MAX).unwrap().is_empty(),
+    "the page is not asked again"
+  );
+  let run = ground.app.store.research_run(1).unwrap().view();
+  assert!(run.pending.is_empty());
 }
 
 /// Every search is told its title is a noun phrase naming the subject, never a sentence or a verdict, and

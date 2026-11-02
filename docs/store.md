@@ -83,7 +83,7 @@ The items (`docs/api.md`, 「queue」).
 | `plan` | The heading of the document's plan section |
 | `job_item_id` | The job item the chat agent filed for it |
 | `repair_item_id` | The job item filed for the helper while it is stuck, or null; cleared as it is asked again |
-| `error`, `error_at` | Why the latest try failed or was interrupted, and when that try ended; null while a try is under way and after one that filed its document |
+| `error`, `error_at` | Why the latest try failed or was interrupted, and when that try ended; null while a try is under way and after one that filed its document, until the archive answers 404 for that document, which it then names with when that was read |
 | `found_at`, `created_at`, `changed_at` | When its candidate was found, when it was queued and last changed |
 
 ## `runs`
@@ -124,6 +124,7 @@ for the item its run was asked for, and the document of a run told to its room, 
 | `pending` | What it still lacks before its report or its room is told — `korean`, `narration-ko`, `narration-en`, `review`, `review-fixes` — a JSON list, empty where it lacks nothing |
 | `pending_retry_at` | When what it still lacks may be asked again, or null where nothing is pending |
 | `translation_tries`, `narration_tries` | The Korean sides and the narrations asked for it |
+| `gone_at` | When the archive answered 404 for the document, closing the page as failed, or null while the document stands; a closed page is never drawn or asked again |
 
 ## `renderings`
 
