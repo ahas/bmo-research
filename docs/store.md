@@ -260,7 +260,9 @@ The runner's ledger (`docs/runner.md`): one row per research run.
 ## `research_holds`
 
 What a research run, its page's review, or a notice to an agent holds of agency while it stands, so a
-restart gives it back.
+restart knows whose owner to give back and which sessions to end (`docs/runner.md`, 「A restart」): a slot's
+row names the run or the item whose owner asked it, and a session's row the session agency may not have
+ended with the owner's release, one bound to no slot or still in a turn.
 
 | Column | Holds |
 |---|---|

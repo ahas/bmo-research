@@ -414,8 +414,8 @@ pub fn capabilities(app: &App, branches: bool, rulebooks: bool) -> Vec<String> {
 pub const SLOT: &str = "slot";
 const SESSION: &str = "session";
 
-/// A slot request as agency answers it: its token, its state, and the road it is let in on, empty until
-/// then unless its ask named one.
+/// A slot request as agency answers it: its token, its state, the road it is let in on, empty until then
+/// unless its ask named one, and who gave it back and why, where it was given back.
 #[derive(Clone, Debug, Default)]
 pub struct Slot {
   pub token: String,
@@ -423,6 +423,8 @@ pub struct Slot {
   pub provider: String,
   pub model: String,
   pub effort: Option<String>,
+  pub ended_by: Option<String>,
+  pub outcome: Option<String>,
 }
 
 // The state a slot request is let in in, and those it no longer waits in.
@@ -438,16 +440,25 @@ impl Slot {
       provider: text("provider").unwrap_or_default().to_owned(),
       model: text("model").unwrap_or_default().to_owned(),
       effort: text("effort").map(str::to_owned),
+      ended_by: text("endedBy").map(str::to_owned),
+      outcome: text("outcome").map(str::to_owned),
     })
   }
 
-  /// The slot an admission answered, where it let one in: the request under `request`, null while it waits,
-  /// or the request itself.
-  pub fn admission(said: &Value) -> Option<Slot> {
-    match said.get("request") {
-      Some(request) => Slot::of(request),
-      None => Slot::of(said),
+  /// The slot as an admission answers it: the request let in under `request` where it is `active`, else this
+  /// slot in the `state` the answer names, with its `endedBy` and `outcome` where it was given back.
+  pub fn admission(&self, said: &Value) -> Slot {
+    if let Some(request) = said.get("request").and_then(Slot::of) {
+      return request;
     }
+    let text = |field: &str| said[field].as_str().filter(|value| !value.is_empty()).map(str::to_owned);
+    let mut now = self.clone();
+    if let Some(state) = text("state") {
+      now.state = state;
+    }
+    now.ended_by = text("endedBy");
+    now.outcome = text("outcome");
+    now
   }
 
   pub fn admitted(&self) -> bool {
@@ -456,6 +467,16 @@ impl Slot {
 
   pub fn ended(&self) -> bool {
     ENDED.contains(&self.state.as_str())
+  }
+
+  /// Why a slot given back before it got a place ended what waited for it: who gave it back and why, as
+  /// agency answers them.
+  pub fn given_back(&self, what: &str) -> String {
+    let by = self.ended_by.as_deref().unwrap_or("agency");
+    match self.outcome.as_deref() {
+      Some(outcome) => format!("{what} was {} by {by} before it got a place: {outcome}", self.state),
+      None => format!("{what} was {} by {by} before it got a place", self.state),
+    }
   }
 }
 
@@ -557,7 +578,8 @@ pub struct Start<'a> {
 
 /// A role's session started on agency's line on the slot it was let in on, its id kept as the run's hold. It
 /// names no role, road or folder, which are the slot's, and no bound, so agency cuts none of its turns
-/// (`docs/runner.md`, 「Nothing of a run is clocked」).
+/// (`docs/runner.md`, 「Nothing of a run is clocked」); agency binds the slot to it where the slot is bound to
+/// no session yet (「The slots' children」).
 pub async fn start_session(app: &App, run: i64, start: &Start<'_>) -> Result<String, Fault> {
   let mut body = json!({
     "scope": "role",
@@ -953,7 +975,8 @@ async fn go(app: Arc<App>, going: Going) {
         }
         other => other,
       };
-      end_session(&app, run, &road.session).await;
+      // The first session stands until the run's end: agency bound the run's slot to it, and gives the slot
+      // back once it ends (`docs/runner.md`, 「The slots' children」).
       match first {
         Ok(answer) if rounds_follow => Ok(rounds(&app, &going, road, answer).await),
         other => other,
@@ -965,15 +988,21 @@ async fn go(app: Arc<App>, going: Going) {
     Ok(_) => "answered".to_string(),
     Err(why) => format!("failed: {why}"),
   };
-  if !give_back(&app, run, &going.slot.token, &outcome, never_ran).await {
+  // The slot is given back before the session it is bound to is ended, so its finish says whether agency
+  // still held it.
+  let held = give_back(&app, run, &going.slot.token, &outcome, never_ran).await;
+  if let Ok(road) = &road {
+    end_session(&app, run, &road.session).await;
+  }
+  if !held {
     going.lose("agency no longer held the run's slot when it was given back");
   }
   ended(&app, &going, &model, result).await;
 }
 
-/// The slot let in, asked for its place every half second however long its role's line takes; or why it was
-/// not. It is bound to no child: its turns go out under run names of their own, one after another, and none
-/// stands between two of them (`docs/runner.md`, 「The slots' children」).
+/// The slot let in, asked for its place every half second however long its role's line takes, and asked no
+/// more once agency answers it given back; or why it was not let in. Agency binds it to the run's first
+/// session as that starts (`docs/runner.md`, 「The slots' children」).
 async fn admitted(app: &App, going: &Going) -> Result<Slot, String> {
   let mut slot = going.slot.clone();
   loop {
@@ -981,17 +1010,13 @@ async fn admitted(app: &App, going: &Going) -> Result<Slot, String> {
       return Ok(slot);
     }
     if slot.ended() {
-      let why = "agency ended the slot request before it got a place";
-      going.lose(why);
-      return Err(why.into());
+      let why = slot.given_back("the run's slot request");
+      going.lose(&why);
+      return Err(why);
     }
     tokio::time::sleep(LOOK_EVERY).await;
     match app.peers.move_slot(&slot.token, &admission(going.demand)).await {
-      Ok(said) => {
-        if let Some(now) = Slot::admission(&said) {
-          slot = now;
-        }
-      }
+      Ok(said) => slot = slot.admission(&said),
       Err(fault) => {
         return Err(going.met(fault, "the run's slot could not be let in"));
       }
@@ -1245,16 +1270,12 @@ pub async fn review(app: &App, run: i64, prompt: &str) -> Result<String, String>
   let answered = async {
     while !slot.admitted() {
       if slot.ended() {
-        return Err("agency ended the review's slot request before it got a place".to_string());
+        return Err(slot.given_back("the review's slot request"));
       }
       tokio::time::sleep(LOOK_EVERY).await;
       let said = app.peers.move_slot(&slot.token, &admission(None)).await;
       match said {
-        Ok(said) => {
-          if let Some(now) = Slot::admission(&said) {
-            slot = now;
-          }
-        }
+        Ok(said) => slot = slot.admission(&said),
         Err(fault) => return Err(format!("the review's slot could not be let in: {fault}")),
       }
     }
@@ -1271,10 +1292,6 @@ pub async fn review(app: &App, run: i64, prompt: &str) -> Result<String, String>
       .map_err(|fault| format!("agency started no session for the review: {fault}"))?;
     let started: &str = session.insert(started);
     let name = format!("research-{run}-review");
-    let bound = json!({ "state": "bound", "childId": name });
-    if let Err(fault) = app.peers.move_slot(&slot.token, &bound).await {
-      return Err(format!("the review's slot could not be bound to its turn: {fault}"));
-    }
     let title = format!("{line} research {run} review");
     let body = turn_body(
       prompt,
@@ -1670,8 +1687,20 @@ pub fn cut_instruction(row: &ResearchRunRow) -> Value {
   instruction(row.id, row.room_id, said, format!("The research {} was cut", row.id))
 }
 
+/// Everything an owner held of agency given back by the owner's release; the sessions agency ended with it,
+/// none where the release did not go through.
+async fn release_owner(peers: &Peers, owner: &str) -> Vec<String> {
+  match peers.release_owner(owner).await {
+    Ok(ended) => ended,
+    Err(fault) => {
+      eprintln!("bmo-research: what {owner} held of agency was not given back: {fault}");
+      vec![]
+    }
+  }
+}
+
 /// A daemon's start (`docs/runner.md`, 「A restart」): every run its store holds open closed as cut, what it
-/// held of agency given back, and its room told. Answers how many were cut.
+/// held of agency given back by its owner, and its room told. Answers how many were cut.
 pub async fn sweep(app: &Arc<App>) -> usize {
   let open = match app.store.open_research_runs() {
     Ok(open) => open,
@@ -1680,21 +1709,31 @@ pub async fn sweep(app: &Arc<App>) -> usize {
       return 0;
     }
   };
-  // A review under way at the restart holds a slot and a session under its closed run: both are given back,
-  // and the review is asked again on its page's retry wait.
+  // Each run held open, and each closed run whose review held something at the restart, is given back by its
+  // owner: its slots and the sessions agency bound them to. A session agency did not end — the rounds' beside
+  // the first, or one still in a turn — is ended once its turn is over; the review is asked again on its
+  // page's retry wait.
+  let mut owned: BTreeMap<i64, Vec<(String, String)>> = BTreeMap::new();
   for (run, kind, value) in app.store.closed_holds().unwrap_or_default() {
-    match kind.as_str() {
-      SESSION => {
+    owned.entry(run).or_default().push((kind, value));
+  }
+  for row in &open {
+    owned.entry(row.id).or_default().extend(app.store.holds(row.id).unwrap_or_default());
+  }
+  for (run, held) in owned {
+    let ended = release_owner(&app.peers, &format!("research:{run}")).await;
+    for (kind, value) in held {
+      if kind == SESSION && !ended.contains(&value) {
         let app = app.clone();
         tokio::spawn(async move { end_session(&app, run, &value).await });
-      }
-      _ => {
-        give_back(app, run, &value, "stopped: the research unit restarted", false).await;
+      } else {
+        let _ = app.store.let_go(run, &kind, &value);
       }
     }
   }
   // A notice to an agent under way holds a slot and a session under its item: the session is ended once its
-  // turn is over, and the slot given back after it, so the checkout is not let go under a turn still going.
+  // turn is over, and only then is everything its owner holds given back, so the checkout is not let go under
+  // a turn still going.
   let mut notices: BTreeMap<i64, Vec<(String, String)>> = BTreeMap::new();
   for (item, kind, value) in app.store.notice_holds().unwrap_or_default() {
     notices.entry(item).or_default().push((kind, value));
@@ -1706,25 +1745,14 @@ pub async fn sweep(app: &Arc<App>) -> usize {
       for (kind, session) in held.iter().filter(|(kind, _)| kind == dive::NOTICE_SESSION) {
         end_session_held(ground, (item, kind), session).await;
       }
+      release_owner(&app.peers, &format!("research:notice:{item}")).await;
       for (kind, token) in held.iter().filter(|(kind, _)| kind == dive::NOTICE_SLOT) {
-        give_back_held(ground, (item, kind), token, "stopped: the research unit restarted", false).await;
+        let _ = app.store.let_go(item, kind, token);
       }
     });
   }
   for row in &open {
     let run = row.id;
-    // A turn under way runs on in agency to its end: its session is ended once it is over.
-    for (kind, value) in app.store.holds(run).unwrap_or_default() {
-      match kind.as_str() {
-        SESSION => {
-          let app = app.clone();
-          tokio::spawn(async move { end_session(&app, run, &value).await });
-        }
-        _ => {
-          give_back(app, run, &value, "stopped: the research unit restarted", false).await;
-        }
-      }
-    }
     let why = "the research unit restarted while the run was under way";
     if app.store.close_research_run(run, "cut", Some(why), None).unwrap_or(false) {
       note(app, run, "ended", "The research was cut: the research unit restarted.");

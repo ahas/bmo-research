@@ -717,12 +717,13 @@ search runner applies it, and the run writes its document in English, the questi
     the role's line takes.
   - **The session:** once let in, `POST /sessions` with `scope` `role` and `slot` the slot's token, and
     nothing of a road or a folder: the run goes out as the `worker` role on the slot's road at the checkout,
-    on the role's own prompt. The slot is then bound to the turn's run name,
-    `research-notice-<itemId>-<agentName>`.
-  - **The turn:** the notice as `prompt`, under that name and the title, waited on until it ends however long
-    that takes (`docs/runner.md`, 「A turn's send」). The session is then ended and the slot given back with
-    the turn's outcome; both are kept in the store while they stand, so a restart gives them back
-    (`docs/runner.md`, 「A restart」).
+    on the role's own prompt. Agency binds the slot to that session as it starts it, so the slot ends with
+    the session.
+  - **The turn:** the notice as `prompt`, under the name `research-notice-<itemId>-<agentName>` and the
+    title, waited on until it ends however long that takes (`docs/runner.md`, 「A turn's send」). The
+    session is then ended, which gives the slot back with it, and the slot is finished with the turn's
+    outcome where agency still holds it; both are kept in the store while they stand, so a restart gives
+    them back (`docs/runner.md`, 「A restart」).
   - **Its report row** is kept as the run ends, `sent` once the turn is answered and `refused` with the
     sentence of the step that failed: no repository of the name, no slot, no session, or no answer.
 - **A `fit` item's notice carries what its recipient needs to act,** after the line: what its shape says
@@ -804,34 +805,37 @@ of these units, and reads each one's address and token from that unit's own file
 
 - **agency:** `POST /slot-requests` with `requestKey`, `owner`, `role` and `source`, and `provider` and
   `model` together where the slot's road is named — a run's where its ask names a model, a branch's and a
-  review's the run's road — a run's, a branch's or a review's slot, answered with its `token` and `state`
-  and, once let in, the `provider`, `model` and `effort` it goes out on, or 422 once its key was spent; a
-  notice's slot names `path` and `placeKey` beside them (「The notices」). `PATCH /slot-requests/{token}`
-  naming no state (its place asked for, answered with `request` null until it is let in), `bound` with
-  `childId` (a branch's, a review's or a notice's slot, bound to its one turn's run name; the run's slot is
-  bound to none, `docs/runner.md`, 「The slots' children」) or `finished` with `outcome`, and `cancel` where
-  it never ran; an admission of a slot whose run or branch holds a card names `demandId`, that card's demand
-  id, the slot standing on it with no card of its own asked.
-  `POST /sessions` with `scope` `role` and `slot`, the token of the active slot the session runs on, and
-  beside them `line`, `systemPrompt`, `labels` and `toolsAllowed` for a run's, a branch's or a review's,
-  and `demandId` where its run or branch holds a card; never a role, a provider, a model, a folder or
-  `boundMs`, the session running as the slot's role on its road at its path. Answered with the session's
-  `id`, `<role>@run:<n>`, or 422 `slot-not-active` or `contradicts-slot`, or 503 `line-not-carried`.
-  `POST /sessions/{id}/turns` with `prompt` and the turn's own parts (`resume`, `name`, `title`, `chat`,
-  `hearsWords`, `variables`), its road, effort and folder the session's, answered once the turn ends with
-  its `answer`, or 409 `session-busy` while an earlier turn of the session still runs: `GET /sessions/{id}`
-  is then read every two seconds until its `run` is null, and the turn sent again (`docs/runner.md`, 「A
-  turn's send」). `DELETE /sessions/{id}`, the session ended, answered 409 while its turn runs. `GET /roles`,
-  the roles a branch role is checked against; `GET /roles/{roleName}`, the order a run naming a model alone
-  reads its provider off; `GET /repositories/{repositoryName}`, the checkout a notice to an agent runs at.
-  No call of the slot and session routes carries a clock of this unit's, a turn's send among them: each is
-  waited on until agency answers, however long a card it waits on takes and however long the turn writes.
-  `POST /translation-runs`
-  with `purpose`, `language`, `text`, `note` and `terms` (each a `source` alone, kept as written), one part
-  of a page's Korean side or its narration;
-  answered 200 with `text`, 413 `too-large` or 503 `no-login-open`. A translation's call carries no clock
-  of this unit's either: it is waited on until agency answers, however long the card the translations
-  share takes to be granted and the part to be translated.
+  review's the run's road — a run's, a branch's or a review's slot, answered with its `token` and `state` and,
+  once let in, the `provider`, `model` and `effort` it goes out on, or 422 once its key was spent; a notice's
+  slot names `path` and `placeKey` beside them (「The notices」). `PATCH /slot-requests/{token}` naming no state
+  (its place asked for, answered with the request's `state`: asked again while it is `waiting` or `reserved`,
+  let in with `request` once it is `active`, and never asked again once it is `released` or `cancelled`, its
+  `endedBy` and `outcome` saying who gave it back and why) or `finished` with `outcome`, and `cancel` where it
+  never ran, a finish answered `held` false where agency gave the slot back first; this unit binds no slot
+  itself (`docs/runner.md`, 「The slots' children」); an admission of a slot whose run or branch holds a card
+  names `demandId`, that card's demand id, the slot standing on it with no card of its own asked. `POST
+  /sessions` with `scope` `role` and `slot`, the token of the active slot the session runs on, and beside them
+  `line`, `systemPrompt`, `labels` and `toolsAllowed` for a run's, a branch's or a review's, and `demandId`
+  where its run or branch holds a card; never a role, a provider, a model, a folder or `boundMs`, the session
+  running as the slot's role on its road at its path, and agency binding the slot to it where the slot is
+  bound to no session yet. Answered with the session's `id`, `<role>@run:<n>`, or 422 `slot-not-active` or
+  `contradicts-slot`, or 503 `line-not-carried`. `DELETE /slot-requests?owner=`, at the daemon's start, for
+  the owner of each run it closes and of each run or notice its store still holds something under
+  (`research:<run>`, `research:notice:<itemId>`), answered with the counts given back and `sessionsEnded`, the
+  sessions agency ended (`docs/runner.md`, 「A restart」). `POST /sessions/{id}/turns` with `prompt` and the
+  turn's own parts (`resume`, `name`, `title`, `chat`, `hearsWords`, `variables`), its road, effort and folder
+  the session's, answered once the turn ends with its `answer`, or 409 `session-busy` while an earlier turn of
+  the session still runs: `GET /sessions/{id}` is then read every two seconds until its `run` is null, and the
+  turn sent again (`docs/runner.md`, 「A turn's send」). `DELETE /sessions/{id}`, the session ended, answered
+  409 while its turn runs. `GET /roles`, the roles a branch role is checked against; `GET /roles/{roleName}`,
+  the order a run naming a model alone reads its provider off; `GET /repositories/{repositoryName}`, the
+  checkout a notice to an agent runs at. No call of the slot and session routes carries a clock of this
+  unit's, a turn's send among them: each is waited on until agency answers, however long a card it waits on
+  takes and however long the turn writes. `POST /translation-runs` with `purpose`, `language`, `text`, `note`
+  and `terms` (each a `source` alone, kept as written), one part of a page's Korean side or its narration;
+  answered 200 with `text`, 413 `too-large` or 503 `no-login-open`. A translation's call carries no clock of
+  this unit's either: it is waited on until agency answers, however long the card the translations share takes
+  to be granted and the part to be translated.
 - **the artifact service:** `GET /documents?q=<name>&limit=1`, the archive check a candidate passes
   (`docs/sources.md`); `POST /documents`, a run's document, `html` for a deep dive's page;
   `POST /documents/{documentId}/attachments` with `name`, `mediaType`, `content` (base64) and, for a deep

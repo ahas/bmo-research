@@ -7,7 +7,6 @@
 use std::sync::Arc;
 
 use bmo_research_client::{BranchAsk, BranchEnd, BranchState, ResearchRunState};
-use serde_json::json;
 
 use crate::App;
 use crate::engine::{self, Uncarded};
@@ -48,7 +47,8 @@ struct Held {
   slot: Option<String>,
   session: Option<String>,
   demand: Option<i64>,
-  bound: bool,
+  /// Whether its session started, so its slot ran and is finished rather than cancelled.
+  started: bool,
 }
 
 impl Held {
@@ -58,7 +58,7 @@ impl Held {
       runner::end_session(&self.app, self.run, &session).await;
     }
     if let Some(slot) = self.slot.take() {
-      let cancel = !self.bound;
+      let cancel = !self.started;
       runner::give_back(&self.app, self.run, &slot, if cancel { UNSEATED } else { outcome }, cancel).await;
     }
     if let Some(demand) = self.demand.take() {
@@ -78,7 +78,7 @@ impl Drop for Held {
       slot: self.slot.take(),
       session: self.session.take(),
       demand: self.demand.take(),
-      bound: self.bound,
+      started: self.started,
     };
     tokio::spawn(async move { left.give_back("stopped: its caller let go").await });
   }
@@ -114,7 +114,7 @@ pub async fn open(app: Arc<App>, ask: BranchAsk) -> Result<BranchEnd, Refusal> {
     slot: None,
     session: None,
     demand: None,
-    bound: false,
+    started: false,
   };
   match engine::branch_card(&app, row.id, &row.provider, &row.model, index).await {
     Ok(demand) => held.demand = demand,
@@ -140,7 +140,7 @@ pub async fn open(app: Arc<App>, ask: BranchAsk) -> Result<BranchEnd, Refusal> {
     }
     if slot.ended() {
       held.give_back("failed").await;
-      return Ok(failed(index, "agency ended the slot request before it got a place"));
+      return Ok(failed(index, &slot.given_back("its slot request")));
     }
     if !runner::runs(&app, row.id) {
       held.give_back(UNSEATED).await;
@@ -148,11 +148,7 @@ pub async fn open(app: Arc<App>, ask: BranchAsk) -> Result<BranchEnd, Refusal> {
     }
     tokio::time::sleep(runner::LOOK_EVERY).await;
     match app.peers.move_slot(&slot.token, &runner::admission(held.demand)).await {
-      Ok(said) => {
-        if let Some(now) = Slot::admission(&said) {
-          slot = now;
-        }
-      }
+      Ok(said) => slot = slot.admission(&said),
       Err(fault) => {
         held.give_back("failed").await;
         return Ok(failed(index, &fault.why));
@@ -186,8 +182,8 @@ fn failed(index: i64, why: &str) -> BranchEnd {
   }
 }
 
-/// The let-in branch's session started on its slot, on the run's road, the slot bound to its turn's run name,
-/// and that one turn waited on until it ends: what the turn wrote.
+/// The let-in branch's session started on its slot, on the run's road, agency binding the slot to it, and
+/// that one turn waited on until it ends: what the turn wrote.
 async fn let_in(
   app: &App,
   row: &crate::store::ResearchRunRow,
@@ -215,12 +211,8 @@ async fn let_in(
   .await
   .map_err(String::from)?;
   held.session = Some(session.clone());
+  held.started = true;
   let name = format!("research-{}-branch-{index}", row.id);
-  let bound = app.peers.move_slot(&slot.token, &json!({ "state": "bound", "childId": name })).await;
-  if let Err(why) = bound {
-    return Err(format!("its slot could not be bound to its turn: {why}"));
-  }
-  held.bound = true;
   let source = row.record["source"].as_str().unwrap_or(LINE);
   let title = format!("{source} branch {index}");
   let body = runner::turn_body(

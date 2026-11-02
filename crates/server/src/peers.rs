@@ -711,6 +711,23 @@ impl Peers {
     self.held_call(&agency, request, &format!("PATCH {path}"), true).await
   }
 
+  /// Everything an owner holds of agency given back (`docs/runner.md`, 「A restart」): each slot it asked,
+  /// waiting or let in, and each session agency bound one of them to, ended. Answers the sessions agency
+  /// ended.
+  pub async fn release_owner(&self, owner: &str) -> Result<Vec<String>, Fault> {
+    let agency = self.agency().map_err(Fault::kept)?;
+    let request = self
+      .request(&agency, reqwest::Method::DELETE, "/slot-requests")
+      .query(&[("owner", owner)]);
+    let answer = self.held_call(&agency, request, "DELETE /slot-requests", false).await?;
+    Ok(
+      answer["sessionsEnded"]
+        .as_array()
+        .map(|ended| ended.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+        .unwrap_or_default(),
+    )
+  }
+
   /// A role's session started: its id.
   pub async fn start_session(&self, start: &Value) -> Result<String, Fault> {
     let agency = self.agency().map_err(Fault::kept)?;

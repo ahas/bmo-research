@@ -2027,9 +2027,18 @@ async fn a_restarted_daemon_cuts_the_runs_it_left_open_and_takes_up_its_tries() 
 
   let cut = store.research_run(research).unwrap();
   assert_eq!((cut.state, cut.outcome.as_deref()), (ResearchRunState::Closed, Some("cut")));
-  let gave_back = ground.asked_path("agency", "PATCH", "/slot-requests/slot-left");
-  assert_eq!(gave_back[0].body["state"], "finished");
-  assert_eq!(ground.asked_path("agency", "DELETE", "/sessions/searcher@run:9").len(), 1);
+  assert_eq!(
+    ground.world.lock().unwrap().owners_released,
+    [format!("research:{research}"), format!("research:{asked_by_room}")],
+    "everything each run held is given back by its owner"
+  );
+  assert!(ground.asked_path("agency", "PATCH", "/slot-requests/slot-left").is_empty());
+  assert!(store.holds(research).unwrap().is_empty(), "nothing of the run is kept held");
+  assert_eq!(
+    ground.asked_path("agency", "DELETE", "/sessions/searcher@run:9").len(),
+    1,
+    "a session agency did not end with the owner's release is ended"
+  );
   let told = orders(&ground);
   assert_eq!(told.len(), 1, "a run the deep dive asked tells no room");
   assert_eq!(
@@ -2166,13 +2175,21 @@ async fn a_whole_page_is_reviewed_once_on_a_slot_of_its_own_and_its_report_told_
   assert!(session.get("demandId").is_none(), "agency asks the review's card");
   assert_eq!(session["scope"], "role");
   assert!(session.get("role").is_none(), "the review's session runs as its slot's role");
-  let tokens: Vec<Value> = ground
-    .asked_path("agency", "PATCH", "/slot-requests/")
-    .into_iter()
-    .filter(|a| a.body == serde_json::json!({"state": "bound", "childId": "research-1-review"}))
-    .map(|a| Value::String(a.path.trim_start_matches("/slot-requests/").to_string()))
-    .collect();
-  assert_eq!(tokens, [session["slot"].clone()], "the review's session runs on the review's own slot");
+  let moved = ground.asked_path("agency", "PATCH", "/slot-requests/");
+  assert!(moved.iter().all(|a| a.body["state"] != "bound"), "this unit binds no slot: {moved:?}");
+  let review_slot = ground
+    .world
+    .lock()
+    .unwrap()
+    .slot_keys
+    .iter()
+    .find(|(key, _)| key.contains(":review:"))
+    .map(|(_, (token, _))| Value::String(token.clone()));
+  assert_eq!(
+    review_slot,
+    Some(session["slot"].clone()),
+    "the review's session runs on the review's own slot"
+  );
   let asked = review_turns(&ground, 1);
   assert_eq!(asked.len(), 1);
   let prompt = asked[0]["prompt"].as_str().unwrap();
@@ -2401,11 +2418,17 @@ async fn a_review_cut_by_a_restart_asks_again_under_a_fresh_key_and_gets_a_slot(
   ground.world.lock().unwrap().review_holding = false;
   let next = restarted(&ground);
   research_server::runner::sweep(&next).await;
-  let given_back = ground.asked_path("agency", "PATCH", "/slot-requests/");
-  assert!(
-    given_back.iter().any(|a| a.body["outcome"] == "stopped: the research unit restarted"),
-    "the review's slot is given back at the restart"
-  );
+  {
+    let world = ground.world.lock().unwrap();
+    assert_eq!(
+      world.owners_released,
+      ["research:1"],
+      "the review's slot is given back by its run's owner"
+    );
+    let review = world.slot_keys["research:1:review:1"].0.clone();
+    assert_eq!(world.given_back[&review].1, "owner");
+  }
+  assert!(next.store.closed_holds().unwrap().is_empty(), "nothing of the review is kept held");
   for handle in tick(&next).await {
     handle.await.unwrap();
   }
@@ -2763,9 +2786,9 @@ async fn a_notice_waits_for_its_slot_then_runs_and_gives_everything_back() {
     .collect();
   let admissions = moves.iter().filter(|b| **b == serde_json::json!({})).count();
   assert!(admissions >= 2, "asked for its place until let in: {moves:?}");
-  assert_eq!(
-    moves.iter().rev().nth(1).cloned(),
-    Some(serde_json::json!({"state": "bound", "childId": "research-notice-42-worker-a"}))
+  assert!(
+    moves.iter().all(|b| b["state"] != "bound"),
+    "agency binds the slot at the session's start"
   );
   assert_eq!(moves.last().unwrap()["state"], "finished");
   let turn = &ground.turns_named("research-notice-42-worker-a")[0];
@@ -2805,7 +2828,16 @@ async fn a_restart_ends_a_notice_s_session_then_gives_back_its_slot() {
     .filter(|a| a.path == "/sessions/worker@run:7" || a.path == "/slot-requests/slot-notice")
     .map(|a| a.method)
     .collect();
-  assert_eq!(order, ["DELETE", "PATCH"]);
-  let gave_back = ground.asked_path("agency", "PATCH", "/slot-requests/slot-notice");
-  assert_eq!(gave_back[0].body["state"], "finished");
+  assert_eq!(order, ["DELETE"], "the slot is given back by its owner, not by its token");
+  let order: Vec<String> = ground
+    .asked("agency")
+    .into_iter()
+    .filter(|a| a.path == "/sessions/worker@run:7" || a.path.starts_with("/slot-requests?"))
+    .map(|a| format!("{} {}", a.method, a.path))
+    .collect();
+  assert_eq!(
+    order,
+    ["DELETE /sessions/worker@run:7", "DELETE /slot-requests?owner=research%3Anotice%3A43"],
+    "the session is ended before everything the notice's owner holds is given back"
+  );
 }

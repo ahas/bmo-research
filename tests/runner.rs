@@ -191,12 +191,40 @@ async fn a_search_is_let_in_sent_asked_its_rounds_filed_and_told_to_its_room() {
     .into_iter()
     .map(|a| a.body)
     .collect();
-  assert!(
-    moved.iter().all(|m| m["state"] != "bound"),
-    "the run's slot is bound to no child: {moved:?}"
-  );
+  assert!(moved.iter().all(|m| m["state"] != "bound"), "this unit binds no slot: {moved:?}");
   assert_eq!(moved.last().unwrap(), &json!({"state": "finished", "outcome": "answered"}));
-  assert_eq!(ground.asked_path("agency", "DELETE", "/sessions/").len(), 2, "both sessions ended");
+  let ended: Vec<String> = ground
+    .asked_path("agency", "DELETE", "/sessions/")
+    .into_iter()
+    .map(|a| a.path)
+    .collect();
+  assert_eq!(ended.len(), 2, "both sessions ended");
+  let started: Vec<Value> = ground
+    .asked_path("agency", "POST", "/sessions")
+    .into_iter()
+    .filter(|a| a.path == "/sessions")
+    .map(|a| a.body)
+    .collect();
+  assert_eq!(
+    started.iter().map(|s| s["slot"].clone()).collect::<Vec<_>>(),
+    [json!("slot-1"), json!("slot-1")],
+    "the rounds' session starts on the run's slot while the first, which agency bound it to, stands"
+  );
+  let order: Vec<String> = ground
+    .asked("agency")
+    .into_iter()
+    .filter(|a| {
+      (a.method == "DELETE" && a.path.starts_with("/sessions/"))
+        || (a.path == "/slot-requests/slot-1" && a.body["state"] == "finished")
+    })
+    .map(|a| format!("{} {}", a.method, a.path))
+    .collect();
+  assert_eq!(
+    order.iter().map(|o| o.split(' ').next().unwrap()).collect::<Vec<_>>(),
+    ["DELETE", "PATCH", "DELETE"],
+    "the rounds' session is ended, then the slot given back, then the first session: {order:?}"
+  );
+  assert_ne!(order[0], order[2], "two sessions: {order:?}");
 
   let filed = ground.run_documents();
   assert_eq!(filed.len(), 1);
@@ -506,10 +534,8 @@ async fn a_branch_is_let_in_run_and_counted_against_its_run_s_allowance() {
   assert!(turn.get("workKey").is_none() && turn.get("provider").is_none());
   let given_back = ground.asked_path("agency", "PATCH", "/slot-requests/slot-1");
   assert!(
-    given_back
-      .iter()
-      .any(|a| a.body == json!({"state": "bound", "childId": "research-1-branch-1"})),
-    "the branch's slot is bound to its turn's run name: {given_back:?}"
+    given_back.iter().all(|a| a.body["state"] != "bound"),
+    "agency binds the branch's slot to its session as it starts it: {given_back:?}"
   );
   assert_eq!(given_back.last().unwrap().body, json!({"state": "finished", "outcome": "completed"}));
   assert_eq!(ground.asked_path("agency", "DELETE", "/sessions/").len(), 1);
@@ -573,6 +599,44 @@ async fn a_slow_branch_is_waited_on_and_a_waiting_slot_still_let_in() {
   let moved = ground.asked_path("agency", "PATCH", "/slot-requests/slot-2");
   assert!(moved.iter().all(|a| a.body.get("cancel").is_none()), "the slot was never cancelled");
   assert_eq!(client.research_run(late).await.unwrap().branches, 1);
+}
+
+/// A run's slot that agency gives back while it waits is asked for no more: the admission's `state` says so,
+/// and the run is cut naming who gave it back and why (`docs/runner.md`, 「One run, step by step」).
+#[tokio::test]
+async fn a_run_s_slot_given_back_while_it_waits_is_asked_no_more_and_the_run_is_cut() {
+  let (ground, _base, client) = served().await;
+  {
+    let mut world = ground.world.lock().unwrap();
+    world.slot_waits = 1_000;
+    world.given_back.insert(
+      "slot-1".into(),
+      ("cancelled".into(), "owner".into(), "its owner gave back everything it held".into()),
+    );
+  }
+  client
+    .ask_research(&ResearchRunAsk {
+      key: "search:basic".into(),
+      query: "Which engine serves Thing-7B fastest?".into(),
+      ..ResearchRunAsk::default()
+    })
+    .await
+    .unwrap();
+
+  let run = closed(&ground, 1).await;
+  assert_eq!(run.outcome.as_deref(), Some("cut"));
+  let error = run.error.unwrap_or_default();
+  assert!(
+    error.contains("cancelled by owner") && error.contains("its owner gave back everything it held"),
+    "{error}"
+  );
+  let admissions = ground
+    .asked_path("agency", "PATCH", "/slot-requests/slot-1")
+    .into_iter()
+    .filter(|a| a.body == json!({}))
+    .count();
+  assert_eq!(admissions, 1, "a request given back is asked for no more");
+  assert!(ground.asked_path("agency", "POST", "/sessions").is_empty(), "no session is started");
 }
 
 /// A run's slot still waiting is asked for its place until it is let in, however long its role's line

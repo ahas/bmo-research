@@ -70,6 +70,15 @@ pub struct World {
   pub slot_roles: BTreeMap<String, String>,
   /// The slots given back, by token, whose key an ask under it again is refused.
   pub slots_finished: BTreeSet<String>,
+  /// Each slot's owner, by token, as its ask named it.
+  pub slot_owners: BTreeMap<String, String>,
+  /// The role session each slot is bound to, by token: the first one started on it.
+  pub slot_sessions: BTreeMap<String, String>,
+  /// How each slot was given back, by token: its state, who gave it back and the words it was given back
+  /// with.
+  pub given_back: BTreeMap<String, (String, String, String)>,
+  /// Every owner whose release was asked, in order.
+  pub owners_released: Vec<String>,
   /// The repositories agency holds no row of.
   pub repositories_missing: BTreeSet<String>,
   /// How many admission asks a slot waits through before it is let in.
@@ -333,6 +342,9 @@ async fn agency_slot(State(w): State<Shared>, method: Method, uri: Uri, body: By
   let token = format!("slot-{}", world.next_slot);
   world.slot_keys.insert(key, (token.clone(), fixed.clone()));
   world.slot_roles.insert(token.clone(), role.clone());
+  world
+    .slot_owners
+    .insert(token.clone(), asked["owner"].as_str().unwrap_or_default().to_string());
   let state = if world.slot_waits == 0 { "active" } else { "waiting" };
   (StatusCode::CREATED, axum::Json(slot_of(&token, &role, state, &fixed))).into_response()
 }
@@ -358,8 +370,16 @@ async fn agency_slot_move(
     .and_then(|(_, fixed)| fixed.clone());
   match change["state"].as_str() {
     Some("finished") => {
+      let held = !world.slots_dropped && !world.slots_finished.contains(&token);
+      let cancel = change["cancel"].as_bool() == Some(true);
+      let state = if cancel { "cancelled" } else { "released" };
+      let outcome = change["outcome"].as_str().unwrap_or_default().to_string();
+      world
+        .given_back
+        .entry(token.clone())
+        .or_insert((state.to_string(), "holder".to_string(), outcome));
       world.slots_finished.insert(token);
-      axum::Json(json!({"held": !world.slots_dropped, "stoodDown": false, "note": null})).into_response()
+      axum::Json(json!({"held": held, "stoodDown": false, "note": null})).into_response()
     }
     Some("bound") => axum::Json(slot_of(&token, "", "active", &fixed)).into_response(),
     Some(other) => (
@@ -369,13 +389,28 @@ async fn agency_slot_move(
       ),
     )
       .into_response(),
+    None if world.given_back.contains_key(&token) => {
+      let (state, by, outcome) = world.given_back[&token].clone();
+      axum::Json(
+        json!({"request": null, "state": state, "endedBy": by, "outcome": outcome, "demand": null}),
+      )
+      .into_response()
+    }
     None if world.slot_waits > 0 => {
       world.slot_waits -= 1;
-      axum::Json(json!({"request": null, "demand": null})).into_response()
+      axum::Json(
+        json!({"request": null, "state": "waiting", "endedBy": null, "outcome": null, "demand": null}),
+      )
+      .into_response()
     }
-    None => {
-      axum::Json(json!({"request": slot_of(&token, "", "active", &fixed), "demand": null})).into_response()
-    }
+    None => axum::Json(json!({
+      "request": slot_of(&token, "", "active", &fixed),
+      "state": "active",
+      "endedBy": null,
+      "outcome": null,
+      "demand": null,
+    }))
+    .into_response(),
   }
 }
 
@@ -425,6 +460,8 @@ async fn agency_session(State(w): State<Shared>, method: Method, uri: Uri, body:
   }
   world.next_session += 1;
   let id = format!("{role}@run:{}", world.next_session);
+  // A role's start binds the slot it names to the session it opens, where the slot is bound to none yet.
+  world.slot_sessions.entry(token.to_string()).or_insert_with(|| id.clone());
   (
     StatusCode::CREATED,
     axum::Json(json!({"id": id, "agentName": role, "scope": "role", "provider": road["provider"], "model": road["model"], "boundMs": asked["boundMs"]})),
@@ -443,7 +480,67 @@ async fn agency_session_end(State(w): State<Shared>, method: Method, uri: Uri, b
     )
       .into_response();
   }
+  // A slot bound to the session is given back as the session ends.
+  let session = uri.path().trim_start_matches("/sessions/").to_string();
+  let bound: Vec<String> = world
+    .slot_sessions
+    .iter()
+    .filter(|(token, held)| **held == session && !world.slots_finished.contains(*token))
+    .map(|(token, _)| token.clone())
+    .collect();
+  for token in bound {
+    world.given_back.insert(
+      token.clone(),
+      ("released".to_string(), "run-ended".to_string(), "its role session ended".to_string()),
+    );
+    world.slots_finished.insert(token);
+  }
   StatusCode::NO_CONTENT.into_response()
+}
+
+/// An owner's release: every slot the owner asked that still stands given back, and each session one of them
+/// is bound to, ended.
+async fn agency_owner_release(
+  State(w): State<Shared>,
+  axum::extract::Query(query): axum::extract::Query<BTreeMap<String, String>>,
+  method: Method,
+  uri: Uri,
+  body: Bytes,
+) -> Response {
+  keep(&w, "agency", &method, &uri, &body);
+  let owner = query.get("owner").cloned().unwrap_or_default();
+  if owner.is_empty() {
+    return (
+      StatusCode::BAD_REQUEST,
+      axum::Json(json!({"code": "bad-request", "error": "owner is required"})),
+    )
+      .into_response();
+  }
+  let mut world = w.lock().unwrap();
+  world.owners_released.push(owner.clone());
+  let held: Vec<String> = world
+    .slot_owners
+    .iter()
+    .filter(|(token, asker)| **asker == owner && !world.slots_finished.contains(*token))
+    .map(|(token, _)| token.clone())
+    .collect();
+  let mut ended = vec![];
+  for token in &held {
+    if let Some(session) = world.slot_sessions.get(token) {
+      ended.push(session.clone());
+    }
+    world.given_back.insert(
+      token.clone(),
+      (
+        "released".to_string(),
+        "owner".to_string(),
+        "its owner gave back everything it held".to_string(),
+      ),
+    );
+    world.slots_finished.insert(token.clone());
+  }
+  axum::Json(json!({"cancelled": 0, "released": held.len(), "reservations": 0, "sessionsEnded": ended}))
+    .into_response()
 }
 
 async fn agency_session_state(State(w): State<Shared>, method: Method, uri: Uri, body: Bytes) -> Response {
@@ -655,7 +752,7 @@ async fn agency_translation(State(w): State<Shared>, method: Method, uri: Uri, b
 
 pub fn agency(world: Shared) -> Router {
   Router::new()
-    .route("/slot-requests", post(agency_slot))
+    .route("/slot-requests", post(agency_slot).delete(agency_owner_release))
     .route("/slot-requests/{token}", axum::routing::patch(agency_slot_move))
     .route("/sessions", post(agency_session))
     .route("/sessions/{session}", delete(agency_session_end).get(agency_session_state))

@@ -1569,9 +1569,10 @@ pub const NOTICE_SESSION: &str = "notice-session";
 
 /// A notice told to an agent by one run of agency's worker role at its repository's checkout (`docs/api.md`,
 /// 「The notices」): a slot asked at the checkout under a key drawn for it and waited for however long the
-/// role's line takes, a session started on it, the slot bound to the turn's run name, the notice sent as the
-/// turn and waited on until it ends, the session ended and the slot given back. Each is kept under the item
-/// while it stands, so a restart gives it back. Answers why it was not told, where it was not.
+/// role's line takes, a session started on it, which agency binds the slot to, the notice sent as the turn and
+/// waited on until it ends, the session ended, which gives the slot back with it, and the slot finished. Each
+/// is kept under the item while it stands, so a restart gives it back. Answers why it was not told, where it
+/// was not.
 pub async fn tell_by_run(
   (peers, store): (&Peers, &Store),
   agent: &str,
@@ -1610,15 +1611,11 @@ pub async fn tell_by_run(
   let told = async {
     while !slot.admitted() {
       if slot.ended() {
-        return Err("agency ended the notice's slot request before it got a place".to_string());
+        return Err(slot.given_back("the notice's slot request"));
       }
       tokio::time::sleep(runner::LOOK_EVERY).await;
       match peers.move_slot(&slot.token, &runner::admission(None)).await {
-        Ok(said) => {
-          if let Some(now) = runner::Slot::admission(&said) {
-            slot = now;
-          }
-        }
+        Ok(said) => slot = slot.admission(&said),
         Err(fault) => return Err(format!("the notice's slot could not be let in: {fault}")),
       }
     }
@@ -1629,10 +1626,6 @@ pub async fn tell_by_run(
     let _ = store.hold(item, NOTICE_SESSION, &started);
     let started: &str = session.insert(started);
     let name = format!("research-notice-{item}-{agent}");
-    let bound = json!({ "state": "bound", "childId": name });
-    if let Err(fault) = peers.move_slot(&slot.token, &bound).await {
-      return Err(format!("the notice's slot could not be bound to its turn: {fault}"));
-    }
     let body = json!({
       "prompt": notice,
       "name": name,
