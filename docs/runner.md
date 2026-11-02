@@ -84,13 +84,13 @@ of a run is this unit's.
    left standing.
 5. **The answer at once:** 202 with the run's id, its key, its state (`waiting` while its seat waits for a
    place, `running` once admitted), its road and the moment its web tools close. The run's clock starts at the
-   ask, so a seat that waits spends the run's own time.
+   ask, so a seat that waits spends the run's own time: a run seated past its clock finds its web tools
+   closed, and writes its answer from what it has.
 6. **The admission:** a seat still waiting is asked for its place again every half second (`PATCH` naming
    `admitted`, and `demandId` the run's demand where it holds one, which the seat stands on with no card of
-   its own asked, whatever model its work key resolved to) until it is let in, then bound to the session
-   (`PATCH` naming `bound` with the session's id). A
-   seat the pool ends, or one still waiting when the clock runs out, ends the run with no answer, and the
-   run is cut (「A cut run」).
+   its own asked, whatever model its work key resolved to) until it is let in, however long the pool takes,
+   then bound to the session (`PATCH` naming `bound` with the session's id). A seat the pool ends ends the
+   run with no answer, and the run is cut (「A cut run」).
 7. **The first turn:** the request, as one turn of the session (`POST /sessions/{id}/turns`) carrying the work
    parts — the provider, the model, the seat's mapping (model, effort, tier), a fresh resume, an empty folder,
    the name `research-<run>`, the title, the room or 0, the key as the work key, no words heard and no
@@ -118,9 +118,10 @@ of a run is this unit's.
 
 - **The clock is held between turns, never by cutting one.** The key's minutes close the run's web tools at
   `closesAt`: from then on they answer RESEARCH CLOSED, and the turn writes its answer from what it has. The
-  rounds' ceiling is read before each round (「The rounds」). Nothing else of the clock reaches a turn: no
-  session this unit starts names `boundMs`, so agency cuts none of its turns, and no turn's send carries a
-  clock of this unit's.
+  rounds' ceiling is read before each round (「The rounds」), and decides whether another round is started.
+  Nothing else of the clock reaches a turn or a wait: no session this unit starts names `boundMs`, so agency
+  cuts none of its turns; no turn's send carries a clock of this unit's; and a seat, the run's or a
+  branch's, and a branch's card are waited for however long the pool and the arbiter take.
 
 ## A turn's send
 
@@ -163,13 +164,13 @@ of a run is this unit's.
 - **A branch** is a seat of the common co-worker pool under the settings' branch role and a thrown-away session
   on the run's provider and model, on the branch instructions, its record the run's with `branchOf` the run's
   id, `pages` the run's `branchPages`, `branches` 0 and no `branchPages`, `branchesAt` or `branchesToken`. Its
-  one turn carries the angle, framed as data, and how long is left before research closes; the turn is
-  waited on until it ends (「A turn's send」), its web tools answering RESEARCH CLOSED past the close, as the
-  run's do.
+  seat is waited for however long the pool takes, while its run is running. Its one turn carries the angle,
+  framed as data, and how long is left before research closes; the turn is waited on until it ends (「A
+  turn's send」), its web tools answering RESEARCH CLOSED past the close, as the run's do.
 - **A branch of a run holding a demand** asks the arbiter's master its own first, for the service the engine
-  watch maps the branch's model to, `within` the run's demand, and waits for the grant until research
-  closes; its seat's admission and its session both stand on that demand, naming it as `demandId`, and it
-  is given back as the branch ends (`docs/api.md`, 「The engine」).
+  watch maps the branch's model to, `within` the run's demand, and waits for the grant however long it takes,
+  while its run is running; its seat's admission and its session both stand on that demand, naming it as
+  `demandId`, and it is given back as the branch ends (`docs/api.md`, 「The engine」).
 - **A branch ends** `completed`, `stopped` (ended after research closed, its notes as far as they got) or
   `failed`, its session ended and its seat given back with the same word; a caller that lets go of the ask
   ends it the same way.
@@ -398,8 +399,7 @@ daemon finishes, held first to the shape the deep dive asked for.
   - a call into agency for its seat, its session or a turn does not reach agency, is answered with a failure
     of agency's own (5xx), or is answered 404 for the seat or the session the call names, which agency no
     longer holds;
-  - the pool ends its seat before it got a place, or the seat still waits for one when the run's clock runs
-    out;
+  - the pool ends its seat before it got a place;
   - its seat, given back at its end, is one agency no longer held (the finish answering `held` false), or the
     finish does not reach agency.
 - **A run that met a loss and filed no document closes `cut`,** its error naming the first loss; one that

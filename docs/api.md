@@ -323,14 +323,15 @@ the one to read.
   or `failed`), `notes` (what the branch wrote, empty where nothing) and `reason` (why, on `failed`; null
   otherwise). A run that does not stand is 404 `not-found`, an empty angle 400 `bad-request`. It is 409
   `branch-refused`, the sentence saying why, where the run is no longer running or its research has closed,
-  the run is allowed no branches, it has opened every branch it is allowed (the sentence names how many), or
-  the pool stayed full until research closed; every ask past the first two checks counts against the
-  allowance. A caller that lets go ends its branch: its session ended once its turn is over, its seat
+  the run is allowed no branches, or it has opened every branch it is allowed (the sentence names how many);
+  every ask past the first two checks counts against the allowance. Its seat is waited for however long the
+  pool takes, and a run that stops running meanwhile has the branch refused the same way, with nothing left
+  standing. A caller that lets go ends its branch: its session ended once its turn is over, its seat
   given back and its demand with them.
 - **A branch of a run holding a card** (「The engine」) asks its own demand first, for the service the
-  engine watch maps the branch's model to, within the run's demand; it waits for the grant until research
-  closes, when it is 409 `branch-refused` with nothing left standing, and its seat and session stand on the
-  grant.
+  engine watch maps the branch's model to, within the run's demand; it waits for the grant however long it
+  takes, and a run that stops running meanwhile has it refused 409 `branch-refused` with nothing left
+  standing; its seat and session stand on the grant.
 
 ### research settings
 

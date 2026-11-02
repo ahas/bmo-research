@@ -512,7 +512,7 @@ async fn a_branch_is_seated_run_and_counted_against_its_run_s_allowance() {
 }
 
 #[tokio::test]
-async fn a_branch_still_writing_at_research_close_is_stopped_and_a_seat_waiting_past_it_refused() {
+async fn a_branch_still_writing_at_research_close_is_stopped_and_a_seat_waiting_past_it_still_seated() {
   let (ground, base, client) = served().await;
   ground.world.lock().unwrap().branch_wait_ms = 400;
   let run = running(&ground, 2, 200);
@@ -528,19 +528,62 @@ async fn a_branch_still_writing_at_research_close_is_stopped_and_a_seat_waiting_
   let given_back = ground.asked_path("agency", "PATCH", "/seat-requests/seat-1");
   assert_eq!(given_back.last().unwrap().body["outcome"], "stopped at research close");
 
+  // A seat still waiting at the close is waited for however long the pool takes.
   let late = running(&ground, 2, 300);
-  ground.world.lock().unwrap().seat_waits = u32::MAX;
+  {
+    let mut world = ground.world.lock().unwrap();
+    world.branch_wait_ms = 0;
+    world.seat_waits = 2;
+  }
   let (status, said) =
     raw(&base, reqwest::Method::POST, "/branches", json!({"run": late, "angle": "x"})).await;
-  assert_eq!(status, StatusCode::CONFLICT);
-  assert!(said["error"].as_str().unwrap().contains("stayed full until research closed"), "{said}");
-  let cancelled = ground.asked_path("agency", "PATCH", "/seat-requests/seat-2");
-  assert_eq!(cancelled.last().unwrap().body["cancel"], true);
-  assert_eq!(
-    client.research_run(late).await.unwrap().branches,
-    1,
-    "the ask counted against the allowance"
-  );
+  assert_eq!(status, StatusCode::OK, "{said}");
+  assert_eq!(said["notes"], format!("notes of research-{late}-branch-1"));
+  let row = ground.app.store.research_run(late).unwrap();
+  assert!(now_ms() > row.closes_at.unwrap(), "seated past the close");
+  let moved = ground.asked_path("agency", "PATCH", "/seat-requests/seat-2");
+  assert!(moved.iter().all(|a| a.body.get("cancel").is_none()), "the seat was never cancelled");
+  assert_eq!(client.research_run(late).await.unwrap().branches, 1);
+}
+
+/// A run's seat still waiting once the run's clock has run out is waited for however long the pool takes,
+/// and the run goes on to its answer (`docs/runner.md`, 「One run, step by step」).
+#[tokio::test]
+async fn a_run_s_seat_waiting_past_the_run_s_clock_is_still_seated_and_answered() {
+  let ground = support::ground(|settings| {
+    let none = KeyDefaults {
+      branches: 0,
+      minutes: 0,
+      pages: None,
+      branch_pages: None,
+    };
+    settings.research_settings.keys.insert("search:basic".into(), none);
+  })
+  .await;
+  let base = support::serve(research_server::routes::router(ground.app.clone())).await;
+  let client = ResearchClient::new(&base).with_token("test-token");
+  ground.world.lock().unwrap().seat_waits = 3;
+  let asked = client
+    .ask_research(&ResearchRunAsk {
+      key: "search:basic".into(),
+      query: "Which engine serves Thing-7B fastest?".into(),
+      ..ResearchRunAsk::default()
+    })
+    .await
+    .unwrap();
+  assert_eq!(asked.state, ResearchRunState::Waiting);
+
+  let run = closed(&ground, 1).await;
+  assert_eq!(run.outcome.as_deref(), Some("answered"), "{:?}", run.error);
+  let admitted = ground
+    .asked_path("agency", "PATCH", "/seat-requests/seat-1")
+    .into_iter()
+    .filter(|a| a.body["state"] == "admitted")
+    .count();
+  assert!(admitted >= 3, "asked for its place past the clock: {admitted}");
+  let seated = ground.app.store.research_log(1).unwrap();
+  let seated_at = seated.iter().find(|line| line.kind == "seated").unwrap().at;
+  assert!(seated_at > asked.closes_at.unwrap(), "seated after the run's clock ran out");
 }
 
 #[tokio::test]

@@ -240,21 +240,21 @@ pub async fn evicted(app: &App, try_id: i64) -> Option<String> {
 /// Why a branch got no card.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Uncarded {
-  /// Research closed before the card was granted.
-  Closed,
+  /// The run stopped running before the card was granted.
+  Ended,
   /// The master could not be asked.
   Failed(String),
 }
 
 /// A branch's card: none where its run holds no demand or the branch's road is not watched; else its own
-/// demand, asked within the run's and kept in the store, waited on until research closes at `until`.
+/// demand, asked within the run's and kept in the store, waited on until it is granted, however long that
+/// takes, while the run is running.
 pub async fn branch_card(
   app: &App,
   run_id: i64,
   provider: &str,
   model: &str,
   index: i64,
-  until: i64,
 ) -> Result<Option<i64>, Uncarded> {
   let Some(model) = watched(app, provider, model) else {
     return Ok(None);
@@ -271,16 +271,15 @@ pub async fn branch_card(
   });
   let mut held: Option<i64> = None;
   loop {
-    let left = until - now_ms();
-    if left <= 0 {
+    if !crate::runner::runs(app, run_id) {
       if let Some(id) = held {
         give_back(app, id).await;
       }
-      return Err(Uncarded::Closed);
+      return Err(Uncarded::Ended);
     }
     let read = match held {
       None => app.peers.ask_demand(&ask).await.map(Some),
-      Some(id) => app.peers.read_demand(id, HOLD_OPEN_MS.min(left as u64)).await,
+      Some(id) => app.peers.read_demand(id, HOLD_OPEN_MS).await,
     };
     let demand = match read {
       Ok(Some(demand)) => demand,

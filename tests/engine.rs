@@ -274,6 +274,58 @@ async fn a_branch_of_a_run_holding_a_card_asks_its_own_within_the_run_s() {
   assert_eq!(store.run_demand(run).unwrap(), Some(3000));
 }
 
+/// A branch's card still not granted at research's close is waited for however long the arbiter takes, while
+/// the run is running.
+#[tokio::test]
+async fn a_branch_s_card_granted_after_research_closed_still_opens_the_branch() {
+  let ground = support::ground(|_| {}).await;
+  let base = support::serve(research_server::routes::router(ground.app.clone())).await;
+  let client = ResearchClient::new(&base).with_token("test-token");
+  let store = &ground.app.store;
+  let closes_at = now_ms() + 200;
+  let run = store
+    .open_research_run(&NewResearchRun {
+      key: "search:thorough",
+      line: "search",
+      query: "Q",
+      asker: None,
+      options: None,
+      room_id: None,
+      provider: "registered",
+      model: "flash-next",
+      closes_at,
+      branches_allowed: 2,
+      tells: false,
+    })
+    .unwrap();
+  let record =
+    json!({"run": run, "source": "search", "role": "scout", "branches": 2, "pages": 8, "branchPages": 4});
+  store.keep_research_road(run, "registered", "flash-next", &record).unwrap();
+  store.research_running(run).unwrap();
+  store.keep_demand(3000, Some(5), Some(run), None, "lab-arena").unwrap();
+  ground.world.lock().unwrap().cards_busy = true;
+
+  let asked = tokio::spawn(async move {
+    client
+      .branch(&BranchAsk {
+        run,
+        angle: "the prices".into(),
+      })
+      .await
+  });
+  until("the branch's demand", || !demands_asked(&ground).is_empty()).await;
+  while now_ms() <= closes_at + 300 {
+    tokio::time::sleep(Duration::from_millis(20)).await;
+  }
+  assert!(!asked.is_finished(), "still waiting for its card past the close");
+  ground.world.lock().unwrap().grant_cards();
+
+  let end = asked.await.unwrap().unwrap();
+  assert_eq!(end.state, BranchState::Stopped, "{:?}", end.reason);
+  assert_eq!(sessions(&ground)[0]["demandId"], 4001);
+  assert_eq!(given_back(&ground), ["/demands/4001"]);
+}
+
 #[tokio::test]
 async fn a_try_failing_after_its_card_was_taken_waits_again_uncounted() {
   let ground = support::ground(|s| s.retry_minutes = 60).await;

@@ -20,9 +20,7 @@ const LINE: &str = "search";
 
 const NO_LONGER_RUNNING: &str = "the run is no longer running or its research has closed";
 const ALLOWED_NONE: &str = "this run is allowed no branches";
-const FULL_UNTIL_CLOSE: &str = "the common co-worker pool stayed full until research closed";
-const UNSEATED: &str = "research closed before a pool place";
-const UNCARDED: &str = "research closed before the arbiter granted the branch a card";
+const UNSEATED: &str = "cancelled: it never got a pool place";
 
 /// Why a branch is not opened.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -135,9 +133,9 @@ pub async fn open(app: Arc<App>, ask: BranchAsk) -> Result<BranchEnd, Refusal> {
     demand: None,
     bound: false,
   };
-  match engine::branch_card(&app, row.id, &row.provider, &row.model, index, closes_at).await {
+  match engine::branch_card(&app, row.id, &row.provider, &row.model, index).await {
     Ok(demand) => held.demand = demand,
-    Err(Uncarded::Closed) => return Err(Refusal::Refused(UNCARDED.into())),
+    Err(Uncarded::Ended) => return Err(Refusal::Refused(NO_LONGER_RUNNING.into())),
     Err(Uncarded::Failed(why)) => {
       return Ok(failed(index, &format!("the arbiter granted this branch no card: {why}")));
     }
@@ -171,9 +169,9 @@ pub async fn open(app: Arc<App>, ask: BranchAsk) -> Result<BranchEnd, Refusal> {
       held.give_back("failed").await;
       return Ok(failed(index, "the pool request was ended before it got a place"));
     }
-    if now_ms() >= closes_at {
+    if !runner::runs(&app, row.id) {
       held.give_back(UNSEATED).await;
-      return Err(Refusal::Refused(FULL_UNTIL_CLOSE.into()));
+      return Err(Refusal::Refused(NO_LONGER_RUNNING.into()));
     }
     tokio::time::sleep(runner::LOOK_EVERY).await;
     match app.peers.move_seat(&seat.token, &runner::admission(held.demand)).await {

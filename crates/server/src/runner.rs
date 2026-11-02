@@ -475,6 +475,11 @@ impl Seat {
   }
 }
 
+/// Whether a run still stands running: a branch of it waits for its seat and its card only while it does.
+pub fn runs(app: &App, run: i64) -> bool {
+  app.store.research_run(run).is_ok_and(|row| row.state == ResearchRunState::Running)
+}
+
 /// A seat given back with what its work came to; cancelled where it never ran. Answers whether agency still
 /// held it: false where its finish says it was no longer held, or the finish was lost on the way.
 pub async fn give_back(app: &App, run: i64, token: &str, outcome: &str, cancel: bool) -> bool {
@@ -708,7 +713,6 @@ struct Going {
   capabilities: Vec<String>,
   provider: String,
   model: String,
-  closes_at: i64,
   demand: Option<i64>,
   /// The earlier result the run continues from, or none.
   continued: Option<Continued>,
@@ -902,7 +906,6 @@ pub async fn launch(
     capabilities,
     provider,
     model,
-    closes_at,
     demand,
     continued,
     lost: Mutex::new(None),
@@ -953,8 +956,8 @@ async fn go(app: Arc<App>, going: Going) {
   ended(&app, &going, result).await;
 }
 
-/// The seat let in and bound to the run's session, asked for its place every half second until the run's
-/// clock runs out; or why it was not.
+/// The seat let in and bound to the run's session, asked for its place every half second however long the
+/// pool takes; or why it was not.
 async fn admitted(app: &App, going: &Going) -> Result<Seat, String> {
   let run = going.run;
   let mut seat = going.seat.clone();
@@ -964,11 +967,6 @@ async fn admitted(app: &App, going: &Going) -> Result<Seat, String> {
     }
     if seat.ended() {
       let why = "the pool request was ended before it got a place";
-      going.lose(why);
-      return Err(why.into());
-    }
-    if now_ms() >= going.closes_at {
-      let why = "the common co-worker pool stayed full until research closed";
       going.lose(why);
       return Err(why.into());
     }
