@@ -1,7 +1,7 @@
-//! What the tests share: a scratch data root, the daemon's app over it, and stand-ins for agency (its seats,
-//! its thrown-away sessions and their turns), the artifact service, the receiver, the voice unit, the
-//! arbiter's master and its demands, the job service's items, the tool host on its Unix socket and the sources,
-//! each keeping every request it was asked.
+//! What the tests share: a scratch data root, the daemon's app over it, and stand-ins for agency (its role
+//! slots, its role sessions and their turns), the artifact service, the receiver, the voice unit, the
+//! arbiter's master and its demands, the job service's items, the tool host on its Unix socket and the
+//! sources, each keeping every request it was asked.
 
 #![allow(dead_code)]
 
@@ -59,22 +59,25 @@ pub struct World {
   pub asked: Vec<Asked>,
   /// The statuses the next session starts are answered with; 201 once these run out.
   pub session_answers: VecDeque<u16>,
+  /// The statuses the next slot asks are answered with; 201 once these run out.
+  pub slot_answers: VecDeque<u16>,
   pub next_session: i64,
-  pub next_seat: i64,
-  /// Each seat's token by the request key it was first asked under, as agency keeps a key to its one request.
-  pub seat_keys: BTreeMap<String, String>,
-  /// The seats given back, by token, whose key agency refuses when it is asked again.
-  pub seats_finished: BTreeSet<String>,
-  /// How many admission asks a seat waits through before it is let in.
-  pub seat_waits: u32,
+  pub next_slot: i64,
+  /// Each slot's token and the road its ask fixed, by the request key it was first asked under, as agency
+  /// keeps a key to its one request.
+  pub slot_keys: BTreeMap<String, (String, Option<(String, String)>)>,
+  /// The slots given back, by token, which a key asked again answers as given back.
+  pub slots_finished: BTreeSet<String>,
+  /// How many admission asks a slot waits through before it is let in.
+  pub slot_waits: u32,
   /// How long the next admission ask waits before it is answered, in milliseconds.
   pub admission_wait_ms: u64,
   /// The research runs whose turns end failed, having written nothing.
   pub failing: BTreeSet<i64>,
   /// The research runs whose turns agency cannot carry, answered 503 as agency failing on its side.
   pub turns_lost: BTreeSet<i64>,
-  /// While set, a seat given back is one agency no longer held.
-  pub seats_dropped: bool,
+  /// While set, a slot given back is one agency no longer held.
+  pub slots_dropped: bool,
   /// The job items raised, with the next one's number.
   pub job_items: Vec<Value>,
   pub next_job_item: i64,
@@ -241,44 +244,71 @@ pub async fn serve(router: Router) -> String {
   format!("http://{addr}")
 }
 
-/// A seat request's answer: its token, its state and the road its work key resolved to.
-fn seat_of(token: &str, state: &str, asked: &Value) -> Value {
+/// The roles the stand-in agency holds.
+pub const ROLES: [&str; 3] = ["searcher", "browser", "scout"];
+
+/// A slot request's answer: its token, its role, its state, and the road it is let in on — the one its ask
+/// fixed, else its role's order's first — empty while it waits unless its ask fixed one.
+fn slot_of(token: &str, role: &str, state: &str, fixed: &Option<(String, String)>) -> Value {
+  let (provider, model) = match (fixed, state) {
+    (Some((provider, model)), _) => (provider.as_str(), model.as_str()),
+    (None, "waiting") => ("", ""),
+    (None, _) => ("registered", "slot-model"),
+  };
   json!({
     "token": token,
+    "role": role,
     "state": state,
-    "provider": asked["provider"].as_str().unwrap_or("registered"),
-    "model": "seat-model",
-    "effort": "high",
-    "tier": "Light",
+    "provider": provider,
+    "model": model,
+    "effort": (!model.is_empty()).then_some("high"),
   })
 }
 
-async fn agency_seat(State(w): State<Shared>, method: Method, uri: Uri, body: Bytes) -> Response {
+async fn agency_slot(State(w): State<Shared>, method: Method, uri: Uri, body: Bytes) -> Response {
   keep(&w, "agency", &method, &uri, &body);
   let asked: Value = serde_json::from_slice(&body).unwrap_or_default();
-  let mut world = w.lock().unwrap();
-  let key = asked["requestKey"].as_str().unwrap_or_default().to_string();
-  if let Some(token) = world.seat_keys.get(&key).cloned() {
-    if world.seats_finished.contains(&token) {
+  let role = asked["role"].as_str().unwrap_or_default().to_string();
+  if !ROLES.contains(&role.as_str()) {
+    return (
+      StatusCode::UNPROCESSABLE_ENTITY,
+      axum::Json(json!({"code": "unknown-role", "error": format!("No role is named {role}")})),
+    )
+      .into_response();
+  }
+  let fixed = match (asked["provider"].as_str(), asked["model"].as_str()) {
+    (Some(provider), Some(model)) => Some((provider.to_string(), model.to_string())),
+    (None, None) => None,
+    _ => {
       return (
-        StatusCode::UNPROCESSABLE_ENTITY,
-        axum::Json(json!({
-          "code": "unprocessable-entity",
-          "error": "Stored co-worker pool request is already finished",
-        })),
+        StatusCode::BAD_REQUEST,
+        axum::Json(json!({"code": "bad-request", "error": "A slot's road names its provider and its model together"})),
       )
         .into_response();
     }
-    return (StatusCode::CREATED, axum::Json(seat_of(&token, "active", &asked))).into_response();
+  };
+  let mut world = w.lock().unwrap();
+  let status = world.slot_answers.pop_front().unwrap_or(201);
+  if status != 201 {
+    return (
+      StatusCode::from_u16(status).unwrap(),
+      axum::Json(json!({"code": "unavailable", "error": "the role's line cannot be read now"})),
+    )
+      .into_response();
   }
-  world.next_seat += 1;
-  let token = format!("seat-{}", world.next_seat);
-  world.seat_keys.insert(key, token.clone());
-  let state = if world.seat_waits == 0 { "active" } else { "waiting" };
-  (StatusCode::CREATED, axum::Json(seat_of(&token, state, &asked))).into_response()
+  let key = asked["requestKey"].as_str().unwrap_or_default().to_string();
+  if let Some((token, fixed)) = world.slot_keys.get(&key).cloned() {
+    let state = if world.slots_finished.contains(&token) { "released" } else { "active" };
+    return (StatusCode::CREATED, axum::Json(slot_of(&token, &role, state, &fixed))).into_response();
+  }
+  world.next_slot += 1;
+  let token = format!("slot-{}", world.next_slot);
+  world.slot_keys.insert(key, (token.clone(), fixed.clone()));
+  let state = if world.slot_waits == 0 { "active" } else { "waiting" };
+  (StatusCode::CREATED, axum::Json(slot_of(&token, &role, state, &fixed))).into_response()
 }
 
-async fn agency_seat_move(
+async fn agency_slot_move(
   State(w): State<Shared>,
   Path(token): Path<String>,
   method: Method,
@@ -287,22 +317,36 @@ async fn agency_seat_move(
 ) -> Response {
   keep(&w, "agency", &method, &uri, &body);
   let change: Value = serde_json::from_slice(&body).unwrap_or_default();
-  if !matches!(change["state"].as_str(), Some("finished" | "bound")) {
+  if change["state"].is_null() {
     let wait = std::mem::take(&mut w.lock().unwrap().admission_wait_ms);
     tokio::time::sleep(std::time::Duration::from_millis(wait)).await;
   }
   let mut world = w.lock().unwrap();
+  let fixed = world
+    .slot_keys
+    .values()
+    .find(|(held, _)| *held == token)
+    .and_then(|(_, fixed)| fixed.clone());
   match change["state"].as_str() {
     Some("finished") => {
-      world.seats_finished.insert(token);
-      axum::Json(json!({"held": !world.seats_dropped})).into_response()
+      world.slots_finished.insert(token);
+      axum::Json(json!({"held": !world.slots_dropped, "stoodDown": false, "note": null})).into_response()
     }
-    Some("bound") => axum::Json(seat_of(&token, "bound", &json!({}))).into_response(),
-    _ if world.seat_waits > 0 => {
-      world.seat_waits -= 1;
-      axum::Json(json!({"request": null})).into_response()
+    Some("bound") => axum::Json(slot_of(&token, "", "active", &fixed)).into_response(),
+    Some(other) => (
+      StatusCode::BAD_REQUEST,
+      axum::Json(
+        json!({"code": "bad-request", "error": format!("{other} is no state a slot request is moved to")}),
+      ),
+    )
+      .into_response(),
+    None if world.slot_waits > 0 => {
+      world.slot_waits -= 1;
+      axum::Json(json!({"request": null, "demand": null})).into_response()
     }
-    _ => axum::Json(json!({"request": seat_of(&token, "active", &json!({}))})).into_response(),
+    None => {
+      axum::Json(json!({"request": slot_of(&token, "", "active", &fixed), "demand": null})).into_response()
+    }
   }
 }
 
@@ -318,11 +362,22 @@ async fn agency_session(State(w): State<Shared>, method: Method, uri: Uri, body:
     )
       .into_response();
   }
+  let role = asked["role"].as_str().unwrap_or_default();
+  if asked["scope"] != "role" || !ROLES.contains(&role) || asked["model"].as_str().is_none_or(str::is_empty)
+  {
+    return (
+      StatusCode::UNPROCESSABLE_ENTITY,
+      axum::Json(
+        json!({"code": "unknown-role", "error": "a role's run names a role agency holds and its model"}),
+      ),
+    )
+      .into_response();
+  }
   world.next_session += 1;
-  let id = format!("{}@apart:{}", asked["agent"].as_str().unwrap_or("search"), world.next_session);
+  let id = format!("{role}@run:{}", world.next_session);
   (
     StatusCode::CREATED,
-    axum::Json(json!({"id": id, "agentName": asked["agent"], "scope": "apart", "provider": asked["provider"], "model": asked["model"], "boundMs": asked["boundMs"]})),
+    axum::Json(json!({"id": id, "agentName": role, "scope": "role", "provider": asked["provider"], "model": asked["model"], "boundMs": asked["boundMs"]})),
   )
     .into_response()
 }
@@ -356,8 +411,8 @@ async fn agency_session_state(State(w): State<Shared>, method: Method, uri: Uri,
 
 async fn agency_roles(State(w): State<Shared>, method: Method, uri: Uri, body: Bytes) -> Response {
   keep(&w, "agency", &method, &uri, &body);
-  axum::Json(json!({"items": [{"name": "scout", "tier": "Light"}, {"name": "verifier", "tier": "Reliable"}], "more": false}))
-    .into_response()
+  let roles: Vec<Value> = ROLES.iter().map(|name| json!({"name": name, "code": name})).collect();
+  axum::Json(json!({"roles": roles, "bundles": [], "lines": ["search", "browse"]})).into_response()
 }
 
 /// The research run a turn's name is under: `research-<run>`, a round's or a branch's after it.
@@ -514,8 +569,8 @@ async fn agency_translation(State(w): State<Shared>, method: Method, uri: Uri, b
 
 pub fn agency(world: Shared) -> Router {
   Router::new()
-    .route("/seat-requests", post(agency_seat))
-    .route("/seat-requests/{token}", axum::routing::patch(agency_seat_move))
+    .route("/slot-requests", post(agency_slot))
+    .route("/slot-requests/{token}", axum::routing::patch(agency_slot_move))
     .route("/sessions", post(agency_session))
     .route("/sessions/{session}", delete(agency_session_end).get(agency_session_state))
     .route("/roles", get(agency_roles))
@@ -1100,11 +1155,11 @@ impl Ground {
       .collect()
   }
 
-  /// The research runs' own seats asked of agency, a branch's and a review's left out, in the order they were
-  /// asked.
-  pub fn run_seats(&self) -> Vec<Value> {
+  /// The research runs' own slots asked of agency, a branch's and a review's left out, in the order they
+  /// were asked.
+  pub fn run_slots(&self) -> Vec<Value> {
     self
-      .asked_path("agency", "POST", "/seat-requests")
+      .asked_path("agency", "POST", "/slot-requests")
       .into_iter()
       .map(|a| a.body)
       .filter(|b| {
@@ -1114,10 +1169,10 @@ impl Ground {
       .collect()
   }
 
-  /// The seats asked of agency for a page's review, in the order they were asked.
-  pub fn review_seats(&self) -> Vec<Value> {
+  /// The slots asked of agency for a page's review, in the order they were asked.
+  pub fn review_slots(&self) -> Vec<Value> {
     self
-      .asked_path("agency", "POST", "/seat-requests")
+      .asked_path("agency", "POST", "/slot-requests")
       .into_iter()
       .map(|a| a.body)
       .filter(|b| b["requestKey"].as_str().unwrap_or_default().contains(":review:"))

@@ -58,10 +58,10 @@ pub enum Untranslated {
   Failed(String),
 }
 
-/// Why a call into agency for a run's seat, its session or a turn brought no answer: the failure's sentence,
-/// and whether what the run stands on went away (`docs/runner.md`, 「A cut run」) — the call did not reach
-/// agency, agency answered with a failure of its own (5xx), or, for a call naming a seat or a session, agency
-/// answered that it no longer holds it (404).
+/// Why a call into agency for a run's slot, its session or a turn brought no answer: the failure's
+/// sentence, and whether what the run stands on went away (`docs/runner.md`, 「A cut run」) — the call did
+/// not reach agency, agency answered with a failure of its own (5xx), or, for a call naming a slot or a
+/// session, agency answered that it no longer holds it (404).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Fault {
   pub why: String,
@@ -696,25 +696,25 @@ impl Peers {
     Ok(answer["id"].as_i64())
   }
 
-  // Agency's seats and thrown-away sessions, as the runner asks them (`docs/runner.md`): each call waited on
+  // Agency's role slots and role sessions, as the runner asks them (`docs/runner.md`): each call waited on
   // until agency answers, however long a card it waits on takes, a turn's send among them.
 
-  /// A seat asked of the co-worker pool: the request as agency answers it.
-  pub async fn ask_seat(&self, ask: &Value) -> Result<Value, Fault> {
+  /// A slot asked of a role: the request as agency answers it.
+  pub async fn ask_slot(&self, ask: &Value) -> Result<Value, Fault> {
     let agency = self.agency().map_err(Fault::kept)?;
-    let request = self.request(&agency, reqwest::Method::POST, "/seat-requests").json(ask);
-    self.held_call(&agency, request, "POST /seat-requests", false).await
+    let request = self.request(&agency, reqwest::Method::POST, "/slot-requests").json(ask);
+    self.held_call(&agency, request, "POST /slot-requests", false).await
   }
 
-  /// A seat moved: asked for its place, bound to its session, or given back.
-  pub async fn move_seat(&self, token: &str, change: &Value) -> Result<Value, Fault> {
+  /// A slot moved: asked for its place, bound to its turn's run, or given back.
+  pub async fn move_slot(&self, token: &str, change: &Value) -> Result<Value, Fault> {
     let agency = self.agency().map_err(Fault::kept)?;
-    let path = format!("/seat-requests/{}", segment(token));
+    let path = format!("/slot-requests/{}", segment(token));
     let request = self.request(&agency, reqwest::Method::PATCH, &path).json(change);
     self.held_call(&agency, request, &format!("PATCH {path}"), true).await
   }
 
-  /// A thrown-away session started: its id.
+  /// A role's session started: its id.
   pub async fn start_session(&self, start: &Value) -> Result<String, Fault> {
     let agency = self.agency().map_err(Fault::kept)?;
     let request = self.request(&agency, reqwest::Method::POST, "/sessions").json(start);
@@ -795,14 +795,14 @@ impl Peers {
     }
   }
 
-  /// The co-worker roles agency's pool can lend, by name.
+  /// The roles agency's store holds, by name.
   pub async fn roles(&self) -> Result<Vec<String>, String> {
     let agency = self.agency()?;
     let answer = self
       .call(&agency, self.request(&agency, reqwest::Method::GET, "/roles"), "GET /roles")
       .await?;
     Ok(
-      answer["items"]
+      answer["roles"]
         .as_array()
         .map(|roles| roles.iter().filter_map(|r| r["name"].as_str().map(str::to_string)).collect())
         .unwrap_or_default(),

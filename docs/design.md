@@ -5,7 +5,7 @@ ones on the sites the owner registers, deep-dives each one in the lab's own rout
 archive and tells the agents and rooms that should hear of it. It researches and measures, and notifies;
 it launches nothing, and the one job item it files is the repair of its own stuck research, for the
 helper: what a report calls for is the chat agent's to raise on the owner's word. It is the home of the
-research feature; agency supplies it sessions and seats and nothing more.
+research feature; agency supplies it slots and sessions and nothing more.
 
 ## What it is for
 
@@ -25,8 +25,8 @@ research feature; agency supplies it sessions and seats and nothing more.
 ## Principles
 
 - **It calls other units through their documented APIs alone** and depends on no other unit's code:
-  - agency, for a seat of the co-worker pool and a thrown-away session on its search or browse line, and
-    the turns into it (「Where the runner lives」);
+  - agency, for a slot of the searcher or the browser role and a session of that role on its search or
+    browse line, and the turns into it (「Where the runner lives」);
   - the tool host, for the web namespace's listing a search's instructions carry and for the web tools'
     search engines' state;
   - explorer, for the web, through the tool host's `web` namespace in the runs it asks for; the daemon's
@@ -158,10 +158,10 @@ A source is a registration: a category, a kind, an address and, where the kind t
 
 - **The research runner is this unit's** (`docs/runner.md`): the search and browse instructions, the
   rulebooks, the request, the research settings, the rounds, the branch allowance, the filing of the
-  document and the room's instruction, and the run's ledger and log. Agency supplies a seat of its co-worker
-  pool and thrown-away sessions on its search and browse lines, whose system prompt this unit hands in whole
-  and whose record carries the run's settings under the labels this unit names; it runs nothing of research
-  on its own.
+  document and the room's instruction, and the run's ledger and log. Agency supplies a slot of the role a
+  run holds — `searcher` on its search line, `browser` on its browse line — whose road is that role's order's,
+  and sessions of that role, whose system prompt this unit hands in whole and whose record carries the run's
+  settings under the labels this unit names; it runs nothing of research on its own.
 - **Every research goes through the one runner:** the chat agent's `research/run`, any caller of
   `POST /research-runs`, and the daemon's own deep dive, which asks it on the road its settings name,
   kakia's: provider `registered`, model `flash-next`. The deep dive reads the run's end from the runner's
@@ -202,7 +202,7 @@ A source is a registration: a category, a kind, an address and, where the kind t
   arbiter's master for one card of that registration's service, as the run's own, with the run as the work
   it continues, and starts the run once a card is granted. The wait has no clock of the daemon's, and
   neither has the run (`docs/runner.md`, 「Nothing of a run is clocked」). A category stopped while its run waits
-  takes the demand back and its items wait again, the try uncounted. The run's seat and sessions are asked with the demand's id, so agency asks none
+  takes the demand back and its items wait again, the try uncounted. The run's slot and sessions are asked with the demand's id, so agency asks none
   of its own for them and places them on the granted card. The demand is held for the whole run and given
   back when the run ends; the daemon gives back, at its start, every demand its store holds for a run no
   longer under way.
@@ -236,11 +236,11 @@ A source is a registration: a category, a kind, an address and, where the kind t
 ## Nothing is given up
 
 - **Nothing is parked on a clock while what it waits for is away.** A try that ends because something it
-  needs could not be reached or was taken away — agency down or restarted under the run, the run's seat or
+  needs could not be reached or was taken away — agency down or restarted under the run, the run's slot or
   session no longer held, the arbiter's card taken or the master restarted, this unit's own restart — is
-  interrupted: uncounted, and asked again on the next pass, where it waits for its card or its seat however
+  interrupted: uncounted, and asked again on the next pass, where it waits for its card or its slot however
   long that takes. The evidence is the source of the failure — a call that did not reach its unit, a status
-  a unit answered, a demand's answer, the seat's finish — never the words of an error (`docs/api.md`, 「The
+  a unit answered, a demand's answer, the slot's finish — never the words of an error (`docs/api.md`, 「The
   deep dive」; `docs/runner.md`, 「A cut run」).
 - **A try that fails on its own content waits a short while,** `retry_minutes`, and is counted.
 - **Only what failed is made again.** A report is never thrown away and researched again from its start
@@ -361,9 +361,9 @@ take; so its own area stays the research and the measurement, however many categ
 ## Settings and store
 
 - **Settings** (`docs/settings.md`): the listen address, the data folder, the cadence, the cap, the
-  concurrency, the model road, the retry and restore waits, the engine watch, the runner's seat role and
-  capabilities, the research settings' defaults, and the addresses and token files of agency, the tool
-  host's control socket, the artifact service, the receiver and the arbiter's master, whose picture shows
+  concurrency, the model road, the retry and restore waits, the engine watch, the roles the runner's runs
+  hold and their capabilities, the research settings' defaults, and the addresses and token files of agency,
+  the tool host's control socket, the artifact service, the receiver and the arbiter's master, whose picture shows
   every node's card. Every address and token file is read from the files the other units already keep,
   named in the settings, never copied.
 - **The store** (`docs/store.md`): SQLite under the data root's `research/` folder: `categories`,
@@ -390,7 +390,7 @@ search run is shown `research/rulebook`, the reader of the rulebooks its record 
    agent's to file on the owner's word; the bench lock is the worker skill's by hand, as today.
 2. **The bench lock and the tiers:** the `bench` occupant in the arbiter's rules at tier 1, every service
    at 2, the skill's bench steps on tickets, the n3–n6 rule in the daemon, the restore wait.
-3. **The runner is this unit's** (`docs/runner.md`): agency supplies seats and thrown-away sessions alone.
+3. **The runner is this unit's** (`docs/runner.md`): agency supplies slots and role sessions alone.
 4. **The engine a run needs:** each run asks the arbiter's master for its engine and holds it for the run,
    the engine watch in place of the bench watch, concurrency as many as the arbiter grants, and a bench on
    as many cards as it is granted.

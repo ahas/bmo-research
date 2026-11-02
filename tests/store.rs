@@ -627,3 +627,45 @@ fn the_step_that_keeps_pages_by_document_takes_each_page_from_the_item_its_run_w
     assert!(!columns.iter().any(|column| column == gone), "{gone} in {columns:?}");
   }
 }
+
+#[test]
+fn the_step_that_names_slots_takes_every_hold_of_a_seat_request_as_a_slot() {
+  let dir = support::scratch().join("research");
+  let store = Store::open(&dir).unwrap();
+  let run = store
+    .open_research_run(&NewResearchRun {
+      key: "search:basic",
+      line: "search",
+      query: "Q",
+      asker: None,
+      options: None,
+      room_id: None,
+      provider: "",
+      model: "",
+      branches_allowed: 0,
+      tells: false,
+    })
+    .unwrap();
+  store.hold(run, "session", "search@apart:1").unwrap();
+  drop(store);
+  // The store as it stood one step before, its run holding a slot request under the older word.
+  let conn = rusqlite::Connection::open(dir.join("research.db")).unwrap();
+  conn
+    .execute_batch(&format!(
+      "insert into research_holds (run_id, kind, value) values ({run}, 'seat', 'token-1');
+       pragma user_version = {};",
+      schema_version() - 1
+    ))
+    .unwrap();
+  drop(conn);
+
+  let store = Store::open(&dir).unwrap();
+  assert_eq!(store.version().unwrap(), schema_version());
+  assert_eq!(
+    store.holds(run).unwrap(),
+    [
+      ("session".to_string(), "search@apart:1".to_string()),
+      ("slot".to_string(), "token-1".to_string())
+    ]
+  );
+}

@@ -48,7 +48,7 @@ the one to read.
 | 409 | `branch-refused` | a branch is not opened; the sentence says why (「research runs」) |
 | 500 | `failed` | the daemon failed; the sentence is the failure |
 | 502 | `upstream-failed` | a unit the daemon called failed, or refused what it was asked; the sentence names it |
-| 503 | `unavailable` | a research run cannot go out now: agency could not be reached or failed on its side for its seat or its session, or the tool host gave no web listing; the sentence is theirs |
+| 503 | `unavailable` | a research run cannot go out now: agency could not be reached or failed on its side for its slot, or the tool host gave no web listing; the sentence is theirs |
 
 ## Routes by resource
 
@@ -297,15 +297,18 @@ the one to read.
 
 - **An ask** (`docs/runner.md`) names `key` (`search:basic`, `search:thorough`, `search:exhaustive` or
   `browse`) and `query`, and may name `asker`, `options`, `roomId` (the room the result is told to; the
-  owner's private room where none is named), `provider` and `model` (the road it goes out on; the seat's
-  where none is named). A key that is no research key or an empty query is 400 `bad-request`. Where agency
-  cannot be reached for the seat or the session or answers it with a failure of its own (5xx), or a search's
-  web listing cannot be had, it is 503 `unavailable`; where agency refuses the seat or the session for what
-  it asks, or gives a seat with no token or no model, it is 502 `upstream-failed`. Either carries the
-  sentence, and nothing is left standing.
-- **The ask is answered at once,** 202 with `runId`, `key`, `state` (`waiting` while its seat waits for a
-  place, `running` once let in), `provider` and `model`. The run goes on in the background to its end, with
-  no clock (`docs/runner.md`, 「Nothing of a run is clocked」).
+  owner's private room where none is named), `provider` and `model` (the road it goes out on: a `model`
+  alone goes out on its slot's provider, and where neither is named the run goes out on its slot's road, its
+  role's order's). A key that is no research key, an empty query or a `provider` named without a `model` is
+  400 `bad-request`. Where agency cannot be reached for the slot or answers it with a failure of its own
+  (5xx), or a search's web listing cannot be had, it is 503 `unavailable`; where agency refuses the slot for
+  what it asks, or answers it with no token, it is 502 `upstream-failed`. Either carries the sentence, and
+  nothing is left standing.
+- **The ask is answered at once,** 202 with `runId`, `key`, `state` (`waiting` while its slot waits for its
+  place, `running` once let in), `provider` and `model`, the road the ask named, each empty where it named
+  none: the run's road stands on the run once its slot is let in. The run goes on in the background to its
+  end, with no clock (`docs/runner.md`, 「Nothing of a run is clocked」); a session agency does not start for
+  it ends it `cut` or `failed` (`docs/runner.md`, 「One run, step by step」).
 - **A research run** is `runId`, `key`, `query`, `asker`, `roomId`, `provider`, `model`, `state` (`waiting`,
   `running` or `closed`), `outcome` (`answered`, `failed`, or `cut` where what it stood on went away,
   `docs/runner.md`, 「A cut run」; null while open), `startedAt`, `finishedAt`, `documentId` and `link` (the
@@ -316,7 +319,7 @@ the one to read.
   `pending` names it: for a run told to its room, `narration-<code>` until its sound is attached, its room
   told once it lacks nothing, `docs/runner.md`, 「The narration's sound」; empty where it lacks nothing or no
   document was filed).
-- **Its log** answers `items`, each `id`, `runId`, `at`, `kind` (`asked`, `seated`, `answer`, `round`,
+- **Its log** answers `items`, each `id`, `runId`, `at`, `kind` (`asked`, `admitted`, `answer`, `round`,
   `branch`, `whole`, `narration`, `filed`, `review`, `told` or `ended`) and `text`, the run's own notes from
   the ask to its end, and how its document was finished after it (「The page」): every narration sound the
   document was given or not, and why, under `narration`; why a deep dive's Korean side is pending, and what
@@ -329,13 +332,13 @@ the one to read.
   run that does not stand is 404 `not-found`, an empty angle 400 `bad-request`. It is 409 `branch-refused`,
   the sentence saying why, where the run is no longer running, the run is allowed no branches, or it has
   opened every branch it is allowed (the sentence names how many); every ask past the first two checks
-  counts against the allowance. Its seat is waited for however long the pool takes, and a run that stops
-  running meanwhile has the branch refused the same way, with nothing left standing. A caller that lets go
-  ends its branch: its session ended once its turn is over, its seat given back and its demand with them.
+  counts against the allowance. Its slot is waited for however long its role's line takes, and a run that
+  stops running meanwhile has the branch refused the same way, with nothing left standing. A caller that lets
+  go ends its branch: its session ended once its turn is over, its slot given back and its demand with them.
 - **A branch of a run holding a card** (「The engine」) asks its own demand first, for the service the
   engine watch maps the branch's model to, within the run's demand; it waits for the grant however long it
   takes, and a run that stops running meanwhile has it refused 409 `branch-refused` with nothing left
-  standing; its seat and session stand on the grant.
+  standing; its slot and session stand on the grant.
 
 ### research settings
 
@@ -375,7 +378,7 @@ the one to read.
 - **An interrupted try** is one that ended because something the run needs could not be reached or was
   taken away, not because of what it asked or wrote: the runner refusing the ask 503 (`docs/runner.md`,
   「One run, step by step」), a run that closed `cut` (this unit's restart, or agency failing or no longer
-  holding the run's seat or session, `docs/runner.md`, 「A cut run」), or a try of a watched road whose card
+  holding the run's slot or session, `docs/runner.md`, 「A cut run」), or a try of a watched road whose card
   was taken or no longer stands (「The engine」). It is not counted toward `retries`, and its items go back
   as they stood — `waiting`, or `stuck` — with no retry wait (`retryAt` null), so the next pass of the loop
   asks them again; a watched road's try waits there for its card however long that takes. Its error stays
@@ -383,7 +386,7 @@ the one to read.
 - **A failed try** is one that ended on its own content: the runner refusing the ask 400, 500 or 502 (an ask
   of the wrong shape, the runner's own failure, agency refusing what was asked), or a closed run with no
   document, its error the run's — the result still short of its shape once asked again whole, or a turn
-  that wrote nothing while its seat stood. It counts toward `retries`: its items wait again with `retryAt`
+  that wrote nothing while its slot stood. It counts toward `retries`: its items wait again with `retryAt`
   `retry_minutes` ahead. A failed try that takes the lead's tries past `retries` puts its items `stuck`
   (「The repair」), and every recipient of the category is told so once.
 - **A brief** gathers every waiting or stuck item of its category whose retry is due, at most its `cap`,
@@ -442,7 +445,7 @@ the one to read.
   however long that takes, the hold in `GET /state` saying why. A demand the master no longer holds is
   asked again; a master that cannot be reached is asked again on the next pass, and said in the log once
   while the failure stays the same.
-- **The demand is held for the whole run** and handed to it: the run's seat and its sessions stand on it,
+- **The demand is held for the whole run** and handed to it: the run's slot and its sessions stand on it,
   so agency asks no card of its own for them (「Calls this unit makes」). It is given back with
   `DELETE /demands/{demandId}` once the run has closed with its document, before the page is finished, or
   as the try ends where it ends sooner, however it ends; a pass of the loop gives back any demand whose try
@@ -755,7 +758,7 @@ daemon's settings name, read under the data root the session record's `BMO_DATA_
   `search:thorough` for a question with a few angles, `search:exhaustive` for a deep dive, `browse` for a
   task that must open and click through pages — and the question is written whole, as the owner means it;
   `roomId` is the room the turn answers, so the result comes back there; a `model`, with its `provider` where
-  one is meant, is named only where the owner named one for this research, and none otherwise, so the seat's
+  one is meant, is named only where the owner named one for this research, and none otherwise, so the role's
   own road carries it; the result comes back to the room as an instruction once the run ends, the answer in a
   line or two with its document's link.
 - **`research/ask` says why and from what:** `because` is the ask's words, and `follows` the item or
@@ -782,23 +785,25 @@ Each is the documented route of the unit that holds what must reach it; the daem
 of these units, and reads each one's address and token from that unit's own files under the data root's
 `env/`, named by the settings (`docs/settings.md`, 「Peers」).
 
-- **agency:** `POST /seat-requests` with `requestKey`, `owner`, `role`, `selection` `auto`, `provider` where
-  one is named, `workKey` and `source`, a run's or a branch's seat, answered with its `token`, `state`,
-  `provider`, `model`, `effort` and `tier`; `PATCH /seat-requests/{token}` naming `admitted` (its place asked
-  for), `bound` with `childId` (a branch's or a review's seat, bound to its one turn's run name; the run's
-  seat is bound to none, `docs/runner.md`, 「The seats' children」) or `finished` with `outcome`, and
-  `cancel` where it never ran; an admission of a seat whose run or branch holds a card names `demandId`,
-  that card's demand id, the seat standing on it with no card of its own asked.
-  `POST /sessions` with `agent`, `scope` `apart`, `provider`, `model`, `cwd`, `line`, `systemPrompt`,
+- **agency:** `POST /slot-requests` with `requestKey`, `owner`, `role` and `source`, and `provider` and
+  `model` together where the slot's road is named — a run's where its ask names both, a branch's and a
+  review's the run's road — a run's, a branch's or a review's slot, answered with its `token` and `state`
+  and, once let in, the `provider`, `model` and `effort` it goes out on; `PATCH /slot-requests/{token}`
+  naming no state (its place asked for, answered with `request` null until it is let in), `bound` with
+  `childId` (a branch's or a review's slot, bound to its one turn's run name; the run's slot is bound to
+  none, `docs/runner.md`, 「The slots' children」) or `finished` with `outcome`, and `cancel` where it never
+  ran; an admission of a slot whose run or branch holds a card names `demandId`, that card's demand id, the
+  slot standing on it with no card of its own asked.
+  `POST /sessions` with `scope` `role`, `role`, `provider`, `model`, `cwd`, `line`, `systemPrompt`,
   `labels` and `toolsAllowed`, and `demandId` where its run or branch holds a card, and never `boundMs`,
-  answered with the session's `id`, or 503 `line-not-carried`.
+  answered with the session's `id`, `<role>@run:<n>`, or 422 `unknown-role` or 503 `line-not-carried`.
   `POST /sessions/{id}/turns` with `prompt` and the work parts (`provider`, `model`, `mapping`, `resume`,
   `cwd`, `name`, `title`, `chat`, `workKey`, `hearsWords`, `variables`), answered once the turn ends with its
   `answer`, or 409 `session-busy` while an earlier turn of the session still runs: `GET /sessions/{id}` is
   then read every two seconds until its `run` is null, and the turn sent again (`docs/runner.md`, 「A turn's
   send」). `DELETE /sessions/{id}`, the session ended, answered 409 while its turn runs. `GET /roles`, the
-  co-worker roles a branch role is checked against.
-  No call of the seat and session routes carries a clock of this unit's, a turn's send among them: each is
+  roles a branch role is checked against.
+  No call of the slot and session routes carries a clock of this unit's, a turn's send among them: each is
   waited on until agency answers, however long a card it waits on takes and however long the turn writes.
   `POST /sessions/{agentName}@worker/turns` with `prompt`, a notice to an agent, waited on until agency
   answers it (「The notices」). `POST /translation-runs`

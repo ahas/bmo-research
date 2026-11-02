@@ -62,7 +62,8 @@ How a research run goes out (`docs/runner.md`).
 
 | Key | Default | Meaning |
 |---|---|---|
-| `role` | `scout` | The co-worker role a run's own seat is asked under |
+| `search_role` | `searcher` | The role a run on the search line holds: its own slot and its review's are asked under it |
+| `browse_role` | `browser` | The role a run on the browse line holds: its own slot and its review's are asked under it |
 | `capabilities` | `room.chat`, `room.tools`, `web.read`, `web.sites`, `web.branches`, `web.rulebooks` | The capabilities a run's session record keeps, handed as `toolsAllowed`: `web.branches` is left out where the run may open no branch, `web.rulebooks` where it is handed no rulebook |
 
 ## The research settings' defaults: `[research_settings]`
@@ -72,7 +73,7 @@ What every research run is held to where the owner changed nothing through `PUT 
 
 | Key | Default | Meaning |
 |---|---|---|
-| `branch_role` | `scout` | The co-worker role a branch is seated under |
+| `branch_role` | `searcher` | The role a branch's slot is asked under and its session holds, one agency's `GET /roles` lists |
 | `strategy` | `direct-then-browser` | How the web tools read a page: `direct-then-browser`, `browser-first` or `direct-only` |
 | `host_interval_ms` | none | The gap between two direct requests to one host; the web tools' own where none is named |
 | `engine_interval_ms` | none | The gap between two requests to one search engine; the web tools' own where none is named |

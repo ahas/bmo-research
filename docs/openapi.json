@@ -1374,7 +1374,7 @@
             "type": "integer"
           },
           "kind": {
-            "description": "`asked`, `seated`, `answer`, `round`, `branch`, `whole`, `narration`, `filed`, `told` or `ended`",
+            "description": "`asked`, `admitted`, `answer`, `round`, `branch`, `whole`, `narration`, `filed`, `told` or `ended`",
             "type": "string"
           },
           "runId": {
@@ -1395,7 +1395,7 @@
         "type": "object"
       },
       "ResearchRun": {
-        "description": "A research run as it was asked: its id, its key, its seat's state and its road.",
+        "description": "A research run as it was asked: its id, its key, its slot's state and the road its ask named.",
         "properties": {
           "key": {
             "type": "string"
@@ -1437,7 +1437,7 @@
             "type": "string"
           },
           "model": {
-            "description": "the model the run goes out on; the seat's where none is named",
+            "description": "the model the run goes out on; its slot's where none is named",
             "type": [
               "string",
               "null"
@@ -1450,7 +1450,7 @@
             ]
           },
           "provider": {
-            "description": "the provider the run goes out on; the seat's where none is named",
+            "description": "the provider the run goes out on, named only with its model; its slot's where none is named",
             "type": [
               "string",
               "null"
@@ -1613,7 +1613,7 @@
         "description": "What every research run is held to, and the search engines' state.",
         "properties": {
           "branchRole": {
-            "description": "the co-worker role a branch is seated under",
+            "description": "the role a branch's slot is asked under and its session holds",
             "type": "string"
           },
           "engineIntervalMs": {
@@ -3739,11 +3739,11 @@
   ],
   "x-calls": [
     {
-      "route": "POST /seat-requests",
+      "route": "POST /slot-requests",
       "unit": "agency"
     },
     {
-      "route": "PATCH /seat-requests/{token}",
+      "route": "PATCH /slot-requests/{token}",
       "unit": "agency"
     },
     {

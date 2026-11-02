@@ -246,7 +246,7 @@ The runner's ledger (`docs/runner.md`): one row per research run.
 | `written` | The answer it wrote last, kept for a cut run's room and for a run that continues from it |
 | `continues` | The run whose result it continues from (`docs/runner.md`, 「A run that continues」), or null |
 | `answered` | The rounds that answered, in the order they were asked, a JSON list |
-| `review_asks` | How many times its page's review asked agency for a seat, which the review's request key carries (`docs/runner.md`, 「The review」) |
+| `review_asks` | How many times its page's review asked agency for a slot, which the review's request key carries (`docs/runner.md`, 「The review」) |
 | `document_id`, `title`, `description`, `link` | The document it filed, its head, and its share link |
 
 ## `research_log`
@@ -265,7 +265,7 @@ What a research run, or its page's review, holds of agency while it stands, so a
 |---|---|
 | `id` | The hold's key |
 | `run_id` | The research run |
-| `kind`, `value` | `seat` and the seat's token, or `session` and the session's id |
+| `kind`, `value` | `slot` and the slot request's token, or `session` and the session's id |
 
 ## `demands`
 

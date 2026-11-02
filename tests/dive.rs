@@ -136,12 +136,13 @@ async fn a_manual_is_asked_read_filed_and_told_with_what_the_owner_s_word_needs(
 
   settle(&ground).await;
 
-  let seats = ground.run_seats();
-  assert_eq!(seats.len(), 1);
+  let slots = ground.run_slots();
+  assert_eq!(slots.len(), 1);
   assert_eq!(
-    (seats[0]["workKey"].as_str(), seats[0]["provider"].as_str()),
-    (Some("search:exhaustive"), Some("registered"))
+    (slots[0]["role"].as_str(), slots[0]["provider"].as_str(), slots[0]["model"].as_str()),
+    (Some("searcher"), Some("registered"), Some("flash-next"))
   );
+  assert_eq!(ground.turns_named("research-1")[0]["workKey"], "search:exhaustive");
   let started = ground.asked_path("agency", "POST", "/sessions");
   assert_eq!(started[0].body["model"], "flash-next");
   assert_eq!(started[0].body["labels"]["research"]["chat"], 0, "the run names no room");
@@ -698,7 +699,7 @@ async fn a_page_a_stopped_daemon_left_finishing_is_finished_and_told_by_the_next
     (told.state, told.narrations.clone()),
     (ItemState::Fit, vec!["ko".to_string(), "en".to_string()])
   );
-  assert_eq!(ground.run_seats().len(), 1, "the run is not asked again");
+  assert_eq!(ground.run_slots().len(), 1, "the run is not asked again");
   assert_eq!(orders(&ground).len(), 1);
 }
 
@@ -1403,7 +1404,7 @@ async fn a_korean_side_no_road_carries_holds_the_report_until_a_retry_draws_it_i
 
   settle(&ground).await;
 
-  assert_eq!(ground.run_seats().len(), 1, "the run is not asked again");
+  assert_eq!(ground.run_slots().len(), 1, "the run is not asked again");
   assert_eq!(ground.run_documents().len(), 1, "no second document is filed");
   let rewrites = ground.rewrites(501);
   assert_eq!(rewrites.len(), 1, "the same document is drawn again");
@@ -1485,7 +1486,7 @@ async fn an_ask_agency_cannot_carry_now_is_asked_again_at_once_and_not_counted()
     .store
     .ask("it", "example.org/a", "A", "https://example.org/a", Shape::Investigation)
     .unwrap();
-  ground.world.lock().unwrap().session_answers.push_back(503);
+  ground.world.lock().unwrap().slot_answers.push_back(503);
   // The refused ask opened run 1 and closed it; the second try is run 2.
   file(&ground, 2, 9, format!("# An investigation\n\n## {}\n\nIt is.\n", answer_heading()));
 
@@ -1512,7 +1513,7 @@ async fn an_ask_agency_refuses_for_what_it_asks_is_counted_and_waits() {
     .store
     .ask("it", "example.org/a", "A", "https://example.org/a", Shape::Investigation)
     .unwrap();
-  ground.world.lock().unwrap().session_answers.push_back(422);
+  ground.world.lock().unwrap().slot_answers.push_back(422);
 
   settle(&ground).await;
   let waiting = ground.app.store.item(item.id).unwrap();
@@ -1520,7 +1521,7 @@ async fn an_ask_agency_refuses_for_what_it_asks_is_counted_and_waits() {
   assert!(waiting.retry_at.unwrap() > now_ms() + 50 * 60_000, "it waits retry_minutes");
   assert!(waiting.error.unwrap().contains("422"));
   settle(&ground).await;
-  assert_eq!(ground.run_seats().len(), 1, "nothing is asked before its wait ends");
+  assert_eq!(ground.run_slots().len(), 1, "nothing is asked before its wait ends");
 }
 
 #[tokio::test]
@@ -1551,7 +1552,7 @@ async fn a_run_whose_turn_agency_cannot_carry_is_cut_and_asked_again_at_once_unc
 }
 
 #[tokio::test]
-async fn a_turn_that_wrote_nothing_is_cut_where_agency_no_longer_held_the_seat_and_counted_where_it_did() {
+async fn a_turn_that_wrote_nothing_is_cut_where_agency_no_longer_held_the_slot_and_counted_where_it_did() {
   let ground = support::ground(|s| s.retry_minutes = 60).await;
   let item = ground
     .app
@@ -1561,7 +1562,7 @@ async fn a_turn_that_wrote_nothing_is_cut_where_agency_no_longer_held_the_seat_a
   {
     let mut world = ground.world.lock().unwrap();
     world.failing.extend(1..=2);
-    world.seats_dropped = true;
+    world.slots_dropped = true;
   }
   settle(&ground).await;
   let cut = ground.app.store.research_run(1).unwrap();
@@ -1571,8 +1572,8 @@ async fn a_turn_that_wrote_nothing_is_cut_where_agency_no_longer_held_the_seat_a
   let waiting = ground.app.store.item(item.id).unwrap();
   assert_eq!((waiting.state, waiting.tries, waiting.retry_at), (ItemState::Waiting, 0, None));
 
-  // With its seat held, a turn that wrote nothing is the run's own failure.
-  ground.world.lock().unwrap().seats_dropped = false;
+  // With its slot held, a turn that wrote nothing is the run's own failure.
+  ground.world.lock().unwrap().slots_dropped = false;
   settle(&ground).await;
   let failed = ground.app.store.research_run(2).unwrap();
   assert_eq!(failed.outcome.as_deref(), Some("failed"));
@@ -1620,7 +1621,7 @@ async fn an_item_failing_past_its_retries_is_stuck_told_once_handed_to_the_helpe
   let brief = repair["brief"].as_str().unwrap();
   assert!(brief.contains("https://example.org/b") && brief.contains("research run 4"), "{brief}");
   assert!(brief.contains("wrote nothing") && brief.contains(&format!("PATCH /queue/{}", item.id)));
-  assert_eq!(ground.run_seats().len(), 5, "a stuck item is asked again on its retry wait");
+  assert_eq!(ground.run_slots().len(), 5, "a stuck item is asked again on its retry wait");
   let still = ground.app.store.item(item.id).unwrap();
   assert_eq!((still.state, still.tries, still.repair_item_id), (ItemState::Stuck, 5, Some(601)));
   assert_eq!(orders(&ground).len(), 1, "it is told once");
@@ -1667,11 +1668,11 @@ async fn a_stuck_item_leaves_only_by_dismissal_and_is_asked_again_afresh() {
   ground.world.lock().unwrap().failing.extend(4..=9);
   settle(&ground).await;
   store.dismiss(item.id).unwrap();
-  let seats = ground.run_seats().len();
+  let slots = ground.run_slots().len();
   settle(&ground).await;
   settle(&ground).await;
   assert_eq!(store.item(item.id).unwrap().state, ItemState::Dismissed);
-  assert_eq!(ground.run_seats().len(), seats, "a dismissed item is asked no more");
+  assert_eq!(ground.run_slots().len(), slots, "a dismissed item is asked no more");
 }
 
 #[tokio::test]
@@ -1762,7 +1763,7 @@ async fn a_brief_gathers_its_category_s_items_into_one_run_and_keeps_the_figures
 
   settle(&ground).await;
 
-  assert_eq!(ground.run_seats().len(), 1, "one run for the gathering");
+  assert_eq!(ground.run_slots().len(), 1, "one run for the gathering");
   let first = ground.turns_named("research-1");
   let query = first[0]["prompt"].as_str().unwrap();
   assert!(query.contains("https://example.org/e1") && query.contains("https://example.org/e2"));
@@ -1783,7 +1784,7 @@ async fn a_brief_gathers_its_category_s_items_into_one_run_and_keeps_the_figures
     .ask("economy", "example.org/e3", "E3", "https://example.org/e3", Shape::Brief)
     .unwrap();
   settle(&ground).await;
-  assert_eq!(ground.run_seats().len(), 1);
+  assert_eq!(ground.run_slots().len(), 1);
 }
 
 /// A brief document holding one figure.
@@ -1863,7 +1864,7 @@ async fn a_brief_that_failed_waits_its_retry_whole_and_is_gathered_again_with_wh
     .unwrap();
 
   settle(&ground).await;
-  assert!(ground.run_seats().is_empty(), "the gathering waits for the failed item's retry");
+  assert!(ground.run_slots().is_empty(), "the gathering waits for the failed item's retry");
   assert_eq!(store.item(two.id).unwrap().state, ItemState::Waiting);
 
   // Its retry due, both are gathered into one run.
@@ -1872,7 +1873,7 @@ async fn a_brief_that_failed_waits_its_retry_whole_and_is_gathered_again_with_wh
   drop(conn);
   file(&ground, 1, 300, brief_document());
   settle(&ground).await;
-  assert_eq!(ground.run_seats().len(), 1);
+  assert_eq!(ground.run_slots().len(), 1);
   let query = ground.turns_named("research-1")[0]["prompt"].as_str().unwrap().to_string();
   assert!(query.contains("https://example.org/e1") && query.contains("https://example.org/e2"));
 }
@@ -1912,7 +1913,7 @@ async fn a_stopped_category_starts_no_run_and_the_least_recent_category_goes_fir
   store.set_running(Some("it"), Running::Stopped).unwrap();
   let it = store.ask("it", "example.org/i", "I", "https://example.org/i", Shape::Manual).unwrap();
   settle(&ground).await;
-  assert!(ground.run_seats().is_empty());
+  assert!(ground.run_slots().is_empty());
   store.set_running(None, Running::Running).unwrap();
 
   // `it` ran a try a moment ago; security has not run at all, so it goes first.
@@ -1960,8 +1961,8 @@ async fn a_restarted_daemon_cuts_the_runs_it_left_open_and_takes_up_its_tries() 
       .unwrap()
   };
   let research = open(false, None);
-  store.hold(research, "seat", "seat-left").unwrap();
-  store.hold(research, "session", "search@apart:9").unwrap();
+  store.hold(research, "slot", "slot-left").unwrap();
+  store.hold(research, "session", "searcher@run:9").unwrap();
   let asked_by_room = open(true, Some(5));
   store.keep_research_turn(asked_by_room, "research-2", Some("Half of it.")).unwrap();
   let (run, _) = store.start_try("it", &[asked.id]).unwrap().unwrap();
@@ -1980,9 +1981,9 @@ async fn a_restarted_daemon_cuts_the_runs_it_left_open_and_takes_up_its_tries() 
 
   let cut = store.research_run(research).unwrap();
   assert_eq!((cut.state, cut.outcome.as_deref()), (ResearchRunState::Closed, Some("cut")));
-  let gave_back = ground.asked_path("agency", "PATCH", "/seat-requests/seat-left");
+  let gave_back = ground.asked_path("agency", "PATCH", "/slot-requests/slot-left");
   assert_eq!(gave_back[0].body["state"], "finished");
-  assert_eq!(ground.asked_path("agency", "DELETE", "/sessions/search@apart:9").len(), 1);
+  assert_eq!(ground.asked_path("agency", "DELETE", "/sessions/searcher@run:9").len(), 1);
   let told = orders(&ground);
   assert_eq!(told.len(), 1, "a run the deep dive asked tells no room");
   assert_eq!(
@@ -2000,7 +2001,7 @@ async fn a_restarted_daemon_cuts_the_runs_it_left_open_and_takes_up_its_tries() 
   );
   let tries = store.runs(Some(asked.id), None, None, 10).unwrap().items;
   assert_eq!(tries[0].state.as_str(), "cut");
-  assert!(ground.run_seats().is_empty(), "an asked run is not asked again");
+  assert!(ground.run_slots().is_empty(), "an asked run is not asked again");
   let waiting = store.item(never.id).unwrap();
   assert_eq!((waiting.state, waiting.tries), (ItemState::Waiting, 0));
 }
@@ -2083,7 +2084,7 @@ fn plan_heading() -> String {
 }
 
 #[tokio::test]
-async fn a_whole_page_is_reviewed_once_on_a_seat_of_its_own_and_its_report_told_once_it_passes() {
+async fn a_whole_page_is_reviewed_once_on_a_slot_of_its_own_and_its_report_told_once_it_passes() {
   let ground = support::ground(|_| {}).await;
   give_owner_room(&ground.app).await;
   let item = ground
@@ -2095,16 +2096,17 @@ async fn a_whole_page_is_reviewed_once_on_a_seat_of_its_own_and_its_report_told_
 
   settle(&ground).await;
 
-  let seats = ground.review_seats();
-  assert_eq!(seats.len(), 1, "one review");
+  let slots = ground.review_slots();
+  assert_eq!(slots.len(), 1, "one review");
   for (field, value) in [
     ("requestKey", "research:1:review:1"),
     ("owner", "research:1"),
-    ("workKey", "search:exhaustive"),
+    ("role", "searcher"),
     ("source", "search"),
     ("provider", "registered"),
+    ("model", "flash-next"),
   ] {
-    assert_eq!(seats[0][field], value, "{field}");
+    assert_eq!(slots[0][field], value, "{field}");
   }
   let sessions: Vec<_> = ground
     .asked_path("agency", "POST", "/sessions")
@@ -2116,6 +2118,7 @@ async fn a_whole_page_is_reviewed_once_on_a_seat_of_its_own_and_its_report_told_
   assert!(system.contains("## The review"), "the review's rules are its instructions: {system}");
   assert_eq!(session["toolsAllowed"], serde_json::json!([]), "the review reads no tool");
   assert!(session.get("demandId").is_none(), "agency asks the review's card");
+  assert_eq!((session["scope"].as_str(), session["role"].as_str()), (Some("role"), Some("searcher")));
   let asked = review_turns(&ground, 1);
   assert_eq!(asked.len(), 1);
   let prompt = asked[0]["prompt"].as_str().unwrap();
@@ -2288,17 +2291,17 @@ async fn a_review_that_does_not_answer_holds_the_report_and_is_asked_again_on_th
   assert_eq!(orders(&ground).len(), 1);
 }
 
-/// The request keys a page's review seats were asked under, in the order they were asked.
+/// The request keys a page's review slots were asked under, in the order they were asked.
 fn review_keys(ground: &Ground) -> Vec<String> {
   ground
-    .review_seats()
+    .review_slots()
     .iter()
     .map(|b| b["requestKey"].as_str().unwrap_or_default().to_string())
     .collect()
 }
 
 #[tokio::test]
-async fn a_review_whose_first_seat_was_given_back_asks_again_under_a_fresh_key_and_gets_a_seat() {
+async fn a_review_whose_first_slot_was_given_back_asks_again_under_a_fresh_key_and_gets_a_slot() {
   let ground = support::ground(|s| s.retry_minutes = 0).await;
   give_owner_room(&ground.app).await;
   let item = ground
@@ -2319,13 +2322,13 @@ async fn a_review_whose_first_seat_was_given_back_asks_again_under_a_fresh_key_a
     !logged(&ground, "review").iter().any(|text| text.contains("already finished")),
     "no ask goes under a key agency gave back"
   );
-  assert_eq!(review_turns(&ground, 1).len(), 2, "the review asked again got a seat and its turn");
+  assert_eq!(review_turns(&ground, 1).len(), 2, "the review asked again got a slot and its turn");
   assert_eq!(ground.app.store.item(item.id).unwrap().state, ItemState::Fit);
   assert_eq!(orders(&ground).len(), 1);
 }
 
 #[tokio::test]
-async fn a_review_cut_by_a_restart_asks_again_under_a_fresh_key_and_gets_a_seat() {
+async fn a_review_cut_by_a_restart_asks_again_under_a_fresh_key_and_gets_a_slot() {
   let ground = support::ground(|s| s.retry_minutes = 0).await;
   give_owner_room(&ground.app).await;
   let item = ground
@@ -2344,17 +2347,17 @@ async fn a_review_cut_by_a_restart_asks_again_under_a_fresh_key_and_gets_a_seat(
   ground.world.lock().unwrap().review_holding = false;
   let next = restarted(&ground);
   research_server::runner::sweep(&next).await;
-  let given_back = ground.asked_path("agency", "PATCH", "/seat-requests/");
+  let given_back = ground.asked_path("agency", "PATCH", "/slot-requests/");
   assert!(
     given_back.iter().any(|a| a.body["outcome"] == "stopped: the research unit restarted"),
-    "the review's seat is given back at the restart"
+    "the review's slot is given back at the restart"
   );
   for handle in tick(&next).await {
     handle.await.unwrap();
   }
 
   assert_eq!(review_keys(&ground), ["research:1:review:1", "research:1:review:2"]);
-  assert_eq!(review_turns(&ground, 1).len(), 2, "the review asked again got a seat and its turn");
+  assert_eq!(review_turns(&ground, 1).len(), 2, "the review asked again got a slot and its turn");
   assert_eq!(next.store.item(item.id).unwrap().state, ItemState::Fit);
   assert_eq!(orders(&ground).len(), 1);
 }

@@ -18,29 +18,30 @@ use crate::translation::Rendering;
 /// The schema's steps, each bringing the store one version up; the version is how many have been taken. The
 /// first registers the three categories the unit starts with, so a category taken away is not brought back;
 /// the second keeps an item's Korean rendering and its pending tries; the third holds the runner's research
-/// runs, their log, what they hold of agency and the owner's research settings; the fourth keeps what a deep
-/// dive's one page holds — its languages, its narrations and its Korean side — and what it still lacks, a
-/// document filed before it holding English alone and lacking nothing it can be given; the fifth keeps what
-/// the readings left on each source: how many were made, and what the last that succeeded turned up and kept;
-/// the sixth holds a `page` source's link pattern and strategy; the seventh keeps the arbiter demands the daemon
-/// holds and takes the fit's node list away; the eighth keeps what a page still lacks before its report is
-/// told, stands an item whose page was being finished and whose report was never told `finishing`, and sets
-/// every page finished since the fourth that still lacks a part due on the retry wait; the ninth keeps where
-/// an item came from — a source, an ask with its words, or a follow-up with the document it follows from —
-/// an item standing before it a source's where no ask made it, and an ask's with no words otherwise; the
-/// tenth keeps the repair a stuck item's helper is asked for, stands every item the store held given up
-/// `stuck` with its retry due and no repair yet, and names their notices `stuck`; the eleventh keeps the
-/// synthesis asked of the voice unit for each narration a page still lacks, and sets every filed page that
-/// plays a narration to be finished again at once by the item its try was asked for, with none counted as
-/// had, so each sound is found attached and the page drawn again whole from what the store keeps; the twelfth
-/// keeps, for a run that continues, the run it continues and the rounds each run answered, and, for a deep
-/// dive's page, each part of its Korean side as it is had, the texts its review rewrote and its Korean
-/// narration's words, its one review, and how often each narration was asked anew; the thirteenth keeps when
-/// the try an item's error names ended, an error standing before it dated by the latest try that carried the
-/// item, else by the item's last change; the fourteenth counts each run's page's review asks; the fifteenth
-/// takes a run's closing time away and the research settings' minutes with it; the sixteenth keeps what a
-/// page holds and lacks by its document, for a deep dive's page and a room's document alike, each filed page
-/// taking what the item its run was asked for kept.
+/// runs, their log, what they hold of agency and the owner's research settings; the fourth keeps what a
+/// deep dive's one page holds — its languages, its narrations and its Korean side — and what it still
+/// lacks, a document filed before it holding English alone and lacking nothing it can be given; the fifth
+/// keeps what the readings left on each source: how many were made, and what the last that succeeded turned
+/// up and kept; the sixth holds a `page` source's link pattern and strategy; the seventh keeps the arbiter
+/// demands the daemon holds and takes the fit's node list away; the eighth keeps what a page still lacks
+/// before its report is told, stands an item whose page was being finished and whose report was never told
+/// `finishing`, and sets every page finished since the fourth that still lacks a part due on the retry
+/// wait; the ninth keeps where an item came from — a source, an ask with its words, or a follow-up with the
+/// document it follows from — an item standing before it a source's where no ask made it, and an ask's with
+/// no words otherwise; the tenth keeps the repair a stuck item's helper is asked for, stands every item the
+/// store held given up `stuck` with its retry due and no repair yet, and names their notices `stuck`; the
+/// eleventh keeps the synthesis asked of the voice unit for each narration a page still lacks, and sets
+/// every filed page that plays a narration to be finished again at once by the item its try was asked for,
+/// with none counted as had, so each sound is found attached and the page drawn again whole from what the
+/// store keeps; the twelfth keeps, for a run that continues, the run it continues and the rounds each run
+/// answered, and, for a deep dive's page, each part of its Korean side as it is had, the texts its review
+/// rewrote and its Korean narration's words, its one review, and how often each narration was asked anew;
+/// the thirteenth keeps when the try an item's error names ended, an error standing before it dated by the
+/// latest try that carried the item, else by the item's last change; the fourteenth counts each run's
+/// page's review asks; the fifteenth takes a run's closing time away and the research settings' minutes
+/// with it; the sixteenth keeps what a page holds and lacks by its document, for a deep dive's page and a
+/// room's document alike, each filed page taking what the item its run was asked for kept; the seventeenth
+/// names every hold of a slot request `slot`.
 const MIGRATIONS: &[&str] = &[
   "
   create table categories (
@@ -228,6 +229,9 @@ const MIGRATIONS: &[&str] = &[
   alter table queue drop column pending_retry_at;
   alter table queue drop column translation_tries;
   alter table queue drop column narration_tries;
+",
+  "
+  update research_holds set kind = 'slot' where kind = 'seat';
 ",
 ];
 
@@ -1974,7 +1978,7 @@ impl Store {
 
   // The runner's research runs.
 
-  /// A research run opened, waiting for its seat, with the record its sessions carry: its id.
+  /// A research run opened, waiting for its slot, with the record its sessions carry: its id.
   pub fn open_research_run(&self, new: &NewResearchRun<'_>) -> Result<i64, String> {
     let conn = self.lock();
     conn
@@ -2000,7 +2004,7 @@ impl Store {
     Ok(conn.last_insert_rowid())
   }
 
-  /// The run's road and the record its sessions carry, once its seat answered them.
+  /// The run's road and the record its sessions carry, once its slot is let in.
   pub fn keep_research_road(
     &self,
     id: i64,
@@ -2109,7 +2113,7 @@ impl Store {
     Ok(())
   }
 
-  /// One more ask of a run's page's review counted: the count it now stands at, which the review's seat is
+  /// One more ask of a run's page's review counted: the count it now stands at, which the review's slot is
   /// asked under.
   pub fn count_review_ask(&self, id: i64) -> Result<i64, String> {
     self
@@ -2202,7 +2206,7 @@ impl Store {
       .map_err(|e| e.to_string())
   }
 
-  /// A seat or a session the run holds of agency, kept until it is given back.
+  /// A slot or a session the run holds of agency, kept until it is given back.
   pub fn hold(&self, run_id: i64, kind: &str, value: &str) -> Result<(), String> {
     self
       .lock()
@@ -2226,7 +2230,7 @@ impl Store {
     Ok(())
   }
 
-  /// What closed runs still hold, each run, kind and value: a review's seat and session left at a restart.
+  /// What closed runs still hold, each run, kind and value: a review's slot and session left at a restart.
   pub fn closed_holds(&self) -> Result<Vec<(i64, String, String)>, String> {
     let conn = self.lock();
     let mut stmt = conn

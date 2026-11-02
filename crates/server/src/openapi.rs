@@ -497,8 +497,8 @@ const DESCRIPTION: &str = "The research unit: a daemon that keeps a queue of thi
 
 /// The calls the unit makes, by unit and route (docs/api.md, 「Calls this unit makes」).
 const CALLS: &[(&str, &str)] = &[
-  ("agency", "POST /seat-requests"),
-  ("agency", "PATCH /seat-requests/{token}"),
+  ("agency", "POST /slot-requests"),
+  ("agency", "PATCH /slot-requests/{token}"),
   ("agency", "POST /sessions"),
   ("agency", "POST /sessions/{sessionId}/turns"),
   ("agency", "DELETE /sessions/{sessionId}"),

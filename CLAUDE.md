@@ -1,7 +1,7 @@
 # Working in bmo-research
 
 This repository holds the platform's research unit: the research runner, which composes a search's
-instructions, runs it on a seat and thrown-away sessions agency supplies, asks its rounds, opens its branches
+instructions, runs it on a slot and role sessions agency supplies, asks its rounds, opens its branches
 and files its document (`docs/runner.md`); and the daemon that keeps a queue of things to research, finds new
 ones on the sources the owner registers, has each one researched by that runner in its category's shape, and
 tells the category's recipients, rooms and agents; it files no job and launches nothing. It holds the

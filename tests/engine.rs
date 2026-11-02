@@ -1,9 +1,10 @@
 //! The engine a run needs against stand-in agency, artifact, receiver, tool host and arbiter servers
-//! (`docs/api.md`, 「The engine」): a try asks its card before its seat, its seat and sessions stand on the
-//! grant and the demand is given back at its end; a try waiting for its card asks no seat and the state says
-//! why; what a stopped daemon left held is given back; a branch asks its own card within its run's; a try
-//! failing after its card was taken, or after the master stopped holding its demand, waits again uncounted; a card that does not come is told to the owner's
-//! room once; a stopped category takes its waiting try's demand back; and no master named asks no demand.
+//! (`docs/api.md`, 「The engine」): a try asks its card before its slot, its slot and sessions stand on the
+//! grant and the demand is given back at its end; a try waiting for its card asks no slot and the state
+//! says why; what a stopped daemon left held is given back; a branch asks its own card within its run's; a
+//! try failing after its card was taken, or after the master stopped holding its demand, waits again
+//! uncounted; a card that does not come is told to the owner's room once; a stopped category takes its
+//! waiting try's demand back; and no master named asks no demand.
 
 mod support;
 
@@ -90,7 +91,7 @@ fn restore_notices(ground: &Ground) -> Vec<Value> {
 #[tokio::test]
 async fn a_try_asks_its_card_first_stands_on_the_grant_and_gives_it_back_at_its_end() {
   let ground = support::ground(|_| {}).await;
-  ground.world.lock().unwrap().seat_waits = 1;
+  ground.world.lock().unwrap().slot_waits = 1;
   let item = ask(&ground, "a");
   file(&ground, 1, 11);
   settle(&ground).await;
@@ -115,7 +116,7 @@ async fn a_try_asks_its_card_first_stands_on_the_grant_and_gives_it_back_at_its_
       .unwrap()
   };
   assert!(
-    first("arbiter", "POST", "/demands") < first("agency", "POST", "/seat-requests"),
+    first("arbiter", "POST", "/demands") < first("agency", "POST", "/slot-requests"),
     "the card first"
   );
 
@@ -129,16 +130,13 @@ async fn a_try_asks_its_card_first_stands_on_the_grant_and_gives_it_back_at_its_
     assert_eq!(session["demandId"], demand, "{session}");
   }
   let admissions: Vec<Value> = ground
-    .asked_path("agency", "PATCH", "/seat-requests/seat-1")
+    .asked_path("agency", "PATCH", "/slot-requests/slot-1")
     .into_iter()
     .map(|a| a.body)
-    .filter(|b| b["state"] == "admitted")
+    .filter(|b| b.get("state").is_none())
     .collect();
   assert!(!admissions.is_empty());
-  assert!(
-    admissions.iter().all(|a| a == &json!({"state": "admitted", "demandId": demand})),
-    "{admissions:?}"
-  );
+  assert!(admissions.iter().all(|a| a == &json!({"demandId": demand})), "{admissions:?}");
 
   assert_eq!(given_back(&ground), [format!("/demands/{demand}")]);
   assert!(ground.app.store.demands().unwrap().is_empty());
@@ -147,7 +145,7 @@ async fn a_try_asks_its_card_first_stands_on_the_grant_and_gives_it_back_at_its_
 }
 
 #[tokio::test]
-async fn a_try_waiting_for_its_card_asks_no_seat_and_the_state_says_why() {
+async fn a_try_waiting_for_its_card_asks_no_slot_and_the_state_says_why() {
   let ground = support::ground(|_| {}).await;
   ground.world.lock().unwrap().cards_busy = true;
   let item = ask(&ground, "a");
@@ -155,7 +153,7 @@ async fn a_try_waiting_for_its_card_asks_no_seat_and_the_state_says_why() {
   let carried = tick(&ground.app).await;
   until("the hold", || holds(&ground.app).first().is_some_and(|h| h.demand_id.is_some())).await;
 
-  assert!(ground.run_seats().is_empty(), "no seat while the card waits");
+  assert!(ground.run_slots().is_empty(), "no slot while the card waits");
   let base = support::serve(research_server::routes::router(ground.app.clone())).await;
   let state = ResearchClient::new(&base).with_token("test-token").state().await.unwrap();
   assert_eq!(state.holds.len(), 1);
@@ -182,7 +180,7 @@ async fn a_try_waiting_for_its_card_asks_no_seat_and_the_state_says_why() {
     handle.await.unwrap();
   }
   assert!(holds(&ground.app).is_empty());
-  assert_eq!(ground.run_seats().len(), 1);
+  assert_eq!(ground.run_slots().len(), 1);
   assert_eq!(demands_asked(&ground).len(), 1, "the same demand waited on");
   assert_eq!(ground.app.store.item(item).unwrap().state, ItemState::Reported);
   assert_eq!(given_back(&ground), ["/demands/4001"]);
@@ -228,12 +226,11 @@ async fn a_branch_of_a_run_holding_a_card_asks_its_own_within_the_run_s() {
       tells: false,
     })
     .unwrap();
-  let record =
-    json!({"run": run, "source": "search", "role": "scout", "branches": 2, "pages": 8, "branchPages": 4});
+  let record = json!({"run": run, "source": "search", "role": "searcher", "branches": 2, "pages": 8, "branchPages": 4});
   store.keep_research_road(run, "registered", "flash-next", &record).unwrap();
   store.research_running(run).unwrap();
   store.keep_demand(3000, Some(5), Some(run), None, "lab-arena").unwrap();
-  ground.world.lock().unwrap().seat_waits = 1;
+  ground.world.lock().unwrap().slot_waits = 1;
 
   let end = client
     .branch(&BranchAsk {
@@ -258,16 +255,13 @@ async fn a_branch_of_a_run_holding_a_card_asks_its_own_within_the_run_s() {
   let branch = 4001;
   assert_eq!(sessions(&ground)[0]["demandId"], branch);
   let admitted: Vec<Value> = ground
-    .asked_path("agency", "PATCH", "/seat-requests/seat-1")
+    .asked_path("agency", "PATCH", "/slot-requests/slot-1")
     .into_iter()
     .map(|a| a.body)
-    .filter(|b| b["state"] == "admitted")
+    .filter(|b| b.get("state").is_none())
     .collect();
   assert!(!admitted.is_empty());
-  assert!(
-    admitted.iter().all(|a| a == &json!({"state": "admitted", "demandId": branch})),
-    "{admitted:?}"
-  );
+  assert!(admitted.iter().all(|a| a == &json!({"demandId": branch})), "{admitted:?}");
   assert_eq!(given_back(&ground), [format!("/demands/{branch}")], "the branch's own, not the run's");
   assert_eq!(store.demands().unwrap(), [3000]);
   assert_eq!(store.run_demand(run).unwrap(), Some(3000));
@@ -294,8 +288,7 @@ async fn a_branch_s_card_granted_late_still_opens_the_branch() {
       tells: false,
     })
     .unwrap();
-  let record =
-    json!({"run": run, "source": "search", "role": "scout", "branches": 2, "pages": 8, "branchPages": 4});
+  let record = json!({"run": run, "source": "search", "role": "searcher", "branches": 2, "pages": 8, "branchPages": 4});
   store.keep_research_road(run, "registered", "flash-next", &record).unwrap();
   store.research_running(run).unwrap();
   store.keep_demand(3000, Some(5), Some(run), None, "lab-arena").unwrap();
@@ -394,14 +387,14 @@ async fn a_card_that_does_not_come_is_told_to_the_owner_s_room_once() {
   );
   assert_eq!(told[0]["said"]["order"], expected.as_str());
   assert!(holds(&ground.app)[0].reported);
-  assert!(ground.run_seats().is_empty(), "the demand goes on waiting");
+  assert!(ground.run_slots().is_empty(), "the demand goes on waiting");
 
   ground.world.lock().unwrap().grant_cards();
   for handle in carried {
     handle.await.unwrap();
   }
   assert_eq!(restore_notices(&ground).len(), 1);
-  assert_eq!(ground.run_seats().len(), 1);
+  assert_eq!(ground.run_slots().len(), 1);
 }
 
 #[tokio::test]
@@ -419,7 +412,7 @@ async fn a_stopped_category_gives_back_the_card_its_waiting_try_asked() {
   assert!(holds(&ground.app).is_empty());
   assert_eq!(given_back(&ground), ["/demands/4001"]);
   assert!(ground.app.store.demands().unwrap().is_empty());
-  assert!(ground.run_seats().is_empty());
+  assert!(ground.run_slots().is_empty());
   let waiting = ground.app.store.item(item).unwrap();
   assert_eq!((waiting.state, waiting.tries), (ItemState::Waiting, 0));
   assert_eq!(ground.app.store.running_count().unwrap(), 0);

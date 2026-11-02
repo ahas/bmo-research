@@ -1,8 +1,8 @@
-//! The daemon's settings (`docs/settings.md`): where it listens, the loop's numbers, the road its runs go out
-//! on where a category names none, how a document is cut for the translator, the models the engine watch
-//! asks the arbiter's cards for, how the runner seats a run and what it is held to where the owner changed nothing, where the
-//! tool host answers, the voice a narration is spoken in, where a stuck item's repair is filed, and the files
-//! its peers' addresses and tokens are read from.
+//! The daemon's settings (`docs/settings.md`): where it listens, the loop's numbers, the road its runs go
+//! out on where a category names none, how a document is cut for the translator, the models the engine
+//! watch asks the arbiter's cards for, the roles the runner's runs hold and what they are held to where the
+//! owner changed nothing, where the tool host answers, the voice a narration is spoken in, where a stuck
+//! item's repair is filed, and the files its peers' addresses and tokens are read from.
 
 use std::collections::BTreeMap;
 
@@ -150,18 +150,27 @@ impl Engine {
   }
 }
 
-/// How the runner seats a run and what its session record keeps.
+/// The roles the runner's runs hold, by their line, and what a run's session record keeps.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Runner {
-  pub role: String,
+  pub search_role: String,
+  pub browse_role: String,
   pub capabilities: Vec<String>,
+}
+
+impl Runner {
+  /// The role a run on the line holds: its own slot's and its review's.
+  pub fn role(&self, line: &str) -> &str {
+    if line == "browse" { &self.browse_role } else { &self.search_role }
+  }
 }
 
 impl Default for Runner {
   fn default() -> Self {
     Runner {
-      role: "scout".into(),
+      search_role: "searcher".into(),
+      browse_role: "browser".into(),
       capabilities: ["room.chat", "room.tools", "web.read", "web.sites", "web.branches", "web.rulebooks"]
         .map(String::from)
         .to_vec(),
@@ -199,7 +208,7 @@ impl Default for ResearchDefaults {
       branch_pages,
     };
     ResearchDefaults {
-      branch_role: "scout".into(),
+      branch_role: "searcher".into(),
       strategy: "direct-then-browser".into(),
       host_interval_ms: None,
       engine_interval_ms: None,

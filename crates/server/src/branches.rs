@@ -1,8 +1,8 @@
 //! A research run's branches (`docs/runner.md`, 「Branches」): the run's allowance counted here, and each
 //! branch carried — its card asked of the arbiter's master within the run's where the run holds one, then
-//! through agency its seat in the common co-worker pool, a thrown-away session on the search line's branch
-//! instructions and that session's one turn — to its notes. A caller that lets go ends its branch the same
-//! way a branch that ends does.
+//! through agency a slot of the branch role on the run's road, a session of that role on the search line's
+//! branch instructions and that session's one turn — to its notes. A caller that lets go ends its branch
+//! the same way a branch that ends does.
 
 use std::sync::Arc;
 
@@ -11,15 +11,15 @@ use serde_json::json;
 
 use crate::App;
 use crate::engine::{self, Uncarded};
-use crate::runner::{self, Seat, Start, Turn};
+use crate::runner::{self, Slot, Start, Turn};
 use crate::tool_host::ToolHost;
 
-/// The work key a branch's seat and turn are laid under, and the line it goes out on.
+/// The work key a branch's turn is laid under, and the line it goes out on.
 const LINE: &str = "search";
 
 const NO_LONGER_RUNNING: &str = "the run is no longer running";
 const ALLOWED_NONE: &str = "this run is allowed no branches";
-const UNSEATED: &str = "cancelled: it never got a pool place";
+const UNSEATED: &str = "cancelled: it never got a slot";
 
 /// Why a branch is not opened.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,7 +45,7 @@ pub fn branch_prompt(angle: &str) -> String {
 struct Held {
   app: Arc<App>,
   run: i64,
-  seat: Option<String>,
+  slot: Option<String>,
   session: Option<String>,
   demand: Option<i64>,
   bound: bool,
@@ -57,9 +57,9 @@ impl Held {
     if let Some(session) = self.session.take() {
       runner::end_session(&self.app, self.run, &session).await;
     }
-    if let Some(seat) = self.seat.take() {
+    if let Some(slot) = self.slot.take() {
       let cancel = !self.bound;
-      runner::give_back(&self.app, self.run, &seat, if cancel { UNSEATED } else { outcome }, cancel).await;
+      runner::give_back(&self.app, self.run, &slot, if cancel { UNSEATED } else { outcome }, cancel).await;
     }
     if let Some(demand) = self.demand.take() {
       engine::give_back(&self.app, demand).await;
@@ -69,13 +69,13 @@ impl Held {
 
 impl Drop for Held {
   fn drop(&mut self) {
-    if self.seat.is_none() && self.session.is_none() && self.demand.is_none() {
+    if self.slot.is_none() && self.session.is_none() && self.demand.is_none() {
       return;
     }
     let mut left = Held {
       app: self.app.clone(),
       run: self.run,
-      seat: self.seat.take(),
+      slot: self.slot.take(),
       session: self.session.take(),
       demand: self.demand.take(),
       bound: self.bound,
@@ -111,7 +111,7 @@ pub async fn open(app: Arc<App>, ask: BranchAsk) -> Result<BranchEnd, Refusal> {
   let mut held = Held {
     app: app.clone(),
     run: row.id,
-    seat: None,
+    slot: None,
     session: None,
     demand: None,
     bound: false,
@@ -124,43 +124,33 @@ pub async fn open(app: Arc<App>, ask: BranchAsk) -> Result<BranchEnd, Refusal> {
     }
   }
   let source = row.record["source"].as_str().unwrap_or(LINE).to_string();
-  let mut asked = json!({
-    "requestKey": format!("research:{}:branch:{index}", row.id),
-    "owner": format!("research:{}", row.id),
-    "role": row.record["role"].as_str().unwrap_or_default(),
-    "selection": "auto",
-    "workKey": LINE,
-    "source": source,
-  });
-  if !row.provider.is_empty() {
-    asked["provider"] = json!(row.provider);
-  }
-  let mut seat = match app.peers.ask_seat(&asked).await.map(|said| Seat::of(&said)) {
-    Ok(Some(seat)) => seat,
-    Ok(None) => return Ok(failed(index, "the common co-worker pool answered its seat with no token")),
-    Err(why) => {
-      return Ok(failed(index, &format!("the common co-worker pool could not take this branch: {why}")));
-    }
+  let role = row.record["role"].as_str().unwrap_or_default().to_string();
+  let named = Some((row.provider.as_str(), row.model.as_str()))
+    .filter(|(provider, model)| !provider.is_empty() && !model.is_empty());
+  let asked =
+    runner::slot_ask(&format!("research:{}:branch:{index}", row.id), row.id, &role, &source, named);
+  let mut slot = match runner::take_slot(&app, row.id, &asked).await {
+    Ok(slot) => slot,
+    Err(why) => return Ok(failed(index, &format!("agency gave this branch no slot: {why}"))),
   };
-  held.seat = Some(seat.token.clone());
-  let _ = app.store.hold(row.id, "seat", &seat.token);
+  held.slot = Some(slot.token.clone());
   loop {
-    if seat.admitted() {
+    if slot.admitted() {
       break;
     }
-    if seat.ended() {
+    if slot.ended() {
       held.give_back("failed").await;
-      return Ok(failed(index, "the pool request was ended before it got a place"));
+      return Ok(failed(index, "agency ended the slot request before it got a place"));
     }
     if !runner::runs(&app, row.id) {
       held.give_back(UNSEATED).await;
       return Err(Refusal::Refused(NO_LONGER_RUNNING.into()));
     }
     tokio::time::sleep(runner::LOOK_EVERY).await;
-    match app.peers.move_seat(&seat.token, &runner::admission(held.demand)).await {
+    match app.peers.move_slot(&slot.token, &runner::admission(held.demand)).await {
       Ok(said) => {
-        if let Some(now) = Seat::admission(&said) {
-          seat = now;
+        if let Some(now) = Slot::admission(&said) {
+          slot = now;
         }
       }
       Err(fault) => {
@@ -169,7 +159,7 @@ pub async fn open(app: Arc<App>, ask: BranchAsk) -> Result<BranchEnd, Refusal> {
       }
     }
   }
-  let end = match seated(&app, &row, &mut held, &seat, index, angle).await {
+  let end = match let_in(&app, &row, &mut held, &slot, &role, index, angle).await {
     Ok(notes) => BranchEnd {
       index,
       state: BranchState::Completed,
@@ -196,13 +186,14 @@ fn failed(index: i64, why: &str) -> BranchEnd {
   }
 }
 
-/// The seated branch's session started on the run's road, the seat bound to its turn's run name, and that one
-/// turn waited on until it ends: what the turn wrote.
-async fn seated(
+/// The let-in branch's session of its role started on the run's road, the slot bound to its turn's run
+/// name, and that one turn waited on until it ends: what the turn wrote.
+async fn let_in(
   app: &App,
   row: &crate::store::ResearchRunRow,
   held: &mut Held,
-  seat: &Seat,
+  slot: &Slot,
+  role: &str,
   index: i64,
   angle: &str,
 ) -> Result<String, String> {
@@ -215,6 +206,7 @@ async fn seated(
     row.id,
     &Start {
       line: LINE,
+      role,
       provider: &row.provider,
       model: &row.model,
       system: &system,
@@ -227,9 +219,9 @@ async fn seated(
   .map_err(String::from)?;
   held.session = Some(session.clone());
   let name = format!("research-{}-branch-{index}", row.id);
-  let bound = app.peers.move_seat(&seat.token, &json!({ "state": "bound", "childId": name })).await;
+  let bound = app.peers.move_slot(&slot.token, &json!({ "state": "bound", "childId": name })).await;
   if let Err(why) = bound {
-    return Err(format!("its seat could not be bound to its turn: {why}"));
+    return Err(format!("its slot could not be bound to its turn: {why}"));
   }
   held.bound = true;
   let source = row.record["source"].as_str().unwrap_or(LINE);
@@ -239,7 +231,7 @@ async fn seated(
     &Turn {
       provider: &row.provider,
       model: &row.model,
-      seat,
+      slot,
       name: &name,
       title: &title,
       chat: row.room_id.unwrap_or(0),

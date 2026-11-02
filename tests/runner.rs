@@ -1,10 +1,10 @@
 //! The research runner against stand-in agency, artifact, receiver and tool host servers (`docs/runner.md`,
-//! `docs/api.md`, 「research runs」 and 「research settings」): a run end to end — its seat, its session's start
-//! with its record and capabilities, its first turn, its rounds, its filing and its room's instruction — a run
-//! agency refuses, a turn waited on however long it holds and through a session still in a turn, the branches
-//! and their allowance, the settings' round trip, a summary a result still writes folded into its document's
-//! answer, a turn's text read whole, and a room's document given its narration's sound at its head before its
-//! room is told.
+//! `docs/api.md`, 「research runs」 and 「research settings」): a run end to end — its slot, its session's
+//! start with its record and capabilities, its first turn, its rounds, its filing and its room's
+//! instruction — a run agency refuses, a turn waited on however long it holds and through a session still
+//! in a turn, the branches and their allowance, the settings' round trip, a summary a result still writes
+//! folded into its document's answer, a turn's text read whole, and a room's document given its narration's
+//! sound at its head before its room is told.
 
 mod support;
 
@@ -60,7 +60,7 @@ fn sessions(ground: &support::Ground) -> Vec<Value> {
 }
 
 #[tokio::test]
-async fn a_search_is_seated_sent_asked_its_rounds_filed_and_told_to_its_room() {
+async fn a_search_is_let_in_sent_asked_its_rounds_filed_and_told_to_its_room() {
   let (ground, _base, client) = served().await;
   let asked = client
     .ask_research(&ResearchRunAsk {
@@ -76,7 +76,7 @@ async fn a_search_is_seated_sent_asked_its_rounds_filed_and_told_to_its_room() {
     (asked.run_id, asked.state, asked.provider.as_str()),
     (1, ResearchRunState::Running, "registered")
   );
-  assert_eq!(asked.model, "seat-model", "the seat's model where the ask names none");
+  assert_eq!(asked.model, "slot-model", "the slot's model where the ask names none");
 
   let run = closed(&ground, 1).await;
   assert_eq!((run.outcome.as_deref(), run.document_id), (Some("answered"), Some(901)));
@@ -91,23 +91,25 @@ async fn a_search_is_seated_sent_asked_its_rounds_filed_and_told_to_its_room() {
     "a turn that wrote none leaves no sound"
   );
 
-  let seats = ground.run_seats();
-  assert_eq!(seats.len(), 1);
+  let slots = ground.run_slots();
+  assert_eq!(slots.len(), 1);
   assert_eq!(
-    seats[0],
-    json!({"requestKey": "research:1", "owner": "research:1", "role": "scout", "selection": "auto", "workKey": "search:thorough", "source": "search"})
+    slots[0],
+    json!({"requestKey": "research:1", "owner": "research:1", "role": "searcher", "source": "search"}),
+    "a slot of the search line's role on its role's own road"
   );
 
   let started = sessions(&ground);
   assert_eq!(started.len(), 2, "the first answer's session and the rounds'");
   let first = &started[0];
   assert_eq!(
-    (first["agent"].as_str(), first["scope"].as_str(), first["line"].as_str()),
-    (Some("search"), Some("apart"), Some("search"))
+    (first["scope"].as_str(), first["role"].as_str(), first["line"].as_str()),
+    (Some("role"), Some("searcher"), Some("search"))
   );
+  assert!(first.get("agent").is_none(), "a role's session names its role, not an agent");
   assert_eq!(
     (first["provider"].as_str(), first["model"].as_str(), first["cwd"].as_str()),
-    (Some("registered"), Some("seat-model"), Some(""))
+    (Some("registered"), Some("slot-model"), Some(""))
   );
   assert!(first.get("boundMs").is_none(), "no turn of a run is cut");
   let system = first["systemPrompt"].as_str().unwrap();
@@ -128,14 +130,14 @@ async fn a_search_is_seated_sent_asked_its_rounds_filed_and_told_to_its_room() {
     ("run", json!(1)),
     ("owner", json!("the owner")),
     ("source", json!("search")),
-    ("role", json!("scout")),
+    ("role", json!("searcher")),
     ("branches", json!(2)),
     ("pages", json!(8)),
     ("branchPages", json!(4)),
     ("chat", json!(5)),
     ("strategy", json!("direct-then-browser")),
     ("provider", json!("registered")),
-    ("model", json!("seat-model")),
+    ("model", json!("slot-model")),
     ("branchesToken", json!("test-token")),
   ] {
     assert_eq!(record[key], value, "{key}");
@@ -162,10 +164,15 @@ async fn a_search_is_seated_sent_asked_its_rounds_filed_and_told_to_its_room() {
   assert!(turn["prompt"].as_str().unwrap().contains("Which engine serves Thing-7B fastest?"));
   assert!(
     turn["prompt"].as_str().unwrap().contains("thorough")
-      && turn["prompt"].as_str().unwrap().contains("up to 2 pooled branches")
+      && turn["prompt"].as_str().unwrap().contains("up to 2 branches")
   );
   assert_eq!(turn["workKey"], "search:thorough");
-  assert_eq!(turn["mapping"], json!({"model": "seat-model", "effort": "high", "tier": "Light"}));
+  assert_eq!(turn["mapping"], json!({"model": "slot-model", "effort": "high"}));
+  assert_eq!(
+    ground.asked_path("agency", "POST", "/sessions/searcher@run:1/turns").len(),
+    1,
+    "the turn goes to the session by the id agency named"
+  );
   assert_eq!(
     (turn["resume"]["kind"].as_str(), turn["chat"].as_i64(), turn["hearsWords"].as_bool()),
     (Some("fresh"), Some(5), Some(false))
@@ -180,13 +187,13 @@ async fn a_search_is_seated_sent_asked_its_rounds_filed_and_told_to_its_room() {
   );
 
   let moved: Vec<Value> = ground
-    .asked_path("agency", "PATCH", "/seat-requests/seat-1")
+    .asked_path("agency", "PATCH", "/slot-requests/slot-1")
     .into_iter()
     .map(|a| a.body)
     .collect();
   assert!(
     moved.iter().all(|m| m["state"] != "bound"),
-    "the run's seat is bound to no child: {moved:?}"
+    "the run's slot is bound to no child: {moved:?}"
   );
   assert_eq!(moved.last().unwrap(), &json!({"state": "finished", "outcome": "answered"}));
   assert_eq!(ground.asked_path("agency", "DELETE", "/sessions/").len(), 2, "both sessions ended");
@@ -228,18 +235,18 @@ async fn a_search_is_seated_sent_asked_its_rounds_filed_and_told_to_its_room() {
   assert!(told[0].get("run").is_none(), "no ledger run field is sent");
 
   let log: Vec<String> = client.research_log(1).await.unwrap().items.into_iter().map(|l| l.kind).collect();
-  for kind in ["asked", "seated", "answer", "round", "filed", "ended", "told"] {
+  for kind in ["asked", "admitted", "answer", "round", "filed", "ended", "told"] {
     assert!(log.contains(&kind.to_string()), "{kind} missing from {log:?}");
   }
   assert_eq!(client.research_run(1).await.unwrap(), run);
 }
 
 #[tokio::test]
-async fn a_seat_s_admission_answered_past_half_a_minute_still_seats_its_run() {
+async fn a_slot_s_admission_answered_past_half_a_minute_still_lets_its_run_in() {
   let (ground, _base, client) = served().await;
   {
     let mut world = ground.world.lock().unwrap();
-    world.seat_waits = 1;
+    world.slot_waits = 1;
     world.admission_wait_ms = 31_000;
   }
   let asked = client
@@ -263,11 +270,11 @@ async fn a_seat_s_admission_answered_past_half_a_minute_still_seats_its_run() {
   let run = row.view();
   assert_eq!(run.outcome.as_deref(), Some("answered"), "{:?}", run.error);
   let admissions = ground
-    .asked_path("agency", "PATCH", "/seat-requests/seat-1")
+    .asked_path("agency", "PATCH", "/slot-requests/slot-1")
     .into_iter()
-    .filter(|a| a.body["state"] == "admitted")
+    .filter(|a| a.body == json!({}))
     .count();
-  assert_eq!(admissions, 2, "the slow admission waited on, then the one that let the seat in");
+  assert_eq!(admissions, 2, "the slow admission waited on, then the one that let the slot in");
 }
 
 #[tokio::test]
@@ -284,7 +291,11 @@ async fn a_run_naming_its_road_and_no_room_is_told_to_none_and_a_browse_carries_
     .await
     .unwrap();
   closed(&ground, asked.run_id).await;
-  assert_eq!(ground.run_seats()[0]["provider"], "deepseek");
+  assert_eq!(
+    ground.run_slots()[0],
+    json!({"requestKey": "research:1", "owner": "research:1", "role": "browser", "source": "browse", "provider": "deepseek", "model": "deepseek-flash"}),
+    "a browse's slot of the browse line's role, on the road its ask names"
+  );
   let first = &sessions(&ground)[0];
   assert_eq!(
     (first["provider"].as_str(), first["model"].as_str(), first["line"].as_str()),
@@ -307,7 +318,7 @@ async fn a_run_naming_its_road_and_no_room_is_told_to_none_and_a_browse_carries_
 #[tokio::test]
 async fn a_run_agency_refuses_is_answered_503_and_leaves_nothing_standing() {
   let (ground, base, _client) = served().await;
-  ground.world.lock().unwrap().session_answers.push_back(503);
+  ground.world.lock().unwrap().slot_answers.push_back(503);
   let (status, said) = raw(
     &base,
     reqwest::Method::POST,
@@ -317,14 +328,27 @@ async fn a_run_agency_refuses_is_answered_503_and_leaves_nothing_standing() {
   .await;
   assert_eq!((status, said["code"].as_str()), (StatusCode::SERVICE_UNAVAILABLE, Some("unavailable")));
   assert!(said["error"].as_str().unwrap().contains("line"), "{said}");
-  let cancelled = &ground.asked_path("agency", "PATCH", "/seat-requests/seat-1")[0].body;
-  assert_eq!(
-    (cancelled["state"].as_str(), cancelled["cancel"].as_bool()),
-    (Some("finished"), Some(true))
-  );
   let run = ground.app.store.research_run(1).unwrap();
   assert_eq!((run.state, run.outcome.as_deref()), (ResearchRunState::Closed, Some("failed")));
   assert!(ground.app.store.holds(1).unwrap().is_empty());
+  assert!(sessions(&ground).is_empty(), "no session without a slot");
+
+  // A session agency cannot start once the slot is let in cuts the run, its slot given back.
+  ground.world.lock().unwrap().session_answers.push_back(503);
+  let (status, said) = raw(
+    &base,
+    reqwest::Method::POST,
+    "/research-runs",
+    json!({"key": "search:basic", "query": "What does it cost?"}),
+  )
+  .await;
+  assert_eq!(status, StatusCode::ACCEPTED, "{said}");
+  let run = closed(&ground, 2).await;
+  assert_eq!(run.outcome.as_deref(), Some("cut"), "{:?}", run.error);
+  assert!(run.error.as_deref().unwrap_or_default().contains("no session"), "{:?}", run.error);
+  let given_back = ground.asked_path("agency", "PATCH", "/slot-requests/slot-1");
+  assert_eq!(given_back.last().unwrap().body["state"], "finished");
+  assert!(ground.app.store.holds(2).unwrap().is_empty());
 
   ground.world.lock().unwrap().no_listing = true;
   let (status, _) = raw(
@@ -339,6 +363,7 @@ async fn a_run_agency_refuses_is_answered_503_and_leaves_nothing_standing() {
   for body in [
     json!({"key": "search:deep", "query": "Q"}),
     json!({"key": "search:basic", "query": " "}),
+    json!({"key": "search:basic", "query": "Q", "provider": "deepseek"}),
   ] {
     let (status, said) = raw(&base, reqwest::Method::POST, "/research-runs", body).await;
     assert_eq!((status, said["code"].as_str()), (StatusCode::BAD_REQUEST, Some("bad-request")));
@@ -403,7 +428,7 @@ async fn a_turn_sent_into_a_session_still_in_a_turn_waits_for_its_end_and_is_sen
     ground.asked_path("agency", "GET", "/sessions/").into_iter().map(|a| a.path).collect();
   assert_eq!(
     reads,
-    ["/sessions/search@apart:1", "/sessions/search@apart:1"],
+    ["/sessions/searcher@run:1", "/sessions/searcher@run:1"],
     "read until it named no run"
   );
   let log = ground.app.store.research_log(1).unwrap();
@@ -427,14 +452,14 @@ fn running(ground: &support::Ground, branches: i64) -> i64 {
       tells: true,
     })
     .unwrap();
-  let record = json!({"run": run, "source": "search", "role": "scout", "branches": branches, "pages": 8, "branchPages": 4, "branchesAt": "http://x", "branchesToken": "t"});
+  let record = json!({"run": run, "source": "search", "role": "searcher", "branches": branches, "pages": 8, "branchPages": 4, "branchesAt": "http://x", "branchesToken": "t"});
   store.keep_research_road(run, "registered", "flash-next", &record).unwrap();
   store.research_running(run).unwrap();
   run
 }
 
 #[tokio::test]
-async fn a_branch_is_seated_run_and_counted_against_its_run_s_allowance() {
+async fn a_branch_is_let_in_run_and_counted_against_its_run_s_allowance() {
   let (ground, base, client) = served().await;
   let run = running(&ground, 2);
   let end = client
@@ -447,16 +472,18 @@ async fn a_branch_is_seated_run_and_counted_against_its_run_s_allowance() {
   assert_eq!((end.index, end.state, end.reason), (1, BranchState::Completed, None));
   assert_eq!(end.notes, "notes of research-1-branch-1");
 
-  let seat = &ground.asked_path("agency", "POST", "/seat-requests")[0].body;
+  let slot = &ground.asked_path("agency", "POST", "/slot-requests")[0].body;
   assert_eq!(
-    seat,
-    &json!({"requestKey": "research:1:branch:1", "owner": "research:1", "role": "scout", "selection": "auto", "workKey": "search", "source": "search", "provider": "registered"})
+    slot,
+    &json!({"requestKey": "research:1:branch:1", "owner": "research:1", "role": "searcher", "source": "search", "provider": "registered", "model": "flash-next"}),
+    "a branch's slot of the branch role on the run's road"
   );
   let started = &sessions(&ground)[0];
   assert_eq!(
     (started["provider"].as_str(), started["model"].as_str()),
     (Some("registered"), Some("flash-next"))
   );
+  assert_eq!((started["scope"].as_str(), started["role"].as_str()), (Some("role"), Some("searcher")));
   let record = &started["labels"]["research"];
   assert_eq!(
     (record["branchOf"].as_i64(), record["pages"].as_i64(), record["branches"].as_i64()),
@@ -475,12 +502,12 @@ async fn a_branch_is_seated_run_and_counted_against_its_run_s_allowance() {
     (turn["workKey"].as_str(), turn["title"].as_str(), turn["chat"].as_i64()),
     (Some("search"), Some("search branch 1"), Some(5))
   );
-  let given_back = ground.asked_path("agency", "PATCH", "/seat-requests/seat-1");
+  let given_back = ground.asked_path("agency", "PATCH", "/slot-requests/slot-1");
   assert!(
     given_back
       .iter()
       .any(|a| a.body == json!({"state": "bound", "childId": "research-1-branch-1"})),
-    "the branch's seat is bound to its turn's run name: {given_back:?}"
+    "the branch's slot is bound to its turn's run name: {given_back:?}"
   );
   assert_eq!(given_back.last().unwrap().body, json!({"state": "finished", "outcome": "completed"}));
   assert_eq!(ground.asked_path("agency", "DELETE", "/sessions/").len(), 1);
@@ -512,10 +539,10 @@ async fn a_branch_is_seated_run_and_counted_against_its_run_s_allowance() {
   assert!(said["error"].as_str().unwrap().contains("no longer running"), "{said}");
 }
 
-/// A branch's turn is waited on until it answers, and its seat for its place however long the pool takes
-/// (`docs/runner.md`, 「Branches」).
+/// A branch's turn is waited on until it answers, and its slot for its place however long its role's line
+/// takes (`docs/runner.md`, 「Branches」).
 #[tokio::test]
-async fn a_slow_branch_is_waited_on_and_a_waiting_seat_still_seated() {
+async fn a_slow_branch_is_waited_on_and_a_waiting_slot_still_let_in() {
   let (ground, base, client) = served().await;
   ground.world.lock().unwrap().branch_wait_ms = 400;
   let run = running(&ground, 2);
@@ -528,30 +555,31 @@ async fn a_slow_branch_is_waited_on_and_a_waiting_seat_still_seated() {
     .unwrap();
   assert_eq!(end.state, BranchState::Completed);
   assert_eq!(end.notes, "notes of research-1-branch-1");
-  let given_back = ground.asked_path("agency", "PATCH", "/seat-requests/seat-1");
+  let given_back = ground.asked_path("agency", "PATCH", "/slot-requests/slot-1");
   assert_eq!(given_back.last().unwrap().body["outcome"], "completed");
 
   let late = running(&ground, 2);
   {
     let mut world = ground.world.lock().unwrap();
     world.branch_wait_ms = 0;
-    world.seat_waits = 2;
+    world.slot_waits = 2;
   }
   let (status, said) =
     raw(&base, reqwest::Method::POST, "/branches", json!({"run": late, "angle": "x"})).await;
   assert_eq!(status, StatusCode::OK, "{said}");
   assert_eq!(said["notes"], format!("notes of research-{late}-branch-1"));
-  let moved = ground.asked_path("agency", "PATCH", "/seat-requests/seat-2");
-  assert!(moved.iter().all(|a| a.body.get("cancel").is_none()), "the seat was never cancelled");
+  let moved = ground.asked_path("agency", "PATCH", "/slot-requests/slot-2");
+  assert!(moved.iter().all(|a| a.body.get("cancel").is_none()), "the slot was never cancelled");
   assert_eq!(client.research_run(late).await.unwrap().branches, 1);
 }
 
-/// A run's seat still waiting is asked for its place until it is let in, however long the pool takes, and the
-/// run goes on to its answer (`docs/runner.md`, 「One run, step by step」).
+/// A run's slot still waiting is asked for its place until it is let in, however long its role's line
+/// takes, its session started only then, and the run goes on to its answer (`docs/runner.md`, 「One run,
+/// step by step」).
 #[tokio::test]
-async fn a_run_s_waiting_seat_is_asked_for_its_place_until_seated_and_answered() {
+async fn a_run_s_waiting_slot_is_asked_for_its_place_until_let_in_and_answered() {
   let (ground, _base, client) = served().await;
-  ground.world.lock().unwrap().seat_waits = 3;
+  ground.world.lock().unwrap().slot_waits = 3;
   let asked = client
     .ask_research(&ResearchRunAsk {
       key: "search:basic".into(),
@@ -561,17 +589,27 @@ async fn a_run_s_waiting_seat_is_asked_for_its_place_until_seated_and_answered()
     .await
     .unwrap();
   assert_eq!(asked.state, ResearchRunState::Waiting);
+  assert_eq!(
+    (asked.provider.as_str(), asked.model.as_str()),
+    ("", ""),
+    "no road is known while it waits"
+  );
 
   let run = closed(&ground, 1).await;
   assert_eq!(run.outcome.as_deref(), Some("answered"), "{:?}", run.error);
-  let admitted = ground
-    .asked_path("agency", "PATCH", "/seat-requests/seat-1")
-    .into_iter()
-    .filter(|a| a.body["state"] == "admitted")
-    .count();
-  assert!(admitted >= 3, "asked for its place until let in: {admitted}");
-  let seated = ground.app.store.research_log(1).unwrap();
-  assert!(seated.iter().any(|line| line.kind == "seated"), "{seated:?}");
+  assert_eq!((run.provider.as_str(), run.model.as_str()), ("registered", "slot-model"));
+  let asked_agency = ground.asked("agency");
+  let admissions: Vec<usize> = asked_agency
+    .iter()
+    .enumerate()
+    .filter(|(_, a)| a.path == "/slot-requests/slot-1" && a.body == json!({}))
+    .map(|(at, _)| at)
+    .collect();
+  assert!(admissions.len() >= 3, "asked for its place until let in: {admissions:?}");
+  let started = asked_agency.iter().position(|a| a.method == "POST" && a.path == "/sessions").unwrap();
+  assert!(started > *admissions.last().unwrap(), "the session is started once the slot is let in");
+  let log = ground.app.store.research_log(1).unwrap();
+  assert!(log.iter().any(|line| line.kind == "admitted"), "{log:?}");
 }
 
 #[tokio::test]
@@ -580,7 +618,7 @@ async fn the_research_settings_are_read_changed_and_refused_where_they_do_not_st
   let read = client.research_settings().await.unwrap();
   assert_eq!(
     (read.source.as_str(), read.branch_role.as_str(), read.strategy.as_str()),
-    ("default", "scout", "direct-then-browser")
+    ("default", "searcher", "direct-then-browser")
   );
   let keys: Vec<&str> = read.keys.iter().map(|k| k.key.as_str()).collect();
   assert_eq!(keys, ["search:basic", "search:thorough", "search:exhaustive", "browse"]);
@@ -593,7 +631,7 @@ async fn the_research_settings_are_read_changed_and_refused_where_they_do_not_st
 
   let changed = client
     .set_research_settings(&ResearchSettingsChange {
-      branch_role: Some("verifier".into()),
+      branch_role: Some("scout".into()),
       host_interval_ms: Some(Some(250)),
       keys: Some(vec![ResearchKeySettings {
         key: "search:thorough".into(),
@@ -607,7 +645,7 @@ async fn the_research_settings_are_read_changed_and_refused_where_they_do_not_st
     .unwrap();
   assert_eq!(
     (changed.source.as_str(), changed.branch_role.as_str(), changed.host_interval_ms),
-    ("set", "verifier", Some(250))
+    ("set", "scout", Some(250))
   );
   let thorough = changed.keys.iter().find(|k| k.key == "search:thorough").unwrap();
   assert_eq!((thorough.branches, thorough.pages, thorough.branch_pages), (3, Some(8), Some(5)));
