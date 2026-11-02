@@ -221,7 +221,7 @@ run is this unit's.
     rooms」) — the description the `TOPIC:` line, the kind `learning` where
     `KIND: learning` says so and `search` otherwise, `actorName` `research`, `scope` the room, and the labels
     `research` (the run's id), `key`, `query`, `category` (the key, the archive's category for the document;
-    bmo-artifact's `docs/archive.md`, 「Where a person reads it」), and `keywords`, `rule` and `topic` where the
+    bmo-artifact's `docs/artifact.md`, 「Where a person reads it」), and `keywords`, `rule` and `topic` where the
     result writes them.
     The `ANSWERED:` line is the run's own and stands nowhere.
   - **its body:** each block a section under a heading in the question's language, the words of

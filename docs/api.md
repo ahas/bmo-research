@@ -520,7 +520,7 @@ search runner applies it, and the run writes its document in English, the questi
   `labels` the run's document's labels with `languages` naming the languages the page holds, comma-separated,
   `category` the lead item's shape (`manual`, `investigation`, `advisory` or `brief`), and `pending` what the
   page still lacks, the item's `pending` comma-separated, left out once it lacks nothing — the archive's
-  category and in-progress marks (bmo-artifact's `docs/archive.md`, 「Where a person reads it」).
+  category and in-progress marks (bmo-artifact's `docs/artifact.md`, 「Where a person reads it」).
 - **What a page holds and lacks is kept by its document** (`docs/store.md`, `pages`): the languages it holds,
   the narrations it plays, what it still lacks and when that is asked again, and how many Korean sides and
   narrations were asked for it. Every item the document was filed for answers them as its `languages`,

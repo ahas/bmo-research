@@ -345,7 +345,7 @@ take; so its own area stays the research and the measurement, however many categ
   archive shows it whole on a 360-pixel phone: the title row over a page is one line of 20-pixel type across
   328 pixels, cut where it runs over, which holds about 15 Hangul syllables with the spaces between them or
   30 Latin characters; the list row's two lines of 14-pixel type beside a cover picture hold more
-  (bmo-artifact's `docs/archive.md`, 「Where a person reads it」). The search task sets it on the `TITLE:`
+  (bmo-artifact's `docs/artifact.md`, 「Where a person reads it」). The search task sets it on the `TITLE:`
   line (`prompts/search/task.md`).
 - **A research asked for a room is told to it once its document carries its narration:** the answer in a
   line or two and the document's one share link, as ever, and nothing about the sound, which the archive
