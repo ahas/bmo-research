@@ -2079,7 +2079,7 @@ async fn a_whole_page_is_reviewed_once_on_a_seat_of_its_own_and_its_report_told_
   let seats = ground.review_seats();
   assert_eq!(seats.len(), 1, "one review");
   for (field, value) in [
-    ("requestKey", "research:1:review"),
+    ("requestKey", "research:1:review:1"),
     ("owner", "research:1"),
     ("workKey", "search:exhaustive"),
     ("source", "search"),
@@ -2266,6 +2266,77 @@ async fn a_review_that_does_not_answer_holds_the_report_and_is_asked_again_on_th
   assert_eq!(review_turns(&ground, 1).len(), 2);
   assert_eq!(translations(&ground).len(), asked, "the Korean side is not asked again");
   assert_eq!(ground.app.store.item(item.id).unwrap().state, ItemState::Fit);
+  assert_eq!(orders(&ground).len(), 1);
+}
+
+/// The request keys a page's review seats were asked under, in the order they were asked.
+fn review_keys(ground: &Ground) -> Vec<String> {
+  ground
+    .review_seats()
+    .iter()
+    .map(|b| b["requestKey"].as_str().unwrap_or_default().to_string())
+    .collect()
+}
+
+#[tokio::test]
+async fn a_review_whose_first_seat_was_given_back_asks_again_under_a_fresh_key_and_gets_a_seat() {
+  let ground = support::ground(|s| s.retry_minutes = 0).await;
+  give_owner_room(&ground.app).await;
+  let item = ground
+    .app
+    .store
+    .ask("it", "example.org/thing", "Thing-7B", "https://example.org/thing", Shape::Manual)
+    .unwrap();
+  file(&ground, 1, 501, manual_document());
+  ground.world.lock().unwrap().review_failing = true;
+
+  settle(&ground).await;
+  assert_eq!(ground.app.store.item(item.id).unwrap().pending, ["review"]);
+  ground.world.lock().unwrap().review_failing = false;
+  settle(&ground).await;
+
+  assert_eq!(review_keys(&ground), ["research:1:review:1", "research:1:review:2"]);
+  assert!(
+    !logged(&ground, "review").iter().any(|text| text.contains("already finished")),
+    "no ask goes under a key agency gave back"
+  );
+  assert_eq!(review_turns(&ground, 1).len(), 2, "the review asked again got a seat and its turn");
+  assert_eq!(ground.app.store.item(item.id).unwrap().state, ItemState::Fit);
+  assert_eq!(orders(&ground).len(), 1);
+}
+
+#[tokio::test]
+async fn a_review_cut_by_a_restart_asks_again_under_a_fresh_key_and_gets_a_seat() {
+  let ground = support::ground(|s| s.retry_minutes = 0).await;
+  give_owner_room(&ground.app).await;
+  let item = ground
+    .app
+    .store
+    .ask("it", "example.org/thing", "Thing-7B", "https://example.org/thing", Shape::Manual)
+    .unwrap();
+  file(&ground, 1, 501, manual_document());
+  ground.world.lock().unwrap().review_holding = true;
+
+  let started = tick(&ground.app).await;
+  until("the review's turn", || !review_turns(&ground, 1).is_empty()).await;
+  for handle in &started {
+    handle.abort();
+  }
+  ground.world.lock().unwrap().review_holding = false;
+  let next = restarted(&ground);
+  research_server::runner::sweep(&next).await;
+  let given_back = ground.asked_path("agency", "PATCH", "/seat-requests/");
+  assert!(
+    given_back.iter().any(|a| a.body["outcome"] == "stopped: the research unit restarted"),
+    "the review's seat is given back at the restart"
+  );
+  for handle in tick(&next).await {
+    handle.await.unwrap();
+  }
+
+  assert_eq!(review_keys(&ground), ["research:1:review:1", "research:1:review:2"]);
+  assert_eq!(review_turns(&ground, 1).len(), 2, "the review asked again got a seat and its turn");
+  assert_eq!(next.store.item(item.id).unwrap().state, ItemState::Fit);
   assert_eq!(orders(&ground).len(), 1);
 }
 

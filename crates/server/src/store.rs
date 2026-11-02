@@ -37,7 +37,7 @@ use crate::translation::Rendering;
 /// dive's page, each part of its Korean side as it is had, the texts its review rewrote and its Korean
 /// narration's words, its one review, and how often each narration was asked anew; the thirteenth keeps when
 /// the try an item's error names ended, an error standing before it dated by the latest try that carried the
-/// item, else by the item's last change.
+/// item, else by the item's last change; the fourteenth counts each run's page's review asks.
 const MIGRATIONS: &[&str] = &[
   "
   create table categories (
@@ -198,6 +198,9 @@ const MIGRATIONS: &[&str] = &[
         where runs.item_id = queue.id or (queue.run_id is not null and runs.run_id = queue.run_id)),
       changed_at)
     where error is not null;
+",
+  "
+  alter table research_runs add column review_asks integer not null default 0;
 ",
 ];
 
@@ -2031,6 +2034,19 @@ impl Store {
       .execute("update research_runs set written = ?2 where id = ?1", params![id, written])
       .map_err(|e| e.to_string())?;
     Ok(())
+  }
+
+  /// One more ask of a run's page's review counted: the count it now stands at, which the review's seat is
+  /// asked under.
+  pub fn count_review_ask(&self, id: i64) -> Result<i64, String> {
+    self
+      .lock()
+      .query_row(
+        "update research_runs set review_asks = review_asks + 1 where id = ?1 returning review_asks",
+        params![id],
+        |r| r.get(0),
+      )
+      .map_err(|e| e.to_string())
   }
 
   /// One branch counted against a running run's allowance: its index, or none where the allowance is spent.

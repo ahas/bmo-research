@@ -1,7 +1,7 @@
 //! The store and the queue's rules (`docs/store.md`, `docs/api.md` 「queue」): the categories it starts with,
 //! the cap per category, the queue's order, a candidate judged once, where each item came from, a stuck item's
-//! moves, an error dated by its try, the step that stands every item a store held given up stuck, and the step
-//! that dates every error the store held.
+//! moves, an error dated by its try, the step that stands every item a store held given up stuck, the step
+//! that dates every error the store held, and the count of each run's review asks.
 
 mod support;
 
@@ -9,7 +9,7 @@ use bmo_research_client::{
   CategoryShape, ItemState, NewCategory, NewSource, OriginKind, RecipientKind, Running, Shape,
 };
 use research_server::sources::{Candidate, ItemKind};
-use research_server::store::{Asked, Filed, Refusal, Store, now_ms, schema_version};
+use research_server::store::{Asked, Filed, NewResearchRun, Refusal, Store, now_ms, schema_version};
 
 fn store() -> Store {
   Store::open(&support::scratch().join("research")).unwrap()
@@ -234,6 +234,7 @@ fn the_step_that_keeps_repairs_stands_every_given_up_item_stuck_with_its_retry_d
        alter table queue drop column error_at;
        alter table research_runs drop column continues;
        alter table research_runs drop column answered;
+       alter table research_runs drop column review_asks;
        drop table translated_parts;
        drop table page_texts;
        drop table page_reviews;
@@ -277,14 +278,14 @@ fn the_step_that_dates_errors_dates_each_by_the_latest_try_that_carried_its_item
     .requeue(run, "cut", Some("cut"), "agency went away, so the try is not counted", 3)
     .unwrap();
   drop(store);
-  // The store as it stood one step before: the try ended at a known time, and no item dated.
+  // The store as it stood before that step: the try ended at a known time, and no item dated.
   let conn = rusqlite::Connection::open(dir.join("research.db")).unwrap();
   conn
     .execute_batch(&format!(
       "update runs set ended_at = 5000 where id = {run};
        alter table queue drop column error_at;
-       pragma user_version = {};",
-      schema_version() - 1
+       alter table research_runs drop column review_asks;
+       pragma user_version = 12;"
     ))
     .unwrap();
   drop(conn);
@@ -459,4 +460,42 @@ fn an_item_keeps_where_it_came_from_a_source_an_ask_or_the_document_it_follows()
   assert_eq!(read.origin.source, None);
   let listed = store.queue(None, &[ItemState::Waiting], None, 50).unwrap().items;
   assert!(listed.iter().any(|item| item.id == child.id && item.origin == read.origin));
+}
+
+#[test]
+fn each_review_ask_of_a_run_is_counted_anew_from_one_and_a_store_from_before_counts_from_one() {
+  let dir = support::scratch().join("research");
+  let store = Store::open(&dir).unwrap();
+  let open = || {
+    store
+      .open_research_run(&NewResearchRun {
+        key: "search:exhaustive",
+        line: "search",
+        query: "R1",
+        asker: None,
+        options: None,
+        room_id: None,
+        provider: "registered",
+        model: "flash-next",
+        closes_at: now_ms(),
+        branches_allowed: 0,
+        tells: false,
+      })
+      .unwrap()
+  };
+  let (before, other) = (open(), open());
+  drop(store);
+  // The store as it stood one step before, holding runs with no count.
+  let conn = rusqlite::Connection::open(dir.join("research.db")).unwrap();
+  conn
+    .execute_batch("alter table research_runs drop column review_asks; pragma user_version = 13;")
+    .unwrap();
+  drop(conn);
+
+  let store = Store::open(&dir).unwrap();
+  assert_eq!(store.version().unwrap(), schema_version());
+  assert_eq!(store.count_review_ask(before).unwrap(), 1);
+  assert_eq!(store.count_review_ask(before).unwrap(), 2);
+  assert_eq!(store.count_review_ask(other).unwrap(), 1, "each run counts its own");
+  assert!(store.count_review_ask(other + 1).is_err(), "no run, no count");
 }

@@ -1225,8 +1225,13 @@ pub async fn review(app: &App, run: i64, prompt: &str) -> Result<String, String>
   let row = app.store.research_run(run).map_err(|why| why.to_string())?;
   let line = line_of(&row.key);
   let system = review_instructions()?;
+  // Agency holds a key to the one request first asked under it, so each ask goes under a count of its own.
+  let ask = app
+    .store
+    .count_review_ask(run)
+    .map_err(|why| format!("the review's ask was not counted: {why}"))?;
   let mut asked = json!({
-    "requestKey": format!("research:{run}:review"),
+    "requestKey": format!("research:{run}:review:{ask}"),
     "owner": format!("research:{run}"),
     "role": app.settings.runner.role,
     "selection": "auto",

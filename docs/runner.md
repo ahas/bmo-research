@@ -69,7 +69,11 @@ of a run is this unit's.
 3. **The seat:** agency's `POST /seat-requests` with `requestKey` and `owner` `research:<run>`, the role the
    settings' `runner.role` names, `selection` `auto`, the provider the ask names where it names one, `workKey`
    the key and `source` the line. The seat answers the provider, the model, the effort and the tier its work
-   key resolved to.
+   key resolved to. Agency holds a request key to the one request first asked under it, and answers the key
+   asked again once that request is given back, released or cancelled, with a 422 refusal, so every seat this
+   unit asks goes under a key none of its seats was asked under before: a run's under its run, asked once; a
+   branch's under its run and its index, which the allowance counts once each (「Branches」); and a review's
+   under its run and the count of its asks (「The review」).
 4. **The session:** agency's `POST /sessions` with `agent` the line, `scope` `apart`, the provider and the model
    the ask names, else the seat's, `cwd` empty, `line` the line, `systemPrompt` the composed instructions,
    `labels` `{research: <the run's record>}`, `toolsAllowed` the run's capabilities, and `boundMs` the clock
@@ -261,7 +265,9 @@ daemon finishes, held first to the shape the deep dive asked for.
   its Korean side is had and every narration its script allows is attached, and only while its items stand
   `finishing`; a page whose report was told before is never reviewed.
 - **The review is one turn on a seat and a session of its own,** asked the way a run's are (「One run, step
-  by step」): a seat with `requestKey` `research:<run>:review`, `owner` `research:<run>`, the settings'
+  by step」): a seat with `requestKey` `research:<run>:review:<n>`, `n` the count of the review's asks the
+  ledger keeps, counted before each ask so a review asked again is never asked under a request agency gave
+  back, `owner` `research:<run>`, the settings'
   `runner.role`, `selection` `auto`, `workKey` the run's key, `source` its line and the run's provider; a
   session on the run's line, its provider and model, its record the run's, no capabilities, and `boundMs`
   the settings' `runner.review_minutes`, its system prompt the deep-dive rulebook's section on the review

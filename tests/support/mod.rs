@@ -61,6 +61,10 @@ pub struct World {
   pub session_answers: VecDeque<u16>,
   pub next_session: i64,
   pub next_seat: i64,
+  /// Each seat's token by the request key it was first asked under, as agency keeps a key to its one request.
+  pub seat_keys: BTreeMap<String, String>,
+  /// The seats given back, by token, whose key agency refuses when it is asked again.
+  pub seats_finished: BTreeSet<String>,
   /// How many admission asks a seat waits through before it is let in.
   pub seat_waits: u32,
   /// How long the next admission ask waits before it is answered, in milliseconds.
@@ -111,6 +115,8 @@ pub struct World {
   pub review: Option<String>,
   /// While set, a review turn writes nothing.
   pub review_failing: bool,
+  /// While set, a review turn waits.
+  pub review_holding: bool,
   /// Whether a research turn writes its result as two text blocks, cut before its last section, its answer
   /// holding the second alone.
   pub two_blocks: bool,
@@ -246,13 +252,25 @@ async fn agency_seat(State(w): State<Shared>, method: Method, uri: Uri, body: By
   keep(&w, "agency", &method, &uri, &body);
   let asked: Value = serde_json::from_slice(&body).unwrap_or_default();
   let mut world = w.lock().unwrap();
+  let key = asked["requestKey"].as_str().unwrap_or_default().to_string();
+  if let Some(token) = world.seat_keys.get(&key).cloned() {
+    if world.seats_finished.contains(&token) {
+      return (
+        StatusCode::UNPROCESSABLE_ENTITY,
+        axum::Json(json!({
+          "code": "unprocessable-entity",
+          "error": "Stored co-worker pool request is already finished",
+        })),
+      )
+        .into_response();
+    }
+    return (StatusCode::CREATED, axum::Json(seat_of(&token, "active", &asked))).into_response();
+  }
   world.next_seat += 1;
+  let token = format!("seat-{}", world.next_seat);
+  world.seat_keys.insert(key, token.clone());
   let state = if world.seat_waits == 0 { "active" } else { "waiting" };
-  (
-    StatusCode::CREATED,
-    axum::Json(seat_of(&format!("seat-{}", world.next_seat), state, &asked)),
-  )
-    .into_response()
+  (StatusCode::CREATED, axum::Json(seat_of(&token, state, &asked))).into_response()
 }
 
 async fn agency_seat_move(
@@ -270,7 +288,10 @@ async fn agency_seat_move(
   }
   let mut world = w.lock().unwrap();
   match change["state"].as_str() {
-    Some("finished") => axum::Json(json!({"held": !world.seats_dropped})).into_response(),
+    Some("finished") => {
+      world.seats_finished.insert(token);
+      axum::Json(json!({"held": !world.seats_dropped})).into_response()
+    }
     Some("bound") => axum::Json(seat_of(&token, "bound", &json!({}))).into_response(),
     _ if world.seat_waits > 0 => {
       world.seat_waits -= 1;
@@ -372,7 +393,11 @@ async fn research_turn(w: &Shared, name: &str) -> Response {
     return axum::Json(json!({"outcome": "answered", "answer": format!("notes of {name}")}))
       .into_response();
   }
-  while w.lock().unwrap().holding {
+  let review = name.ends_with("-review");
+  while {
+    let world = w.lock().unwrap();
+    world.holding || (review && world.review_holding)
+  } {
     tokio::time::sleep(std::time::Duration::from_millis(10)).await;
   }
   let world = w.lock().unwrap();
@@ -380,7 +405,7 @@ async fn research_turn(w: &Shared, name: &str) -> Response {
     let script = world.narration.clone().unwrap_or_default();
     return axum::Json(json!({"outcome": "answered", "answer": script})).into_response();
   }
-  if name.ends_with("-review") {
+  if review {
     if world.review_failing {
       return axum::Json(json!({"state": "ended", "outcome": "failed", "answer": null, "text": []}))
         .into_response();
@@ -1055,7 +1080,7 @@ impl Ground {
       .map(|a| a.body)
       .filter(|b| {
         let key = b["requestKey"].as_str().unwrap_or_default();
-        !key.contains(":branch:") && !key.ends_with(":review")
+        !key.contains(":branch:") && !key.contains(":review:")
       })
       .collect()
   }
@@ -1066,7 +1091,7 @@ impl Ground {
       .asked_path("agency", "POST", "/seat-requests")
       .into_iter()
       .map(|a| a.body)
-      .filter(|b| b["requestKey"].as_str().unwrap_or_default().ends_with(":review"))
+      .filter(|b| b["requestKey"].as_str().unwrap_or_default().contains(":review:"))
       .collect()
   }
 
