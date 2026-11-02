@@ -17,9 +17,10 @@ use serde_json::{Value, json};
 
 use crate::App;
 use crate::config::KeyDefaults;
+use crate::dive::{self, Speech};
 use crate::document;
 use crate::peers::{Ending, Fault};
-use crate::store::{NewResearchRun, ResearchRunRow, RunDocument};
+use crate::store::{NewResearchRun, ResearchRunRow, RunDocument, now_ms};
 use crate::tool_host::ToolHost;
 use crate::words::{self, FINAL, fill};
 
@@ -1090,8 +1091,8 @@ async fn rounds(app: &App, going: &Going, seat: &Seat, first: String) -> String 
   last
 }
 
-/// The prompt a deep dive's missing narration is asked with: the narration question and the rulebook's
-/// section on the narration, the task as the run was given it, and the answer the run wrote last.
+/// The prompt a run's missing narration is asked with: the narration question and the rulebook's section on
+/// the narration, the task as the run was given it, and the answer the run wrote last.
 pub fn narration_prompt(task: &str, last: &str) -> Result<String, String> {
   let ask = &words::runner().narration;
   let rule = rulebook_sections(&ask.rulebook, std::slice::from_ref(&ask.section))?;
@@ -1104,15 +1105,12 @@ pub fn narration_script(text: &str) -> String {
   lines.join("\n").trim().to_owned()
 }
 
-/// A deep dive's result with its narration (`docs/runner.md`, 「The narration」): where it carries no `LISTEN:`
+/// A run's result with its narration (`docs/runner.md`, 「The narration」): where it carries no `LISTEN:`
 /// script, `session` is asked one more turn for the narration alone, and its text set after the result as
-/// the script and kept as what the run wrote. A run told to a room, a result that has its script, or a turn
-/// that writes none leaves the result as it stands.
+/// the script and kept as what the run wrote. A result that has its script, or a turn that writes none,
+/// leaves the result as it stands.
 async fn narrated(app: &App, going: &Going, session: &str, seat: &Seat, result: String) -> String {
   let run = going.run;
-  if going.filing == Filing::Room {
-    return result;
-  }
   let drawn = document::draw(&result, words::search_document(document::language_of(&going.ask.query)));
   if drawn.narration.is_some() {
     return result;
@@ -1358,9 +1356,11 @@ async fn ended(app: &App, going: &Going, result: Result<String, String>) {
     }
     return;
   }
+  let mut pending = Vec::new();
   let (told, outcome, error, filed) = match &result {
     Ok(text) => {
-      let drawn = document::draw(text, words::search_document(document::language_of(&ask.query)));
+      let code = document::language_of(&ask.query);
+      let drawn = document::draw(text, words::search_document(code));
       let filing = document::filing(&drawn, run, &ask.key, &ask.query, ask.room_id);
       match document::file(app, &drawn, &filing).await {
         Ok(filed) => {
@@ -1370,6 +1370,12 @@ async fn ended(app: &App, going: &Going, result: Result<String, String>) {
             "filed",
             &format!("The result was filed as document {}: {}", filed.id, filed.link),
           );
+          // The document's page is opened before the run closes, so a restart finds what it lacks.
+          pending = document::room_pending(&drawn, &ask.query);
+          let retry = (!pending.is_empty()).then(|| now_ms() + app.settings.retry_minutes * 60_000);
+          if let Err(why) = app.store.open_page(filed.id, None, &[code.to_owned()], &pending, retry) {
+            eprintln!("bmo-research: research {run}'s document {} was not kept as a page: {why}", filed.id);
+          }
           let brief = brief_of(text).unwrap_or_else(|| text.clone());
           (linked_instruction(run, ask, &brief, &filed.link), "answered", None, Some(filed))
         }
@@ -1400,9 +1406,111 @@ async fn ended(app: &App, going: &Going, result: Result<String, String>) {
     Ok(false) => return,
     Err(why) => eprintln!("bmo-research: research {run} was not closed: {why}"),
   }
-  if app.store.research_run(run).map(|row| row.tells).unwrap_or(true) {
-    tell(app, run, &told).await;
+  let Ok(row) = app.store.research_run(run) else {
+    return tell(app, run, &told).await;
+  };
+  if !row.tells {
+    return;
   }
+  match (&filed, pending.first()) {
+    (Some(_), Some(lacks)) => {
+      let every = app.settings.retry_minutes;
+      let said = format!(
+        "The room is told once the document has its narration ({lacks}), asked again every {every} minutes \
+         until it is attached."
+      );
+      note(app, run, "filed", &said);
+      finish_told(app, &row).await;
+    }
+    _ => tell(app, run, &told).await,
+  }
+}
+
+/// A room's document finished as far as it can be now (`docs/runner.md`, 「The narration's sound」): its
+/// narration, where its result has a script and it lacks the sound, spoken as written in the question's
+/// language and attached at the document's head; what it still lacks kept, to be asked again
+/// `retry_minutes` from now; and, once it lacks nothing, its labels set without `pending` and its room told,
+/// once, with the document's live link. A document being finished now is left to that finishing.
+pub async fn finish_told(app: &App, row: &ResearchRunRow) {
+  let (run, Some(document_id)) = (row.id, row.document_id) else {
+    return;
+  };
+  let Some(_held) = app.pages.hold(document_id) else {
+    return;
+  };
+  let state = match app.store.page_state(document_id) {
+    Ok(state) => state,
+    Err(why) => {
+      eprintln!("bmo-research: research {run}'s document {document_id} could not be read: {why}");
+      return;
+    }
+  };
+  let code = document::language_of(&row.query);
+  let written = row.written.clone().unwrap_or_default();
+  let drawn = document::draw(&written, words::search_document(code));
+  let script = drawn.narration.clone().filter(|script| !script.trim().is_empty());
+  let lacking = script.is_some() && !state.narrations.iter().any(|had| had == code);
+  let next = now_ms() + app.settings.retry_minutes * 60_000;
+  if let Err(why) = app.store.claim_page(document_id, next, false, lacking) {
+    eprintln!("bmo-research: research {run}'s document {document_id} could not be claimed: {why}");
+    return;
+  }
+  let mut narrations = state.narrations.clone();
+  if let (true, Some(script)) = (lacking, script.as_deref()) {
+    let name = dive::sound_name(code);
+    match dive::narration(app, (run, document_id), (code, Speech::Written(script)), &name, Some("head"))
+      .await
+    {
+      Ok(()) => {
+        narrations.push(code.to_owned());
+        let _ = app.store.keep_narrations(document_id, &narrations);
+        note(app, run, "narration", &format!("The {code} narration was attached."));
+      }
+      Err(why) => {
+        eprintln!("bmo-research: research {run}'s {code} narration was not made: {why}");
+        note(app, run, "narration", &format!("The {code} narration was not made: {why}"));
+      }
+    }
+  }
+  let pending = match &script {
+    Some(_) if !narrations.iter().any(|had| had == code) => vec![format!("narration-{code}")],
+    _ => Vec::new(),
+  };
+  let _ = app.store.pend_page(document_id, &pending, (!pending.is_empty()).then_some(next));
+  if pending == state.pending {
+    return;
+  }
+  let labels = document::room_labels(&drawn, run, &row.key, &row.query, &pending);
+  let set = app
+    .peers
+    .artifact_send(
+      reqwest::Method::PATCH,
+      &format!("/documents/{document_id}"),
+      &json!({ "labels": labels }),
+    )
+    .await;
+  if let Err(why) = set {
+    eprintln!("bmo-research: research {run}'s document {document_id}'s labels were not set: {why}");
+  }
+  if !pending.is_empty() {
+    return;
+  }
+  let link = match app.peers.share(document_id).await {
+    Ok(link) => link,
+    Err(why) => {
+      eprintln!("bmo-research: research {run}'s document {document_id} has no live link now: {why}");
+      row.link.clone().unwrap_or_default()
+    }
+  };
+  let ask = ResearchRunAsk {
+    key: row.key.clone(),
+    query: row.query.clone(),
+    room_id: row.room_id,
+    ..ResearchRunAsk::default()
+  };
+  let brief = brief_of(&written).unwrap_or_else(|| written.clone());
+  note(app, run, "filed", "The document has its narration, so its room is told.");
+  tell(app, run, &linked_instruction(run, &ask, &brief, &link)).await;
 }
 
 /// Why a run that met a loss was cut: its own failure, and the loss where that was not the failure itself.

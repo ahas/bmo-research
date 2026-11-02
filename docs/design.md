@@ -33,11 +33,12 @@ research feature; agency supplies it sessions and seats and nothing more.
     own scan reads a feed or an API with its own HTTP client, since a feed is not a page an agent reads, and
     a `page` source's listing through the tool host's `web/web_fetch`, so explorer's pacing and Chrome
     stand round it;
-  - artifact, to file a run's document, draw a deep dive's page again and keep its narration beside it
+  - artifact, to file a run's document, draw a deep dive's page again and keep a document's narration beside it
     (`POST /documents`, `PATCH /documents/{id}`, `POST /documents/{id}/attachments`, `POST /shares`), and to
     read a filed page as it keeps it, so a page drawn otherwise now is set again
     (`GET /documents/{id}/content`);
-  - the voice unit, to speak a deep dive's narration (`POST /syntheses`);
+  - the voice unit, to speak a document's narration, a deep dive's page's and a room's research's alike
+    (`POST /syntheses`);
   - the receiver, to tell a room (`POST /instructions`) and to learn the owner's private room (`GET /owner`);
   - the arbiter's master, to ask for the engine each run needs and to read why it waits (「The engine a run
     needs」).
@@ -305,6 +306,10 @@ take; so its own area stays the research and the measurement, however many categ
   in Korean, translated through the same route with a note that it is a spoken narration, as the sound the
   archive plays at the document's head, and in English as it was written, kept beside it; the page's listen
   band plays the sound of the language shown.
+- **A research asked for a room is heard too.** It is written in its question's language, the owner's
+  Korean when he asks in Korean, and its narration script is spoken as written in that language, as the
+  sound the archive plays at the document's head; the room is told of the document only once that sound is
+  attached (`docs/runner.md`, 「The narration's sound」).
 - **A narration handed to the voice is its written words.** Each is the transcript the voice unit keeps, with
   names, acronyms and figures as written; the voice unit derives the spoken words from it, the same words as a
   Korean reader says them aloud, and checks them before it speaks. Spoken words it refuses, or a synthesis that
@@ -328,6 +333,9 @@ take; so its own area stays the research and the measurement, however many categ
 - **A report line** is the document's one share link and one line in Korean saying what the thing is and
   the verdict in a few words, and for a `fit` item the question. Nothing else goes into the room: the
   document holds the grounds, in both languages, and the narration.
+- **A research asked for a room is told to it once its document carries its narration:** the answer in a
+  line or two and the document's one share link, as ever, and nothing about the sound, which the archive
+  plays at the document's head (`docs/runner.md`, 「The room」 and 「The narration's sound」).
 - **A document that is not the research asked for is never reported:** a deep dive's result whose body holds
   none of its shape's sections is not filed, and the try fails with what was missing, to be tried again.
 - **The recipients** are a registration per category (「The notifier」): the owner's private room first,
@@ -346,7 +354,8 @@ take; so its own area stays the research and the measurement, however many categ
   every node's card. Every address and token file is read from the files the other units already keep,
   named in the settings, never copied.
 - **The store** (`docs/store.md`): SQLite under the data root's `research/` folder: `categories`,
-  `sources`, `seen`, `queue`, `runs`, `reports`, `rooms`, `facts` (the economy category's figures),
+  `sources`, `seen`, `queue`, `runs`, `reports`, `rooms`, `pages` (what each filed page and room's document
+  holds and still lacks), `facts` (the economy category's figures),
   `stack` (the security category's inventory), `demands` (the arbiter demands held), and the runner's `research_runs`, `research_log`,
   `research_holds` and `research_settings`. Schema versioned and migrated at start.
 

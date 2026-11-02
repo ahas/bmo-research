@@ -70,29 +70,32 @@ impl Repairs {
   }
 }
 
-/// The pages being finished now, by their item, so a page whose finishing outlasts its retry wait is not
+/// The pages being finished now, by their document, so a page whose finishing outlasts its retry wait is not
 /// asked a second time beside it.
 #[derive(Debug, Default)]
 pub struct Pages(Mutex<HashSet<i64>>);
 
 impl Pages {
-  /// The item's page held for finishing, or none where it is being finished already.
-  fn hold(&self, item: i64) -> Option<PageHold<'_>> {
+  /// The document's page held for finishing, or none where it is being finished already.
+  pub fn hold(&self, document: i64) -> Option<PageHold<'_>> {
     // Built only where it is taken: a hold refused and dropped would give back the page held already.
-    let taken = self.0.lock().unwrap_or_else(|e| e.into_inner()).insert(item);
-    taken.then(|| PageHold { pages: self, item })
+    let taken = self.0.lock().unwrap_or_else(|e| e.into_inner()).insert(document);
+    taken.then(|| PageHold {
+      pages: self,
+      document,
+    })
   }
 }
 
 /// A page held for finishing, given back as it is dropped.
-struct PageHold<'a> {
+pub struct PageHold<'a> {
   pages: &'a Pages,
-  item: i64,
+  document: i64,
 }
 
 impl Drop for PageHold<'_> {
   fn drop(&mut self) {
-    self.pages.0.lock().unwrap_or_else(|e| e.into_inner()).remove(&self.item);
+    self.pages.0.lock().unwrap_or_else(|e| e.into_inner()).remove(&self.document);
   }
 }
 
@@ -202,7 +205,8 @@ pub async fn give_owner_room(app: &App) {
 }
 
 /// One pass of the loop: the demands left behind given back, a scan, a repair filed for every stuck item
-/// holding none, every page whose pending part's retry is due asked again, then as many tries started as
+/// holding none, every page whose pending part's retry is due asked again — a deep dive's and a room's
+/// document's alike — then as many tries started as
 /// `concurrency` leaves room for, a try waiting for its card among them. Answers the tasks started, each
 /// carried to its end on a task of its own.
 pub async fn tick(app: &Arc<App>) -> Vec<JoinHandle<()>> {
@@ -215,6 +219,10 @@ pub async fn tick(app: &Arc<App>) -> Vec<JoinHandle<()>> {
   for item in app.store.pages_due(now_ms()).unwrap_or_default() {
     let app = app.clone();
     started.push(tokio::spawn(async move { render_again(app, item).await }));
+  }
+  for row in app.store.run_pages_due(now_ms()).unwrap_or_default() {
+    let app = app.clone();
+    started.push(tokio::spawn(async move { runner::finish_told(&app, &row).await }));
   }
   loop {
     let running = app.store.running_count().unwrap_or(i64::MAX);
@@ -484,11 +492,14 @@ async fn carried(app: Arc<App>, run: i64, asked: Option<i64>) {
     }
     Shape::Investigation => {}
   }
+  // The page is opened first, so what it lacks is asked again on its retry wait where the daemon stops
+  // before it is finished.
   let retry_at = now_ms() + app.settings.retry_minutes * 60_000;
+  let english = [LANGUAGES[1].to_string()];
+  let _ = app.store.open_page(document_id, Some(lead.id), &english, &[], Some(retry_at));
   let mut finishing = false;
   for item in &items {
-    let retry = (item.id == lead.id).then_some(retry_at);
-    if app.store.file(item.id, &filed, retry).unwrap_or(false) && item.id == lead.id {
+    if app.store.file(item.id, &filed).unwrap_or(false) && item.id == lead.id {
       finishing = true;
     }
   }
@@ -497,7 +508,7 @@ async fn carried(app: Arc<App>, run: i64, asked: Option<i64>) {
     let _ = app.store.finished(lead.id, document_id);
     return;
   }
-  let Some(_held) = app.pages.hold(lead.id) else {
+  let Some(_held) = app.pages.hold(document_id) else {
     return;
   };
   if let Some(page) = finish(&app, run_id, &lead, &filed, &source).await {
@@ -572,19 +583,26 @@ pub fn speakable(text: &str, most: usize) -> &str {
   text[..end].trim_end()
 }
 
-/// One narration's sound attached beside its page under `name`, which the archive's reader plays: the one the
-/// document already keeps, else the sound of the synthesis kept for it, else the script spoken — in Korean the
-/// words kept for it, else the script translated to be spoken and kept, and either cut to what the voice unit
-/// speaks, the run's log saying so — its synthesis kept until its sound is attached, so the narration has one
-/// synthesis living at a time. A kept synthesis that has failed or is gone is set aside and another asked; the
-/// one followed is followed however long it waits, the run's log saying what on whenever that changes, and
-/// attached, the Korean as the sound heard at the document's head.
-async fn narration(
+/// What a narration speaks: its script as written, or the script translated to be spoken, the researched
+/// thing's name set in the translator's note, and the words kept once they are had.
+pub enum Speech<'a> {
+  Written(&'a str),
+  Translated { name: &'a str, script: &'a str },
+}
+
+/// One narration's sound attached to its document under `name`, which the archive's reader plays: the one the
+/// document already keeps, else the sound of the synthesis kept for it, else the speech spoken — as written,
+/// or the words kept for it, else the script translated to be spoken and kept, and either cut to what the voice
+/// unit speaks, the run's log saying so — its synthesis kept until its sound is attached, so the narration has
+/// one synthesis living at a time. A kept synthesis that has failed or is gone is set aside and another asked;
+/// the one followed is followed however long it waits, the run's log saying what on whenever that changes, and
+/// attached under `role`, `head` for the sound heard at the document's head.
+pub async fn narration(
   app: &App,
-  (run, lead, document_id): (i64, &Item, i64),
-  code: &str,
-  script: &str,
+  (run, document_id): (i64, i64),
+  (code, speech): (&str, Speech<'_>),
   name: &str,
+  role: Option<&str>,
 ) -> Result<(), String> {
   if app.peers.attached(document_id, name).await? {
     let _ = app.store.forget_synthesis(document_id, code);
@@ -601,16 +619,18 @@ async fn narration(
   let (id, size) = match kept {
     Some(kept) => kept,
     None => {
-      let text = match code {
-        "en" => script.to_string(),
-        _ => match app.store.page_text(document_id, KOREAN_WORDS).ok().flatten() {
-          Some(words) => words,
-          None => {
-            let words = translation::narration(app, &lead.name, script).await?;
-            let _ = app.store.keep_page_text(document_id, KOREAN_WORDS, &words);
-            words
+      let text = match speech {
+        Speech::Written(script) => script.to_string(),
+        Speech::Translated { name, script } => {
+          match app.store.page_text(document_id, KOREAN_WORDS).ok().flatten() {
+            Some(words) => words,
+            None => {
+              let words = translation::narration(app, name, script).await?;
+              let _ = app.store.keep_page_text(document_id, KOREAN_WORDS, &words);
+              words
+            }
           }
-        },
+        }
       };
       let spoken = speakable(&text, VOICE_MOST_CHARACTERS);
       let (whole, kept) = (text.trim().chars().count(), spoken.chars().count());
@@ -641,7 +661,6 @@ async fn narration(
     return Err(format!("the voice unit's synthesis {id} of {size} characters {how}"));
   }
   let (bytes, media_type) = app.peers.synthesis_sound(id).await?;
-  let role = (code == LANGUAGES[0]).then_some("head");
   app.peers.attach(document_id, name, &media_type, role, &bytes).await?;
   app.store.forget_synthesis(document_id, code)
 }
@@ -787,7 +806,7 @@ pub async fn redraw_filed(app: &App) -> usize {
     let (Some(document_id), Some(run_id)) = (item.document_id, item.run_id) else {
       continue;
     };
-    let Some(_held) = app.pages.hold(item.id) else {
+    let Some(_held) = app.pages.hold(document_id) else {
       continue;
     };
     match drawn_again(app, &item, document_id, run_id).await {
@@ -881,7 +900,18 @@ async fn make_sounds(
     asked.iter().copied().filter(|code| !sounds.iter().any(|had| had == code)).collect();
   for code in lacking {
     let name = sound_of(review, code);
-    match narration(app, (run, lead, document_id), code, script, &name).await {
+    // The Korean narration is the English script translated, and the one heard at the page's head.
+    let (speech, role) = match code {
+      "en" => (Speech::Written(script), None),
+      _ => (
+        Speech::Translated {
+          name: &lead.name,
+          script,
+        },
+        Some("head"),
+      ),
+    };
+    match narration(app, (run, document_id), (code, speech), &name, role).await {
       Ok(()) => {
         heard = true;
         sounds.push(code.to_owned());
@@ -1066,7 +1096,7 @@ async fn apply_fixes(
 async fn finish(app: &App, run: i64, lead: &Item, filed: &Filed, source: &Source) -> Option<Finished> {
   let document_id = filed.document_id;
   let unread = |why: String| eprintln!("bmo-research: item {}'s page could not be read: {why}", lead.id);
-  let state = app.store.page_state(lead.id).map_err(unread).ok()?;
+  let state = app.store.page_state(document_id).map_err(unread).ok()?;
   let mut review = app.store.review(document_id).map_err(unread).ok()?;
   let reviewing = app.store.item(lead.id).is_ok_and(|item| item.state == ItemState::Finishing);
   let had = state.languages.iter().any(|code| code == LANGUAGES[0]);
@@ -1078,7 +1108,7 @@ async fn finish(app: &App, run: i64, lead: &Item, filed: &Filed, source: &Source
     .into_iter()
     .any(|code| script.is_some() && !state.narrations.iter().any(|had| had == code));
   let next = now_ms() + app.settings.retry_minutes * 60_000;
-  app.store.claim_page(lead.id, next, ask_korean, lacking).map_err(unread).ok()?;
+  app.store.claim_page(document_id, next, ask_korean, lacking).map_err(unread).ok()?;
   let mut fresh = false;
   if ask_korean {
     let english = English {
@@ -1149,7 +1179,7 @@ async fn finish(app: &App, run: i64, lead: &Item, filed: &Filed, source: &Source
         let _ = app.store.log_research(run, "filed", &format!("The page was not drawn again: {why}"));
         rendering = if fresh { None } else { before };
         // The narrations go back to those the store keeps, a narration's fix having dropped its own.
-        sounds = app.store.page_state(lead.id).map(|now| now.narrations).unwrap_or(state.narrations);
+        sounds = app.store.page_state(document_id).map(|now| now.narrations).unwrap_or(state.narrations);
       }
     }
   }
@@ -1168,7 +1198,7 @@ async fn finish(app: &App, run: i64, lead: &Item, filed: &Filed, source: &Source
     _ => {}
   }
   let retry = (!pending.is_empty()).then(|| now_ms() + app.settings.retry_minutes * 60_000);
-  let _ = app.store.pend_page(lead.id, &pending, retry);
+  let _ = app.store.pend_page(document_id, &pending, retry);
   let changed = pending != state.pending;
   if changed {
     let languages: &[&str] = if rendering.is_some() { &LANGUAGES } else { &LANGUAGES[1..] };
@@ -1200,10 +1230,9 @@ fn filed_of(item: &Item, document_id: i64) -> Filed {
 /// page is whole. A page whose source cannot be read now is asked again on the next retry wait.
 async fn render_again(app: Arc<App>, item: Item) {
   let (Some(document_id), Some(run_id)) = (item.document_id, item.run_id) else {
-    let _ = app.store.pend_page(item.id, &item.pending, None);
     return;
   };
-  let Some(_held) = app.pages.hold(item.id) else {
+  let Some(_held) = app.pages.hold(document_id) else {
     return;
   };
   let source = match source(&app, run_id) {
@@ -1211,7 +1240,7 @@ async fn render_again(app: Arc<App>, item: Item) {
     Err(why) => {
       eprintln!("bmo-research: item {}'s page cannot be drawn again now: {why}", item.id);
       let next = now_ms() + app.settings.retry_minutes * 60_000;
-      let _ = app.store.pend_page(item.id, &item.pending, Some(next));
+      let _ = app.store.pend_page(document_id, &item.pending, Some(next));
       return;
     }
   };

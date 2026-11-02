@@ -102,14 +102,15 @@ of a run is this unit's.
    question, the task as the run was given it and the answer written last (「The rounds」). The last answer is the
    run's result. The rounds' session is ended after the last, and after the whole document and the narration
    where they are asked.
-9. **The whole document and the narration, for a deep dive:** before the session that wrote it is ended — the
-   rounds' session, else the first where the key has no rounds — a deep dive's result short of its shape is
-   asked once more for the whole document (「The deep dive's page」), and a result that carries no `LISTEN:`
+9. **The whole document and the narration:** before the session that wrote it is ended — the rounds'
+   session, else the first where the key has no rounds — a deep dive's result short of its shape is asked
+   once more for the whole document (「The deep dive's page」), and any result that carries no `LISTEN:`
    script is asked for one (「The narration」).
 10. **The end:** the seat is given back (`finished`, its outcome `answered` or `failed: <why>`), the result is
    drawn into its document and filed (「The document」; a deep dive's held to its shape first, 「The deep dive's
-   page」), the run is closed in the ledger with its outcome, the document and its link, and its room is told
-   (「The room」). Every step is written into the run's log.
+   page」), and the run is closed in the ledger with its outcome, the document and its link. A run told to its
+   room then has its document's narration spoken and attached, and its room is told once the sound is
+   (「The narration's sound」, 「The room」). Every step is written into the run's log.
 
 ## Nothing of a run is clocked
 
@@ -207,27 +208,62 @@ of a run is this unit's.
     on until its host answers or its connection breaks, attached under a name of its own
     (`POST /documents/{id}/attachments`), and the body set again with `PATCH /documents/{id}`; a picture not
     kept is drawn from its address.
-  - **the narration:** a `LISTEN:` script is lifted out of the body. A run told to its room files it nowhere;
-    the deep dive's document is given it as sound, attached beside its page (「The deep dive's page」).
+  - **the narration:** a `LISTEN:` script is lifted out of the body and given to the document as sound: a
+    run told to its room has it attached at the document's head (「The narration's sound」), a deep dive's
+    page beside its page (「The deep dive's page」).
 
 ## The narration
 
-- **A deep dive's result always carries a script for the ear.** Where the result its last turn wrote has no
-  `LISTEN:` block, or an empty one, the same session is asked one more turn, named `research-<run>-narration`,
-  for the narration alone: the narration question (`prompts/runner.toml`, `[narration]`), the deep-dive
-  rulebook's section on the narration, the task as the run was given it and the answer written last. The
-  narration says what the thing is, the verdict and the one thing to know, in plain spoken sentences in the
-  question's language, with no heading, list or structure line.
+- **Every run's result carries a script for the ear,** a run told to its room's and a deep dive's alike.
+  Where the result its last turn wrote has no `LISTEN:` block, or an empty one, the same session is asked one
+  more turn, named `research-<run>-narration`, for the narration alone: the narration question
+  (`prompts/runner.toml`, `[narration]`), the search-kinds rulebook's section on the narration, the task as
+  the run was given it and the answer written last. The narration says what the thing is, the verdict and
+  the one thing to know, in plain spoken sentences in the question's language, with no heading, list or
+  structure line.
 - **That turn's text is the script,** a `LISTEN:` line it wrote itself dropped, set after the result under a
   `LISTEN:` line of its own; the result with it is the run's result and what the ledger keeps as `written`.
-  It is asked after the whole document (「The deep dive's page」), so the script is set after the result that is
-  filed; only then is the result held to its shape and filed.
+  A deep dive's is asked after its whole document (「The deep dive's page」), so the script is set after the
+  result that is filed; only then is the result held to its shape and filed.
 - **The script is written words.** It keeps names, acronyms and figures as written, since it is the
   narration's transcript as well as what is heard: the voice unit derives the spoken words from it
   (`docs/api.md`, 「The page」).
 - **A narration turn that writes nothing,** or fails, leaves the result as it stands, and the document has no
-  sound. Where the rounds' session never started, the first answer stands without one. A run told to a room
-  is asked no narration.
+  sound. Where the rounds' session never started, the first answer stands without one.
+
+## The narration's sound
+
+A run told to its room has its document heard as well as read, as a deep dive's page is, and its room hears
+of it only once the sound is attached.
+
+- **The script is spoken as it is written,** in the question's language: Korean where the question holds
+  Hangul, English otherwise, the language the result is written in, so the owner asking in Korean hears
+  Korean. It is not translated. The voice unit speaks it in the settings' voice (`docs/settings.md`,
+  `[voice]`), the voice a deep dive's narration is spoken in, a script longer than the voice speaks cut at
+  its last sentence within it, the run's log saying so.
+- **The sound is made the way a page's is** (`docs/api.md`, 「The page」): its synthesis asked under the key
+  `research:<documentId>:<language>`, counted anew after one that ended without its sound, kept until its
+  sound is attached so the narration has one synthesis living at a time, and followed until it is spoken or
+  has failed, however long its card takes. A synthesis that failed, or that the voice unit no longer holds,
+  is set aside and the narration asked again on the next retry wait, `retry_minutes` after its try; no count
+  of tries ends it.
+- **It is attached at the document's head:** `narration-<code>.ogg`, `code` the question's language, with
+  `role` `head`, which the archive's listen band plays at the head of the document (bmo-artifact's
+  `docs/archive.md`, 「How a document is drawn」).
+- **The document's page is kept as a deep dive's is** (`docs/store.md`, `pages`): the language it holds, the
+  narration it plays, what it still lacks — `narration-<code>` — and when that is asked again. The document is
+  filed with the labels `languages`, its language, and, where its result has a script, `pending`,
+  `narration-<code>`, so the archive marks it in progress; the labels are set again without `pending` once
+  the sound is attached.
+- **The room is told once the sound is attached,** once: the answer in brief and the document's one live
+  link (「The room」), its link the artifact service's `GET /shares` answers, else one made with
+  `POST /shares`, else the link the document was filed with. A result with no script — its narration turn
+  wrote none — is whole as it is filed, and its room is told at once. Until then the room hears nothing of
+  it; the run's log says what the document waits on under `filed`, each sound made or not, and why, under
+  `narration`, and the telling under `told`.
+- **The run is closed before its sound is made:** its seat is given back and its sessions ended, so nothing
+  of agency stands for it while the voice speaks. What the document lacks is asked again on every retry
+  wait, by the daemon's loop as a deep dive's pending page is, and a restart takes it up the same way.
 
 ## A run that continues
 
@@ -394,9 +430,10 @@ daemon finishes, held first to the shape the deep dive asked for.
 - **The room is told through the receiver's `POST /instructions`,** as a `notice` under the kind
   `research-ended:<run>`; a run that names no room is sent with none, and the receiver hands it the owner's
   private room.
-- **A filed result** is told as the answer in brief — the verdict, else a `SUMMARY:` block it still writes,
-  else the title — and the one link, with the shape the chat agent answers in: one or two short lines in the
-  owner's language and its own voice, then the link, and no grounds, sources or document text in the chat.
+- **A filed result** is told once its document's narration is attached (「The narration's sound」), as the
+  answer in brief — the verdict, else a `SUMMARY:` block it still writes, else the title — and the one link,
+  with the shape the chat agent answers in: one or two short lines in the owner's language and its own
+  voice, then the link, and no grounds, sources or document text in the chat.
 - **A result that could not be filed** is told whole; **a run with no answer** is told what it could not do;
   **a cut run** hands what it had written as unfinished, or one line saying the work was cut off.
 - **A run the daemon asks for its own deep dive tells no room:** the dive's notices are its report
@@ -436,3 +473,6 @@ daemon finishes, held first to the shape the deep dive asked for.
   what it had written, as a cut run is. A closed run's review holds what it held at the restart the same
   way: its session is ended and its seat given back, and the review stays pending, asked again on its
   page's retry wait.
+- **A closed run whose document still lacks its sound** is no open run: its synthesis stays kept, and its
+  narration is followed or asked again on its retry wait, its room told once the sound is attached
+  (「The narration's sound」).

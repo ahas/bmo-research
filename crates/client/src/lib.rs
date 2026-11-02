@@ -710,6 +710,12 @@ pub struct ResearchRunView {
   pub branches: i64,
   /// the names of the agency turns it went out under
   pub turns: Vec<String>,
+  /// the languages whose narration its document plays
+  #[serde(default)]
+  pub narrations: Vec<String>,
+  /// what its document still lacks, its room told once it lacks nothing
+  #[serde(default)]
+  pub pending: Vec<String>,
 }
 
 /// One line of a research run's log.

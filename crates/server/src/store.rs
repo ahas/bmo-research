@@ -37,7 +37,10 @@ use crate::translation::Rendering;
 /// dive's page, each part of its Korean side as it is had, the texts its review rewrote and its Korean
 /// narration's words, its one review, and how often each narration was asked anew; the thirteenth keeps when
 /// the try an item's error names ended, an error standing before it dated by the latest try that carried the
-/// item, else by the item's last change; the fourteenth counts each run's page's review asks.
+/// item, else by the item's last change; the fourteenth counts each run's page's review asks; the fifteenth
+/// takes a run's closing time away and the research settings' minutes with it; the sixteenth keeps what a
+/// page holds and lacks by its document, for a deep dive's page and a room's document alike, each filed page
+/// taking what the item its run was asked for kept.
 const MIGRATIONS: &[&str] = &[
   "
   create table categories (
@@ -207,6 +210,25 @@ const MIGRATIONS: &[&str] = &[
   update research_settings set value = json_remove(value, '$.keys.\"search:basic\".minutes',
     '$.keys.\"search:thorough\".minutes', '$.keys.\"search:exhaustive\".minutes', '$.keys.browse.minutes');
 ",
+  "
+  create table pages (
+    document_id integer primary key, item_id integer, languages text not null default '[]',
+    narrations text not null default '[]', pending text not null default '[]', pending_retry_at integer,
+    translation_tries integer not null default 0, narration_tries integer not null default 0);
+  insert or ignore into pages (document_id, item_id, languages, narrations, pending, pending_retry_at,
+      translation_tries, narration_tries)
+    select document_id, id, languages, narrations, pending, pending_retry_at, translation_tries, narration_tries
+      from queue where document_id is not null
+      order by document_id,
+        exists (select 1 from runs where runs.run_id = queue.run_id and runs.item_id = queue.id) desc,
+        pending_retry_at is null, id;
+  alter table queue drop column languages;
+  alter table queue drop column narrations;
+  alter table queue drop column pending;
+  alter table queue drop column pending_retry_at;
+  alter table queue drop column translation_tries;
+  alter table queue drop column narration_tries;
+",
 ];
 
 /// A page's one review (`docs/store.md`, `page_reviews`): what it wrote, the indices of its fixes applied or
@@ -253,7 +275,11 @@ const CATEGORY_COLUMNS: &str = "name, purpose, shape, cap, cadence_minutes, gath
 const ITEM_COLUMNS: &str =
   "id, category, key, name, maker, address, kind, shape, source_id, asked, priority,
   state, tries, retry_at, run_id, document_id, title, description, share_url, fit, touches, plan,
-  job_item_id, error, found_at, created_at, changed_at, languages, narrations, pending, pending_retry_at,
+  job_item_id, error, found_at, created_at, changed_at,
+  coalesce((select pages.languages from pages where pages.document_id = queue.document_id), '[]'),
+  coalesce((select pages.narrations from pages where pages.document_id = queue.document_id), '[]'),
+  coalesce((select pages.pending from pages where pages.document_id = queue.document_id), '[]'),
+  (select pages.pending_retry_at from pages where pages.document_id = queue.document_id),
   origin, because, parent_item_id, parent_document_id, parent_title, parent_share_url,
   (select sources.kind || ' (' || coalesce(sources.query, sources.address) || ')' from sources
     where sources.id = queue.source_id), repair_item_id, error_at";
@@ -309,8 +335,9 @@ pub struct Filed {
   pub plan: Option<String>,
 }
 
-/// How a deep dive's page stands for an item: the languages and narrations it holds, Korean first, the Korean
-/// sides and narrations asked, and when what it lacks is asked again.
+/// How a document's page stands (`docs/store.md`, `pages`): the languages and narrations it holds, Korean
+/// first, what it was last found lacking, the Korean sides and narrations asked, and when what it lacks is
+/// asked again.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PageState {
   pub languages: Vec<String>,
@@ -367,6 +394,10 @@ pub struct ResearchRunRow {
   pub continues: Option<i64>,
   /// The rounds that answered, in the order they were asked.
   pub answered: Vec<String>,
+  /// The languages whose narration its document plays, from its document's page.
+  pub narrations: Vec<String>,
+  /// What its document still lacks, from its document's page.
+  pub pending: Vec<String>,
 }
 
 impl ResearchRunRow {
@@ -389,6 +420,8 @@ impl ResearchRunRow {
       error: self.error.clone(),
       branches: self.branches,
       turns: self.turns.clone(),
+      narrations: self.narrations.clone(),
+      pending: self.pending.clone(),
     }
   }
 }
@@ -404,7 +437,9 @@ pub struct RunDocument {
 
 const RESEARCH_RUN_COLUMNS: &str = "id, key, line, query, asker, options, room_id, provider, model, state,
   outcome, error, started_at, finished_at, branches_allowed, branches, record, tells, turns, written,
-  document_id, title, description, link, continues, answered";
+  document_id, title, description, link, continues, answered,
+  coalesce((select pages.narrations from pages where pages.document_id = research_runs.document_id), '[]'),
+  coalesce((select pages.pending from pages where pages.document_id = research_runs.document_id), '[]')";
 
 /// The shape an item of a category is asked in: the category's, and in a `manual-or-investigation`
 /// category the one its item kind takes.
@@ -1200,16 +1235,14 @@ impl Store {
     Ok(moved)
   }
 
-  /// A try that filed its document: the item `finishing` until its page is whole, what its page lacks asked
-  /// at `retry_at` where the daemon does not finish it first. Answers whether it was still running.
-  pub fn file(&self, item_id: i64, filed: &Filed, retry_at: Option<i64>) -> Result<bool, String> {
+  /// A try that filed its document: the item `finishing` until its document's page is whole. Answers whether
+  /// it was still running.
+  pub fn file(&self, item_id: i64, filed: &Filed) -> Result<bool, String> {
     let n = self
       .lock()
       .execute(
         "update queue set state = 'finishing', document_id = ?2, title = ?3, description = ?4, share_url = ?5,
-           fit = ?6, touches = ?7, plan = ?8, error = null, error_at = null, languages = '[\"en\"]',
-           narrations = '[]',
-           pending = '[]', pending_retry_at = ?10, changed_at = ?9
+           fit = ?6, touches = ?7, plan = ?8, error = null, error_at = null, changed_at = ?9
          where id = ?1 and state = 'running'",
         params![
           item_id,
@@ -1220,19 +1253,43 @@ impl Store {
           filed.fit,
           filed.touches,
           filed.plan,
-          now_ms(),
-          retry_at
+          now_ms()
         ],
       )
       .map_err(|e| e.to_string())?;
     Ok(n > 0)
   }
 
-  /// What an item's page is about to be asked for — its Korean side, a narration, or both — counted, and its
-  /// next try set at `retry_at`, so what the daemon never finished is asked again. Answers how it stands.
+  /// A filed document's page opened (`docs/store.md`, `pages`): finished for `item_id`, or for the run told to
+  /// its room that filed it where none is named; holding `languages` and no narration, lacking `pending`, and
+  /// asked at `retry_at` where the daemon does not finish it first. A page opened again starts over, its tries
+  /// kept.
+  pub fn open_page(
+    &self,
+    document_id: i64,
+    item_id: Option<i64>,
+    languages: &[String],
+    pending: &[String],
+    retry_at: Option<i64>,
+  ) -> Result<(), String> {
+    self
+      .lock()
+      .execute(
+        "insert into pages (document_id, item_id, languages, narrations, pending, pending_retry_at)
+           values (?1, ?2, ?3, '[]', ?4, ?5)
+         on conflict (document_id) do update set item_id = excluded.item_id, languages = excluded.languages,
+           narrations = '[]', pending = excluded.pending, pending_retry_at = excluded.pending_retry_at",
+        params![document_id, item_id, words_json(languages), words_json(pending), retry_at],
+      )
+      .map(|_| ())
+      .map_err(|e| e.to_string())
+  }
+
+  /// What a document's page is about to be asked for — its Korean side, a narration, or both — counted, and
+  /// its next try set at `retry_at`, so what the daemon never finished is asked again. Answers how it stands.
   pub fn claim_page(
     &self,
-    item_id: i64,
+    document_id: i64,
     retry_at: i64,
     korean: bool,
     narration: bool,
@@ -1240,23 +1297,23 @@ impl Store {
     self
       .lock()
       .execute(
-        "update queue set translation_tries = translation_tries + ?2, narration_tries = narration_tries + ?3,
-           pending_retry_at = ?4 where id = ?1",
-        params![item_id, korean as i64, narration as i64, retry_at],
+        "update pages set translation_tries = translation_tries + ?2, narration_tries = narration_tries + ?3,
+           pending_retry_at = ?4 where document_id = ?1",
+        params![document_id, korean as i64, narration as i64, retry_at],
       )
       .map_err(|e| e.to_string())?;
-    self.page_state(item_id)
+    self.page_state(document_id)
   }
 
-  /// How an item's page stands: the languages and narrations it holds, what it was last found lacking, the
-  /// tries asked of each, and when what it lacks is asked again.
-  pub fn page_state(&self, item_id: i64) -> Result<PageState, String> {
+  /// How a document's page stands: the languages and narrations it holds, what it was last found lacking, the
+  /// tries asked of each, and when what it lacks is asked again; nothing held for a document with no page.
+  pub fn page_state(&self, document_id: i64) -> Result<PageState, String> {
     self
       .lock()
       .query_row(
-        "select languages, narrations, translation_tries, narration_tries, pending_retry_at, pending from queue
-         where id = ?1",
-        params![item_id],
+        "select languages, narrations, translation_tries, narration_tries, pending_retry_at, pending from pages
+         where document_id = ?1",
+        params![document_id],
         |r| {
           let languages: String = r.get(0)?;
           let narrations: String = r.get(1)?;
@@ -1268,14 +1325,15 @@ impl Store {
             translation_tries: r.get(2)?,
             narration_tries: r.get(3)?,
             retry_at: r.get(4)?,
-
           })
         },
       )
+      .optional()
+      .map(Option::unwrap_or_default)
       .map_err(|e| e.to_string())
   }
 
-  /// A page's Korean side had: kept, and its languages kept on every item its document was filed for.
+  /// A page's Korean side had: kept, and its document's page holding both languages.
   pub fn keep_rendering(&self, document_id: i64, rendering: &Rendering) -> Result<(), String> {
     let conn = self.lock();
     conn
@@ -1287,41 +1345,29 @@ impl Store {
       .map_err(|e| e.to_string())?;
     conn
       .execute(
-        "update queue set languages = ?2, changed_at = ?3 where document_id = ?1",
-        params![document_id, words_json(&["ko".to_string(), "en".to_string()]), now_ms()],
+        "update pages set languages = ?2 where document_id = ?1",
+        params![document_id, words_json(&["ko".to_string(), "en".to_string()])],
       )
       .map(|_| ())
       .map_err(|e| e.to_string())
   }
 
-  /// A page's Korean side set aside (`docs/api.md`, 「The page」): every item its document was filed for holding
-  /// `languages` `en` alone, `pending` naming `korean` among what it lacks, and its retry wait due at `retry_at`,
-  /// so the Korean side is asked again as any pending part.
+  /// A page's Korean side set aside (`docs/api.md`, 「The page」): its document's page holding `languages` `en`
+  /// alone, `pending` naming `korean` among what it lacks, and its retry wait due at `retry_at`, so the Korean
+  /// side is asked again as any pending part.
   pub fn set_aside_korean(&self, document_id: i64, retry_at: i64) -> Result<(), String> {
-    let mut conn = self.lock();
-    let tx = conn.transaction().map_err(|e| e.to_string())?;
-    let held: Vec<(i64, String)> = {
-      let mut stmt = tx
-        .prepare("select id, pending from queue where document_id = ?1")
-        .map_err(|e| e.to_string())?;
-      stmt
-        .query_map(params![document_id], |r| Ok((r.get(0)?, r.get(1)?)))
-        .map_err(|e| e.to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())?
-    };
-    for (id, pending) in held {
-      let mut pending: Vec<String> = serde_json::from_str(&pending).unwrap_or_default();
-      if !pending.iter().any(|lacks| lacks == "korean") {
-        pending.insert(0, "korean".to_string());
-      }
-      tx.execute(
-        "update queue set languages = ?2, pending = ?3, pending_retry_at = ?4, changed_at = ?5 where id = ?1",
-        params![id, words_json(&["en".to_string()]), words_json(&pending), retry_at, now_ms()],
-      )
-      .map_err(|e| e.to_string())?;
+    let mut pending = self.page_state(document_id)?.pending;
+    if !pending.iter().any(|lacks| lacks == "korean") {
+      pending.insert(0, "korean".to_string());
     }
-    tx.commit().map_err(|e| e.to_string())
+    self
+      .lock()
+      .execute(
+        "update pages set languages = ?2, pending = ?3, pending_retry_at = ?4 where document_id = ?1",
+        params![document_id, words_json(&["en".to_string()]), words_json(&pending), retry_at],
+      )
+      .map(|_| ())
+      .map_err(|e| e.to_string())
   }
 
   /// A page's Korean side as it was kept, or none where it has none.
@@ -1455,13 +1501,13 @@ impl Store {
     Ok(())
   }
 
-  /// The narrations a page plays, kept on every item its document was filed for.
+  /// The narrations a document's page plays.
   pub fn keep_narrations(&self, document_id: i64, narrations: &[String]) -> Result<(), String> {
     self
       .lock()
       .execute(
-        "update queue set narrations = ?2, changed_at = ?3 where document_id = ?1",
-        params![document_id, words_json(narrations), now_ms()],
+        "update pages set narrations = ?2 where document_id = ?1",
+        params![document_id, words_json(narrations)],
       )
       .map(|_| ())
       .map_err(|e| e.to_string())
@@ -1542,13 +1588,18 @@ impl Store {
       .map_err(|e| e.to_string())
   }
 
-  /// What an item's page still lacks, and when it is asked again, or none where it lacks nothing.
-  pub fn pend_page(&self, item_id: i64, pending: &[String], retry_at: Option<i64>) -> Result<(), String> {
+  /// What a document's page still lacks, and when it is asked again, or none where it lacks nothing.
+  pub fn pend_page(
+    &self,
+    document_id: i64,
+    pending: &[String],
+    retry_at: Option<i64>,
+  ) -> Result<(), String> {
     self
       .lock()
       .execute(
-        "update queue set pending = ?2, pending_retry_at = ?3 where id = ?1",
-        params![item_id, words_json(pending), retry_at],
+        "update pages set pending = ?2, pending_retry_at = ?3 where document_id = ?1",
+        params![document_id, words_json(pending), retry_at],
       )
       .map(|_| ())
       .map_err(|e| e.to_string())
@@ -1577,17 +1628,39 @@ impl Store {
     Ok(finishing)
   }
 
-  /// The items whose page's pending part is due, while they stand finishing, reported, fit or taken.
+  /// The items whose document's page has a pending part due and is finished for them, while they stand
+  /// finishing, reported, fit or taken.
   pub fn pages_due(&self, now: i64) -> Result<Vec<Item>, String> {
     let conn = self.lock();
     let mut stmt = conn
       .prepare(&format!(
-        "select {ITEM_COLUMNS} from queue where pending_retry_at is not null and pending_retry_at <= ?1
-           and state in ('finishing', 'reported', 'fit', 'taken') order by pending_retry_at, id"
+        "select {ITEM_COLUMNS} from queue where state in ('finishing', 'reported', 'fit', 'taken')
+           and exists (select 1 from pages where pages.document_id = queue.document_id
+             and pages.item_id = queue.id and pages.pending_retry_at is not null and pages.pending_retry_at <= ?1)
+           order by (select pages.pending_retry_at from pages where pages.document_id = queue.document_id), id"
       ))
       .map_err(|e| e.to_string())?;
     stmt
       .query_map(params![now], read_item)
+      .map_err(|e| e.to_string())?
+      .collect::<Result<Vec<_>, _>>()
+      .map_err(|e| e.to_string())
+  }
+
+  /// The runs told to their room whose document's page has a pending part due (`docs/runner.md`, 「The
+  /// narration's sound」), whatever their outcome.
+  pub fn run_pages_due(&self, now: i64) -> Result<Vec<ResearchRunRow>, String> {
+    let conn = self.lock();
+    let mut stmt = conn
+      .prepare(&format!(
+        "select {RESEARCH_RUN_COLUMNS} from research_runs where tells = 1 and state = 'closed'
+           and exists (select 1 from pages where pages.document_id = research_runs.document_id
+             and pages.item_id is null and pages.pending_retry_at is not null and pages.pending_retry_at <= ?1)
+           order by id"
+      ))
+      .map_err(|e| e.to_string())?;
+    stmt
+      .query_map(params![now], read_research_run)
       .map_err(|e| e.to_string())?
       .collect::<Result<Vec<_>, _>>()
       .map_err(|e| e.to_string())
@@ -2332,6 +2405,8 @@ fn read_research_run(r: &rusqlite::Row<'_>) -> rusqlite::Result<ResearchRunRow> 
     link: r.get(23)?,
     continues: r.get(24)?,
     answered: serde_json::from_str(&r.get::<_, String>(25)?).unwrap_or_default(),
+    narrations: serde_json::from_str(&r.get::<_, String>(26)?).unwrap_or_default(),
+    pending: serde_json::from_str(&r.get::<_, String>(27)?).unwrap_or_default(),
   })
 }
 

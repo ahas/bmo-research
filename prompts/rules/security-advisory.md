@@ -56,5 +56,5 @@
 
 ## The narration
 
-- A deep dive's narration (`deep-dives.md`, 「The narration」) says the flaw, the exposure verdict and what is
+- A deep dive's narration (`search-kinds.md`, 「The narration」) says the flaw, the exposure verdict and what is
   done next, in a minute; nothing of the attack's mechanism.

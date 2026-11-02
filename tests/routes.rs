@@ -413,7 +413,7 @@ async fn an_ask_says_why_and_a_follow_up_names_the_research_it_follows_from() {
     share_url: "https://share.example/d812".into(),
     ..Default::default()
   };
-  ground.app.store.file(parent.id, &filed, None).unwrap();
+  ground.app.store.file(parent.id, &filed).unwrap();
   let mismatched = client.ask(&follows("mixed", Some(parent.id), Some(900))).await.unwrap_err();
   assert!(mismatched.starts_with("400"), "{mismatched}");
   let child = client.ask(&follows("child", None, Some(812))).await.unwrap();

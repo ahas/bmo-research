@@ -2,8 +2,8 @@
 
 - This rulebook sets how a deep dive works: how it frames its question, reads the maker of a thing
   before anyone writing about it, sets the maker's figures as the baseline, what its document holds,
-  the narration it carries and the review its page is given. Its deciding section stands in the
-  search runner's prompt and the run reads the rest once that section says it applies.
+  and the review its page is given. Its deciding section stands in the search runner's prompt and
+  the run reads the rest once that section says it applies.
 
 ## Whether this rulebook applies at all
 
@@ -84,25 +84,6 @@
   dashes under each header cell, then one line per row; every line opens and closes with a pipe and
   holds as many cells as the header. A table without its separator row is not a table.
 
-## The narration
-
-- **Every deep dive with a body carries one:** a script for the ear, written apart from the
-  document, which the chat agent's voice speaks and the document keeps at its top, so its reader can listen
-  while looking at the page.
-- **It is not the document read out.** It tells a listener what the thing is, the verdict and the
-  two or three things deciding it, what is still uncertain and what to try next, in sentences of
-  its own.
-- **It is written to be heard,** in the question's language: plain sentences, no persona, no list,
-  table, footnote mark, address, code or structure word; only the few figures that matter, rounded
-  where the exact value adds nothing; a long identifier said by its short name.
-- **It is written words, kept to be read as well as heard.** The script is the narration's transcript:
-  names, acronyms, model and product names and the figures it keeps stand exactly as they are written,
-  never spelled as they sound. The voice unit derives the spoken words from it, the same words as a
-  Korean reader says them aloud, every name and acronym in its Korean reading and every figure in the
-  words a reader says, with no word added, dropped or moved, and checks them before it speaks.
-- **About three to four minutes aloud,** some 1,500 to 2,500 characters of Korean or 400 to 600
-  words of English, and never more: the voice speaks at most 4,000 characters.
-
 ## The review
 
 - **A deep dive's page is reviewed once, whole, by the model that wrote it,** after its Korean side
@@ -127,7 +108,7 @@
   Korean side, the English left as it is. A narration is fixed the same way, by its language.
 - **A fix gives its part whole:** a section rewritten from its heading line to its end, every
   sentence of it that holds no fault kept word for word, its heading in the side's own language;
-  a narration rewritten whole, kept to the narration's rules above. Nothing outside the part is
+  a narration rewritten whole, kept to `search-kinds.md` 「The narration」. Nothing outside the part is
   touched.
 - **Nothing is invented in a fix.** A figure is corrected only to the value the page's own sources
   or its other side state; where the right value is not on the page, the fix marks the figure

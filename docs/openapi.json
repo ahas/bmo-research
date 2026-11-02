@@ -1531,12 +1531,28 @@
           "model": {
             "type": "string"
           },
+          "narrations": {
+            "default": [],
+            "description": "the languages whose narration its document plays",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "outcome": {
             "description": "`answered`, `failed` or `cut`; null while the run is open",
             "type": [
               "string",
               "null"
             ]
+          },
+          "pending": {
+            "default": [],
+            "description": "what its document still lacks, its room told once it lacks nothing",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           },
           "provider": {
             "type": "string"
@@ -1587,7 +1603,9 @@
           "link",
           "error",
           "branches",
-          "turns"
+          "turns",
+          "narrations",
+          "pending"
         ],
         "type": "object"
       },

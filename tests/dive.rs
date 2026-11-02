@@ -21,7 +21,7 @@ use research_server::dive::{
 };
 use research_server::document::{draw, page_body};
 use research_server::runner::narration_script;
-use research_server::store::{Asked, NewResearchRun, Parent, Store, now_ms};
+use research_server::store::{Asked, NewResearchRun, PageState, Parent, Store, now_ms};
 use research_server::translation::{Rendering, cut, narration_note, note, translate_part};
 use research_server::words;
 use serde_json::Value;
@@ -107,6 +107,12 @@ fn file(ground: &Ground, run: i64, id: i64, content: String) {
       content,
     },
   );
+}
+
+/// How the page of an item's document stands.
+fn page_of(ground: &Ground, item: i64) -> PageState {
+  let document = ground.app.store.item(item).unwrap().document_id.expect("the item holds a document");
+  ground.app.store.page_state(document).unwrap()
 }
 
 fn orders(ground: &Ground) -> Vec<Value> {
@@ -303,7 +309,7 @@ async fn a_report_s_korean_side_is_drawn_into_the_same_page_with_a_switch_and_to
   assert_eq!(rendered.languages, ["ko", "en"]);
   assert!(rendered.narrations.is_empty());
   assert_eq!(rendered.document_id, Some(501));
-  let state = ground.app.store.page_state(item.id).unwrap();
+  let state = page_of(&ground, item.id);
   assert_eq!((state.translation_tries, state.retry_at), (1, None));
 }
 
@@ -355,7 +361,7 @@ async fn a_narration_is_spoken_in_both_languages_and_attached_the_korean_at_the_
   assert!(!html.contains("data:audio"), "the page refers to its sounds by name");
   let rendered = ground.app.store.item(item.id).unwrap();
   assert_eq!(rendered.narrations, ["ko", "en"]);
-  assert_eq!(ground.app.store.page_state(item.id).unwrap().retry_at, None);
+  assert_eq!(page_of(&ground, item.id).retry_at, None);
   let order = orders(&ground)[0]["said"]["order"].as_str().unwrap().to_string();
   assert!(
     !order.contains("narration-") && !order.contains(SCRIPT),
@@ -510,7 +516,7 @@ async fn a_report_waits_while_a_narration_is_pending_and_is_told_once_it_is_atta
   let done = ground.label_sets(501).last().unwrap().clone();
   assert!(done.get("pending").is_none(), "a page lacking nothing is marked done: {done}");
   assert_eq!(done["languages"], "ko,en");
-  let state = ground.app.store.page_state(item.id).unwrap();
+  let state = page_of(&ground, item.id);
   assert_eq!((state.narration_tries, state.translation_tries, state.retry_at), (2, 1, None));
   let said = orders(&ground);
   assert_eq!(said.len(), 1, "the report is told once the page is whole");
@@ -549,7 +555,7 @@ async fn a_failing_narration_is_asked_again_on_every_retry_wait_until_it_is_made
   }
 
   assert_eq!(ground.spoken().len(), 6, "each language on every try, the third among them");
-  let state = ground.app.store.page_state(item.id).unwrap();
+  let state = page_of(&ground, item.id);
   assert_eq!(state.narration_tries, 3);
   assert!(state.retry_at.is_some(), "no count of tries gives it up");
   assert_eq!(ground.app.store.item(item.id).unwrap().state, ItemState::Finishing);
@@ -567,7 +573,7 @@ async fn a_failing_narration_is_asked_again_on_every_retry_wait_until_it_is_made
     (told.state, told.narrations.clone()),
     (ItemState::Fit, vec!["ko".to_string(), "en".to_string()])
   );
-  assert_eq!(ground.app.store.page_state(item.id).unwrap().narration_tries, 4);
+  assert_eq!(page_of(&ground, item.id).narration_tries, 4);
   assert_eq!(orders(&ground).len(), 1);
 }
 
@@ -641,7 +647,7 @@ async fn a_missing_english_sound_is_logged_and_retried_on_the_retry_wait() {
     (waiting.state, waiting.pending.clone()),
     (ItemState::Finishing, vec!["narration-en".to_string(), "review".to_string()])
   );
-  let state = ground.app.store.page_state(item.id).unwrap();
+  let state = page_of(&ground, item.id);
   assert_eq!(state.narration_tries, 1);
   assert!(state.retry_at.is_some(), "the English sound is asked again");
   assert!(orders(&ground).is_empty(), "the report waits for the English sound");
@@ -659,7 +665,7 @@ async fn a_missing_english_sound_is_logged_and_retried_on_the_retry_wait() {
   assert_eq!(attached, ["narration-ko.ogg", "narration-en.ogg"]);
   assert_eq!(ground.app.store.item(item.id).unwrap().narrations, ["ko", "en"]);
   assert_eq!(ground.spoken().iter().filter(|text| text.as_str() == SCRIPT).count(), 2);
-  let state = ground.app.store.page_state(item.id).unwrap();
+  let state = page_of(&ground, item.id);
   assert_eq!((state.narration_tries, state.retry_at), (2, None));
   assert_eq!(orders(&ground).len(), 1);
 }
@@ -824,7 +830,7 @@ async fn a_narration_whose_synthesis_still_waits_is_asked_nothing_beside_it_on_a
   }
 
   assert_eq!(ground.spoken().len(), 1, "nothing is asked beside the synthesis on its way");
-  let state = ground.app.store.page_state(item.id).unwrap();
+  let state = page_of(&ground, item.id);
   assert_eq!(state.narration_tries, 1, "the page is finished by one try at a time");
 
   // The daemon stops while the synthesis waits, and the next follows the one it kept.
@@ -943,7 +949,7 @@ async fn a_whole_page_finished_again_finds_its_sounds_attached_and_is_drawn_whol
   let db = ground.app.settings.store_dir().join("research.db");
   let conn = rusqlite::Connection::open(db).unwrap();
   conn
-    .execute("update queue set narrations = '[]', pending_retry_at = 0 where id = ?1", [item.id])
+    .execute("update pages set narrations = '[]', pending_retry_at = 0 where item_id = ?1", [item.id])
     .unwrap();
   drop(conn);
   settle(&ground).await;
@@ -1387,7 +1393,7 @@ async fn a_korean_side_no_road_carries_holds_the_report_until_a_retry_draws_it_i
     ["korean", "review"],
     "a result with no script waits for no narration, and its review waits for the Korean side"
   );
-  let state = ground.app.store.page_state(item.id).unwrap();
+  let state = page_of(&ground, item.id);
   assert_eq!(state.translation_tries, 1);
   assert!(state.retry_at.is_some());
   assert!(ground.rewrites(501).is_empty(), "the English page stands alone");
@@ -1418,7 +1424,7 @@ async fn a_korean_side_no_road_carries_holds_the_report_until_a_retry_draws_it_i
     (ItemState::Fit, vec!["ko".to_string(), "en".to_string()])
   );
   assert!(rendered.pending.is_empty());
-  let state = ground.app.store.page_state(item.id).unwrap();
+  let state = page_of(&ground, item.id);
   assert_eq!((state.translation_tries, state.retry_at), (2, None));
   let reports = ground.app.store.reports(item.id).unwrap();
   assert_eq!(reports, [("room:7".to_string(), "report".to_string(), "sent".to_string())]);
@@ -1448,7 +1454,7 @@ async fn a_korean_side_failing_past_the_retries_is_still_asked_on_every_retry_wa
   }
 
   assert_eq!(translations(&ground).len(), 3, "the first try and every retry, past `retries`");
-  let state = ground.app.store.page_state(item.id).unwrap();
+  let state = page_of(&ground, item.id);
   assert_eq!(state.translation_tries, 3);
   assert!(state.retry_at.is_some(), "it is not given up");
   assert!(orders(&ground).is_empty());

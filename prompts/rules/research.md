@@ -76,7 +76,7 @@
   research did not do, each counted at zero: `설치 0 · 빌드 0 · 실행 0 · 가중치 다운로드 0`. What it
   did do is counted the same way: `우리 카드는 읽기만 했습니다`, `등록 정보와 258개 파일 목록`.
 - **The narration's own line is not the run's to write.** The document keeps the narration at its
-  top with its length, and `deep-dives.md` 「The narration」 sets the script; the run writes `LISTEN:`
+  top with its length, and `search-kinds.md` 「The narration」 sets the script; the run writes `LISTEN:`
   and nothing about listening in the body.
 
 ## The manual

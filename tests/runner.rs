@@ -3,7 +3,8 @@
 //! with its record and capabilities, its first turn, its rounds, its filing and its room's instruction — a run
 //! agency refuses, a turn waited on however long it holds and through a session still in a turn, the branches
 //! and their allowance, the settings' round trip, a summary a result still writes folded into its document's
-//! answer, and a turn's text read whole.
+//! answer, a turn's text read whole, and a room's document given its narration's sound at its head before its
+//! room is told.
 
 mod support;
 
@@ -12,7 +13,7 @@ use std::time::Duration;
 use bmo_research_client::*;
 use reqwest::StatusCode;
 use research_server::document::draw;
-use research_server::runner::written;
+use research_server::runner::{finish_told, written};
 use research_server::store::{NewResearchRun, now_ms};
 use research_server::words;
 use serde_json::{Value, json};
@@ -83,7 +84,12 @@ async fn a_search_is_seated_sent_asked_its_rounds_filed_and_told_to_its_room() {
   let rounds = &words::runner().rounds["search:thorough"].rounds;
   let mut turns = vec!["research-1".to_string()];
   turns.extend(rounds.iter().map(|round| format!("research-1-{round}")));
-  assert_eq!(run.turns, turns);
+  turns.push("research-1-narration".to_string());
+  assert_eq!(run.turns, turns, "a result with no script is asked for its narration");
+  assert!(
+    run.pending.is_empty() && run.narrations.is_empty(),
+    "a turn that wrote none leaves no sound"
+  );
 
   let seats = ground.run_seats();
   assert_eq!(seats.len(), 1);
@@ -364,7 +370,7 @@ async fn a_turn_that_holds_is_waited_on_until_it_answers() {
 
   let run = closed(&ground, 1).await;
   assert_eq!(run.outcome.as_deref(), Some("answered"), "{:?}", run.error);
-  assert_eq!(run.turns, ["research-1", "research-1-final"]);
+  assert_eq!(run.turns, ["research-1", "research-1-final", "research-1-narration"]);
   let started = sessions(&ground);
   assert!(!started.is_empty() && started.iter().all(|s| s.get("boundMs").is_none()), "{started:?}");
   assert!(started.iter().all(|s| s["labels"]["research"].get("closesAt").is_none()), "{started:?}");
@@ -677,4 +683,183 @@ fn a_turn_s_text_is_every_block_from_the_head_its_answer_where_the_blocks_hold_n
   assert_eq!(written(&turn), format!("{head}\n{tail}"));
   let turn = json!({"answer": "The answer.", "text": []});
   assert_eq!(written(&turn), "The answer.");
+}
+
+/// A room's result whose script for the ear is `script`, written in the question's language.
+fn narrated_result(run: i64, script: &str) -> String {
+  format!(
+    "ANSWERED: yes :: the run\nTITLE: Research {run}\nTOPIC: What run {run} found\n\nLISTEN:\n{script}\n\n\
+     VERDICT:\nRun {run} answered.\n\nUNCONFIRMED:\n1. Nothing.\nSOURCE [1]: https://example.org/{run} :: the \
+     answer\n"
+  )
+}
+
+/// The run once it has closed and its log says `kind` with `words` in its text.
+async fn closed_saying(ground: &support::Ground, run: i64, kind: &str, words: &str) -> ResearchRunView {
+  for _ in 0..1500 {
+    let row = ground.app.store.research_run(run).unwrap();
+    let said = ground
+      .app
+      .store
+      .research_log(run)
+      .unwrap()
+      .iter()
+      .any(|l| l.kind == kind && l.text.contains(words));
+    if row.state == ResearchRunState::Closed && said {
+      return row.view();
+    }
+    tokio::time::sleep(Duration::from_millis(10)).await;
+  }
+  panic!("research run {run} did not close saying {words}");
+}
+
+#[tokio::test]
+async fn a_room_s_document_carries_its_narration_at_its_head_and_its_room_is_told_once_it_is_attached() {
+  let (ground, _base, client) = served().await;
+  let script = "Thing-7B serves fastest on the second engine, and that is the one thing to know.";
+  ground.world.lock().unwrap().raw.insert(1, narrated_result(1, script));
+  client
+    .ask_research(&ResearchRunAsk {
+      key: "search:basic".into(),
+      query: "Which engine serves Thing-7B fastest?".into(),
+      room_id: Some(5),
+      ..ResearchRunAsk::default()
+    })
+    .await
+    .unwrap();
+
+  let run = closed(&ground, 1).await;
+  assert_eq!((run.outcome.as_deref(), run.document_id), (Some("answered"), Some(901)));
+  assert!(
+    ground.turns_named("research-1-narration").is_empty(),
+    "a result with its script is asked none"
+  );
+  let filed = ground.run_documents();
+  assert_eq!(
+    (filed[0]["labels"]["languages"].as_str(), filed[0]["labels"]["pending"].as_str()),
+    (Some("en"), Some("narration-en"))
+  );
+  assert!(
+    !filed[0]["body"].as_str().unwrap().contains(script),
+    "the script stands apart from the body"
+  );
+
+  let attached: Vec<(i64, String, Option<String>)> = ground
+    .world
+    .lock()
+    .unwrap()
+    .attachments
+    .iter()
+    .map(|a| (a.document, a.name.clone(), a.role.clone()))
+    .collect();
+  assert_eq!(attached, [(901, "narration-en.ogg".to_string(), Some("head".to_string()))]);
+  assert_eq!(ground.spoken(), [script], "spoken as written");
+  assert_eq!(ground.synthesis_keys(), ["research:901:en"]);
+  let asked = ground.asked_path("voice", "POST", "/syntheses");
+  assert_eq!(asked[0].body["language"], "en");
+  assert!(
+    ground.asked_path("agency", "POST", "/translation-runs").is_empty(),
+    "nothing is translated"
+  );
+
+  let labels = ground.label_sets(901);
+  let last = labels.last().expect("the labels are set again once the sound is attached");
+  assert!(last.get("pending").is_none(), "{last}");
+  assert_eq!(last["languages"], "en");
+  let told = ground.asked_path("receiver", "POST", "/instructions");
+  assert_eq!(told.len(), 1);
+  let order = told[0].body["said"]["order"].as_str().unwrap();
+  assert_eq!(order.matches("https://").count(), 1, "one link: {order}");
+  assert!(
+    order.contains("https://share.example/d901") && order.contains("Run 1 answered."),
+    "{order}"
+  );
+  assert!(!order.contains(script), "the room hears nothing of the sound: {order}");
+  assert_eq!((run.narrations, run.pending), (vec!["en".to_string()], Vec::<String>::new()));
+  let log = ground.app.store.research_log(1).unwrap();
+  let attached_at = log.iter().position(|l| l.kind == "narration" && l.text.contains("attached")).unwrap();
+  let told_at = log.iter().position(|l| l.kind == "told").unwrap();
+  assert!(attached_at < told_at, "the room is told after the sound is attached");
+  assert!(
+    ground.app.store.run_pages_due(now_ms() + 3_600_000_000).unwrap().is_empty(),
+    "nothing is pending"
+  );
+}
+
+#[tokio::test]
+async fn a_room_s_document_whose_sound_fails_is_told_only_once_its_narration_is_attached_on_its_retry_wait()
+{
+  let (ground, _base, client) = served().await;
+  // A Korean question: its result and its script are Korean, and the sound is spoken as written. The
+  // syllables are made from their code points, so the source holds no Hangul.
+  let syllables = |points: &[u32]| points.iter().filter_map(|p| char::from_u32(*p)).collect::<String>();
+  let query = format!("Thing-7B {}?", syllables(&[0xc5d4, 0xc9c4]));
+  let script = format!(
+    "Thing-7B{} {}.",
+    syllables(&[0xb294]),
+    syllables(&[0xbaa8, 0xb378, 0xc785, 0xb2c8, 0xb2e4])
+  );
+  let script = script.as_str();
+  {
+    let mut world = ground.world.lock().unwrap();
+    world.raw.insert(1, narrated_result(1, script));
+    world.voice_failing = true;
+  }
+  client
+    .ask_research(&ResearchRunAsk {
+      key: "search:basic".into(),
+      query: query.clone(),
+      room_id: Some(5),
+      ..ResearchRunAsk::default()
+    })
+    .await
+    .unwrap();
+
+  let run = closed_saying(&ground, 1, "narration", "was not made").await;
+  assert_eq!((run.outcome.as_deref(), run.document_id), (Some("answered"), Some(901)));
+  assert_eq!(run.pending, ["narration-ko"]);
+  assert!(
+    ground.asked_path("receiver", "POST", "/instructions").is_empty(),
+    "the room hears nothing yet"
+  );
+  assert_eq!(ground.world.lock().unwrap().kept_labels[&901]["pending"], "narration-ko");
+  assert!(ground.world.lock().unwrap().attachments.is_empty());
+  assert!(
+    ground.app.store.run_pages_due(now_ms()).unwrap().is_empty(),
+    "asked again on its retry wait"
+  );
+  let due = ground.app.store.run_pages_due(now_ms() + 3_600_000).unwrap();
+  assert_eq!(due.iter().map(|row| row.id).collect::<Vec<_>>(), [1]);
+
+  ground.world.lock().unwrap().voice_failing = false;
+  finish_told(&ground.app, &due[0]).await;
+  assert_eq!(
+    ground.synthesis_keys(),
+    ["research:901:ko", "research:901:ko:1"],
+    "a failed one asked anew"
+  );
+  assert_eq!(ground.spoken(), [script, script], "spoken as written, untranslated");
+  let asked = ground.asked_path("voice", "POST", "/syntheses");
+  assert_eq!(asked[1].body["language"], "ko");
+  assert!(ground.asked_path("agency", "POST", "/translation-runs").is_empty());
+  let attached: Vec<(String, Option<String>)> = ground
+    .world
+    .lock()
+    .unwrap()
+    .attachments
+    .iter()
+    .map(|a| (a.name.clone(), a.role.clone()))
+    .collect();
+  assert_eq!(attached, [("narration-ko.ogg".to_string(), Some("head".to_string()))]);
+  assert!(ground.world.lock().unwrap().kept_labels[&901].get("pending").is_none());
+  let told = ground.asked_path("receiver", "POST", "/instructions");
+  assert_eq!(told.len(), 1, "told once the sound is attached");
+  assert!(told[0].body["said"]["order"].as_str().unwrap().contains("https://share.example/d901"));
+  let run = ground.app.store.research_run(1).unwrap().view();
+  assert_eq!((run.narrations, run.pending), (vec!["ko".to_string()], Vec::<String>::new()));
+
+  let row = ground.app.store.research_run(1).unwrap();
+  finish_told(&ground.app, &row).await;
+  assert_eq!(ground.asked_path("receiver", "POST", "/instructions").len(), 1, "told once");
+  assert_eq!(ground.synthesis_keys().len(), 2, "a sound attached is not made again");
 }

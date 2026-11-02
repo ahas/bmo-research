@@ -57,7 +57,7 @@ pub struct Drawn {
   pub rule: Option<String>,
   pub body: String,
   pub pictures: Vec<Picture>,
-  /// A deep dive's script for the ear, lifted out of the body.
+  /// The result's script for the ear, lifted out of the body.
   pub narration: Option<String>,
 }
 
@@ -288,10 +288,31 @@ pub fn labels(drawn: &Drawn, run: i64, key: &str, query: &str) -> Value {
   labels
 }
 
+/// What a room's document lacks as it is filed (`docs/runner.md`, 「The narration's sound」): its narration's
+/// sound in the question's language, where the result has a script; nothing where it has none.
+pub fn room_pending(drawn: &Drawn, query: &str) -> Vec<String> {
+  match drawn.narration.as_deref().map(str::trim).filter(|script| !script.is_empty()) {
+    Some(_) => vec![format!("narration-{}", language_of(query))],
+    None => Vec::new(),
+  }
+}
+
+/// The labels a room's document carries: a run's document's, with the language it is written in as
+/// `languages`, and what it still lacks as `pending`, left out where it lacks nothing.
+pub fn room_labels(drawn: &Drawn, run: i64, key: &str, query: &str, pending: &[String]) -> Value {
+  let mut labels = labels(drawn, run, key, query);
+  labels["languages"] = language_of(query).into();
+  if !pending.is_empty() {
+    labels["pending"] = pending.join(",").into();
+  }
+  labels
+}
+
 /// The document as the artifact service files it: its kind — `search`, or `learning` for study material —
-/// title, description (the topic), body, scope and labels.
+/// title, description (the topic), body, scope and labels, its narration's sound pending where it has a
+/// script.
 pub fn filing(drawn: &Drawn, run: i64, key: &str, query: &str, room: Option<i64>) -> Value {
-  let labels = labels(drawn, run, key, query);
+  let labels = room_labels(drawn, run, key, query, &room_pending(drawn, query));
   json!({
     "kind": if drawn.learning { "learning" } else { "search" },
     "title": drawn.title.clone().unwrap_or_else(|| query.trim().to_owned()),

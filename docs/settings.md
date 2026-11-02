@@ -98,7 +98,8 @@ Where the tool host's control socket answers (`docs/api.md`, 「Calls this unit 
 
 ## The narration: `[voice]`
 
-How a deep dive's narration is spoken (`docs/api.md`, 「The page」).
+How a document's narration is spoken, a deep dive's page's and a room's research's alike (`docs/api.md`,
+「The page」; `docs/runner.md`, 「The narration's sound」).
 
 | Key | Default | Meaning |
 |---|---|---|

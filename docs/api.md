@@ -309,14 +309,19 @@ the one to read.
   `running` or `closed`), `outcome` (`answered`, `failed`, or `cut` where what it stood on went away,
   `docs/runner.md`, 「A cut run」; null while open), `startedAt`, `finishedAt`, `documentId` and `link` (the
   filed document and its share link, null where none was filed), `error` (why it failed), `branches` (how
-  many it opened) and `turns` (the names of the agency turns it went out under, its first answer's, each
-  round's and its page's review's, by which its tool calls are read in agency's log).
+  many it opened), `turns` (the names of the agency turns it went out under, its first answer's, each
+  round's and its page's review's, by which its tool calls are read in agency's log), `narrations` (the
+  languages whose narration its document plays) and `pending` (what its document still lacks, as a page's
+  `pending` names it: for a run told to its room, `narration-<code>` until its sound is attached, its room
+  told once it lacks nothing, `docs/runner.md`, 「The narration's sound」; empty where it lacks nothing or no
+  document was filed).
 - **Its log** answers `items`, each `id`, `runId`, `at`, `kind` (`asked`, `seated`, `answer`, `round`,
   `branch`, `whole`, `narration`, `filed`, `review`, `told` or `ended`) and `text`, the run's own notes from
-  the ask to its end, and for a deep dive's run how its page was finished (「The page」): every narration sound
-  the page was given or not, and why, under `narration`; why its Korean side is pending, and what its report
-  waits on each time that changes, under `filed`; what its review answered and each fix applied, left out or
-  still pending, under `review`; and when its report was told, under `told`.
+  the ask to its end, and how its document was finished after it (「The page」): every narration sound the
+  document was given or not, and why, under `narration`; why a deep dive's Korean side is pending, and what
+  its report or its room's telling waits on each time that changes, under `filed`; what a deep dive's review
+  answered and each fix applied, left out or still pending, under `review`; and when its report was told, or
+  its room, under `told`.
 - **A branch** is asked with the token the run's record names, `run` (the run's id) and `angle`, and
   answered 200 once it ends with `index` (counted from 1 per run), `state` (`completed` or `failed`),
   `notes` (what the branch wrote, empty where nothing) and `reason` (why, on `failed`; null otherwise). A
@@ -509,8 +514,12 @@ search runner applies it, and the run writes its document in English, the questi
   `labels` the run's document's labels with `languages` naming the languages the page holds, comma-separated,
   `category` the lead item's shape (`manual`, `investigation`, `advisory` or `brief`), and `pending` what the
   page still lacks, the item's `pending` comma-separated, left out once it lacks nothing — the archive's
-  category and in-progress marks (bmo-artifact's `docs/archive.md`, 「Where a person reads it」). Every item
-  the document was filed for keeps the languages as `languages` and the narrations as `narrations`.
+  category and in-progress marks (bmo-artifact's `docs/archive.md`, 「Where a person reads it」).
+- **What a page holds and lacks is kept by its document** (`docs/store.md`, `pages`): the languages it holds,
+  the narrations it plays, what it still lacks and when that is asked again, and how many Korean sides and
+  narrations were asked for it. Every item the document was filed for answers them as its `languages`,
+  `narrations`, `pending` and `pendingRetryAt`; the page is finished for the item its document's run was
+  asked for.
 - **The labels follow what the page lacks:** each time a try leaves the page lacking something other than it
   lacked before, the document's labels are set again with `PATCH /documents/{id}` and `labels` alone, so the
   archive marks a page in progress while it lacks a part and done once it lacks none.
@@ -658,9 +667,17 @@ search runner applies it, and the run writes its document in English, the questi
   422 `unconverted-run` for spoken words it could not clear among them) or failed — leaves the
   document without that sound for now, and the sound is pending; why is written into the run's log under
   `narration`, the synthesis named with the length of the text it was asked to speak.
+- **A run told to its room has its document finished the same way** (`docs/runner.md`, 「The narration's
+  sound」): its document's page kept as a deep dive's (`docs/store.md`, `pages`), holding the question's
+  language alone, its one narration spoken as the script is written, with no translation, under the same
+  key, kept and followed the same way, and attached as `narration-<code>.ogg` with `role` `head`, the
+  document's labels `languages` and `pending` set as a page's are. It has no Korean side and no review, and
+  its room is told, once, as the sound is attached. Its run answers its `narrations` and `pending`
+  (「research runs」).
 - **What is pending is asked again on every retry wait,** `retry_minutes` after its last try, until it is
-  had, while its item stands `finishing`, `reported`, `fit` or `taken`: the Korean side and each missing
-  sound alike, and no count of tries ends it. A try that fails waits for the next; nothing a page lacks is
+  had, while its item stands `finishing`, `reported`, `fit` or `taken`, or for a run told to its room's
+  document whatever the run's outcome: the Korean side and each missing sound alike, and no count of tries
+  ends it. A try that fails waits for the next; nothing a page lacks is
   given up on. A page whose try is still under way when its wait ends — a narration still waiting for its
   synthesis — is not asked a second time beside it, and its next wait runs from that try's end. A dismissed
   item's page is no longer asked. The tries are counted apart from the run's tries.
@@ -788,15 +805,18 @@ of these units, and reads each one's address and token from that unit's own file
   share takes to be granted and the part to be translated.
 - **the artifact service:** `GET /documents?q=<name>&limit=1`, the archive check a candidate passes
   (`docs/sources.md`); `POST /documents`, a run's document, `html` for a deep dive's page;
-  `POST /documents/{documentId}/attachments` with `name`, `mediaType`, `content` (base64) and, for the Korean
-  narration, `role` `head`, a picture of a run's document or a narration's sound;
+  `POST /documents/{documentId}/attachments` with `name`, `mediaType`, `content` (base64) and, for a deep
+  dive's Korean narration and a room's document's narration, `role` `head`, a picture of a run's document or
+  a narration's sound;
   `GET /documents/{documentId}/attachments`, whether a narration's sound is already attached;
   `PATCH /documents/{documentId}` with `body` and `labels` once a room's document's pictures are kept, or with
-  `title`, `html` and `labels` as a page is drawn again, or with `labels` alone as what a page lacks changes;
+  `title`, `html` and `labels` as a page is drawn again, or with `labels` alone as what a page or a room's
+  document lacks changes;
   `GET /documents/{documentId}/content?download=true` and `GET /documents/{documentId}`, a page and its labels
   as the archive keeps them, compared with the page drawn again (「The page」);
-  `GET /shares?documentId=<documentId>` and `POST /shares` with `documentId` and, for a run's document,
-  `expiresAt` a day ahead, its live link.
+  `GET /shares?documentId=<documentId>` and `POST /shares` with `documentId` and, for a run's document as
+  it is filed, `expiresAt` a day ahead, its live link, read again as a room's document is told, one made
+  with no `expiresAt` where none stands then.
 - **the voice unit:** at the address and with the token its own settings file under `env/` names
   (`docs/settings.md`, 「Peers」): `GET /voices`, the first voice where the settings name none;
   `POST /syntheses` with `voiceName`, `text`, the narration's written words, `language`, the narration's own

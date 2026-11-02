@@ -48,5 +48,5 @@
 
 ## The narration
 
-- A brief's narration (`deep-dives.md`, 「The narration」) is the day in a minute: the verdict and the three
+- A brief's narration (`search-kinds.md`, 「The narration」) is the day in a minute: the verdict and the three
   figures that matter, nothing of the table.

@@ -35,11 +35,11 @@ rounds = ["what", "sources", "facts", "coverage", "establish", "final"]
 [rounds.browse]
 rounds = ["what", "sources", "facts", "coverage", "establish", "final"]
 
-# What a deep dive's session is asked where its result carries no `LISTEN:` script (docs/runner.md, 「The
+# What a run's session is asked where its result carries no `LISTEN:` script (docs/runner.md, 「The
 # narration」): the question, and the rulebook and its section the narration is written by.
 [narration]
 question = "The answer you wrote last carries no narration. Write the narration alone now: the script for the ear the rule below states, in the language the question is asked in. Say what the thing is, the verdict, and the one thing a listener must know, in plain spoken sentences. Write no heading, no list, no structure line and nothing else: this turn's text is taken whole as the script."
-rulebook = "deep-dives"
+rulebook = "search-kinds"
 section = "The narration"
 
 # What a deep dive's session is asked where its result is short of its shape (docs/runner.md, 「The deep

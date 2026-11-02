@@ -78,11 +78,7 @@ The items (`docs/api.md`, 「queue」).
 | `state` | Its state |
 | `tries`, `retry_at` | The tries counted — each failed one and the one under way, an interrupted one taken off — and when the next may be made |
 | `run_id` | The research run of the latest try |
-| `document_id`, `title`, `description`, `share_url` | The document the run filed, and its live link |
-| `languages`, `narrations` | The languages its document's page holds, and those whose narration it plays, JSON lists, Korean first |
-| `translation_tries`, `narration_tries` | The Korean sides and the narrations asked for its page |
-| `pending` | What its page still lacks before its report is told — `korean`, `narration-ko`, `narration-en` — a JSON list, empty where it lacks nothing |
-| `pending_retry_at` | When what its page still lacks may be asked again, or null where nothing is pending |
+| `document_id`, `title`, `description`, `share_url` | The document the run filed, and its live link; what its page holds and lacks is the document's `pages` row |
 | `fit`, `touches` | Whether the document asks the owner's word, and what an advisory touches |
 | `plan` | The heading of the document's plan section |
 | `job_item_id` | The job item the chat agent filed for it |
@@ -113,6 +109,21 @@ The items (`docs/api.md`, 「queue」).
 | `instruction_id` | The receiver's instruction, or null for a turn |
 | `state`, `error` | `sent` or `refused`, and why |
 | `at` | When it was sent |
+
+## `pages`
+
+What each filed document's page holds and still lacks, one row per document: a deep dive's page, finished
+for the item its run was asked for, and the document of a run told to its room, finished for that run
+(`docs/api.md`, 「The page」; `docs/runner.md`, 「The narration's sound」).
+
+| Column | Holds |
+|---|---|
+| `document_id` | The document; the primary key |
+| `item_id` | The item the page is finished for, or null for the document of a run told to its room, finished for the run that filed it |
+| `languages`, `narrations` | The languages the page holds, and those whose narration it plays, JSON lists, Korean first |
+| `pending` | What it still lacks before its report or its room is told — `korean`, `narration-ko`, `narration-en`, `review`, `review-fixes` — a JSON list, empty where it lacks nothing |
+| `pending_retry_at` | When what it still lacks may be asked again, or null where nothing is pending |
+| `translation_tries`, `narration_tries` | The Korean sides and the narrations asked for it |
 
 ## `renderings`
 
@@ -158,7 +169,7 @@ words.
 
 ## `narration_asks`
 
-How often each narration of a deep dive's page was asked anew, which its synthesis's key carries
+How often each narration of a page was asked anew, which its synthesis's key carries
 (`docs/api.md`, 「The page」).
 
 | Column | Holds |
