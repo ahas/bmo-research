@@ -64,8 +64,6 @@ How a research run goes out (`docs/runner.md`).
 | Key | Default | Meaning |
 |---|---|---|
 | `role` | `scout` | The co-worker role a run's own seat is asked under |
-| `writing_margin_minutes` | 10 | How long past its clock a run's sessions are bounded, for writing the result |
-| `review_minutes` | 20 | How long a deep dive's review session is bounded (`docs/runner.md`, 「The review」) |
 | `capabilities` | `room.chat`, `room.tools`, `web.read`, `web.sites`, `web.branches`, `web.rulebooks` | The capabilities a run's session record keeps, handed as `toolsAllowed`: `web.branches` is left out where the run may open no branch, `web.rulebooks` where it is handed no rulebook |
 
 ## The research settings' defaults: `[research_settings]`

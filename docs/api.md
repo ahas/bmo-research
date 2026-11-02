@@ -766,15 +766,16 @@ of these units, and reads each one's address and token from that unit's own file
   ran; an admission of a seat whose run or branch holds a card names `demandId`, that card's demand id, the
   seat standing on it with no card of its own asked.
   `POST /sessions` with `agent`, `scope` `apart`, `provider`, `model`, `cwd`, `line`, `systemPrompt`,
-  `labels`, `toolsAllowed` and `boundMs`, and `demandId` where its run or branch holds a card, answered
-  with the session's `id`, or 503 `line-not-carried`.
+  `labels` and `toolsAllowed`, and `demandId` where its run or branch holds a card, and never `boundMs`,
+  answered with the session's `id`, or 503 `line-not-carried`.
   `POST /sessions/{id}/turns` with `prompt` and the work parts (`provider`, `model`, `mapping`, `resume`,
   `cwd`, `name`, `title`, `chat`, `workKey`, `hearsWords`, `variables`), answered once the turn ends with its
-  `answer`. `DELETE /sessions/{id}`, the session ended, answered 409 while its turn runs. `GET /roles`, the
+  `answer`, or 409 `session-busy` while an earlier turn of the session still runs: `GET /sessions/{id}` is
+  then read every two seconds until its `run` is null, and the turn sent again (`docs/runner.md`, 「A turn's
+  send」). `DELETE /sessions/{id}`, the session ended, answered 409 while its turn runs. `GET /roles`, the
   co-worker roles a branch role is checked against.
-  No call of the seat and session routes carries a clock of this unit's: each is waited on until agency
-  answers, however long a card it waits on takes; a turn's send alone is bounded, by its session's bound
-  and a margin past it.
+  No call of the seat and session routes carries a clock of this unit's, a turn's send among them: each is
+  waited on until agency answers, however long a card it waits on takes and however long the turn writes.
   `POST /sessions/{agentName}@worker/turns` with `prompt`, a notice to an agent. `POST /translation-runs`
   with `purpose`, `language`, `text`, `note` and `terms` (each a `source` alone, kept as written), one part
   of a page's Korean side or its narration;

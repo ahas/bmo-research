@@ -12,6 +12,12 @@ use tokio::sync::Semaphore;
 
 use crate::config::Settings;
 
+/// How often a session whose turn was answered busy is read for the end of the turn it is in.
+const BUSY_EVERY: Duration = Duration::from_secs(2);
+
+/// The code agency answers a call with while the session it names is in a turn.
+const SESSION_BUSY: &str = "session-busy";
+
 /// A unit's address and the bearer it takes.
 #[derive(Debug, Clone)]
 pub struct Peer {
@@ -300,28 +306,11 @@ impl Peers {
     what: &str,
     names_held: bool,
   ) -> Result<Value, Fault> {
-    let lost = |why: String| Fault { why, lost: true };
-    let answer = request.send().await.map_err(|e| lost(format!("{} {what}: {e}", peer.name)))?;
-    let status = answer.status().as_u16();
-    let succeeded = (200..300).contains(&status);
-    let body = match answer.text().await {
-      Ok(body) => body,
-      Err(e) if succeeded => {
-        return Err(lost(format!("{} {what}: the answer did not come: {e}", peer.name)));
-      }
-      Err(_) => String::new(),
-    };
-    if !succeeded {
-      return Err(Fault {
-        why: format!("{} {what} answered {status}: {body}", peer.name),
-        lost: status >= 500 || (names_held && status == 404),
-      });
-    }
-    if body.trim().is_empty() {
-      return Ok(Value::Null);
-    }
-    serde_json::from_str(&body)
-      .map_err(|e| Fault::kept(format!("{} {what}: the answer did not read: {e}", peer.name)))
+    let answer = request.send().await.map_err(|e| Fault {
+      why: format!("{} {what}: {e}", peer.name),
+      lost: true,
+    })?;
+    held_answer(peer, answer, what, names_held).await
   }
 
   /// A demand asked of the arbiter's master, answered as it stands: granted, or waiting.
@@ -717,8 +706,7 @@ impl Peers {
   }
 
   // Agency's seats and thrown-away sessions, as the runner asks them (`docs/runner.md`): each call waited on
-  // until agency answers, however long a card it waits on takes, a turn's send alone bounded by its session's
-  // bound.
+  // until agency answers, however long a card it waits on takes, a turn's send among them.
 
   /// A seat asked of the co-worker pool: the request as agency answers it.
   pub async fn ask_seat(&self, ask: &Value) -> Result<Value, Fault> {
@@ -747,12 +735,44 @@ impl Peers {
       .ok_or_else(|| Fault::kept("agency answered the session with no id".to_string()))
   }
 
-  /// One turn into a session, answered once it ends: the turn's end as agency answers it.
-  pub async fn send_turn(&self, session: &str, body: &Value, within: Duration) -> Result<Value, Fault> {
+  /// One turn into a session, answered once it ends however long that takes: the turn's end as agency
+  /// answers it. A send answered busy waits for the end of the turn the session is in, then is sent again
+  /// (`docs/runner.md`, 「A turn's send」).
+  pub async fn send_turn(&self, session: &str, body: &Value) -> Result<Value, Fault> {
     let agency = self.agency().map_err(Fault::kept)?;
     let path = format!("/sessions/{}/turns", segment(session));
-    let request = self.unclocked(&agency, reqwest::Method::POST, &path).timeout(within).json(body);
-    self.held_call(&agency, request, &format!("POST {path}"), true).await
+    let what = format!("POST {path}");
+    loop {
+      let request = self.unclocked(&agency, reqwest::Method::POST, &path).json(body);
+      let answer = request.send().await.map_err(|e| Fault {
+        why: format!("{} {what}: {e}", agency.name),
+        lost: true,
+      })?;
+      if answer.status() != reqwest::StatusCode::CONFLICT {
+        return held_answer(&agency, answer, &what, true).await;
+      }
+      let said = answer.text().await.unwrap_or_default();
+      let code = serde_json::from_str::<Value>(&said)
+        .ok()
+        .and_then(|v| v["code"].as_str().map(str::to_owned));
+      if code.as_deref() != Some(SESSION_BUSY) {
+        return Err(Fault::kept(format!("{} {what} answered 409: {said}", agency.name)));
+      }
+      self.turn_over(&agency, session).await?;
+    }
+  }
+
+  /// The turn a session is in waited on until the session's state names no run.
+  async fn turn_over(&self, agency: &Peer, session: &str) -> Result<(), Fault> {
+    let path = format!("/sessions/{}", segment(session));
+    let what = format!("GET {path}");
+    loop {
+      tokio::time::sleep(BUSY_EVERY).await;
+      let request = self.unclocked(agency, reqwest::Method::GET, &path);
+      if self.held_call(agency, request, &what, true).await?["run"].is_null() {
+        return Ok(());
+      }
+    }
   }
 
   /// An item raised in the job service: its number.
@@ -816,6 +836,36 @@ impl Peers {
     let what = format!("{method} {path}");
     self.call(&artifact, self.request(&artifact, method, path).json(body), &what).await
   }
+}
+
+/// A call's answer read as `held_call` reads it: a success's body as JSON, any other answer the failure.
+async fn held_answer(
+  peer: &Peer,
+  answer: reqwest::Response,
+  what: &str,
+  names_held: bool,
+) -> Result<Value, Fault> {
+  let lost = |why: String| Fault { why, lost: true };
+  let status = answer.status().as_u16();
+  let succeeded = (200..300).contains(&status);
+  let body = match answer.text().await {
+    Ok(body) => body,
+    Err(e) if succeeded => {
+      return Err(lost(format!("{} {what}: the answer did not come: {e}", peer.name)));
+    }
+    Err(_) => String::new(),
+  };
+  if !succeeded {
+    return Err(Fault {
+      why: format!("{} {what} answered {status}: {body}", peer.name),
+      lost: status >= 500 || (names_held && status == 404),
+    });
+  }
+  if body.trim().is_empty() {
+    return Ok(Value::Null);
+  }
+  serde_json::from_str(&body)
+    .map_err(|e| Fault::kept(format!("{} {what}: the answer did not read: {e}", peer.name)))
 }
 
 /// Why a session was not ended: a turn of it still runs, or the call failed.

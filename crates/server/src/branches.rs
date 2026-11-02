@@ -5,7 +5,6 @@
 //! way a branch that ends does.
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use bmo_research_client::{BranchAsk, BranchEnd, BranchState, ResearchRunState};
 use serde_json::json;
@@ -15,12 +14,6 @@ use crate::engine::{self, Uncarded};
 use crate::runner::{self, Seat, Start, Turn};
 use crate::store::now_ms;
 use crate::tool_host::ToolHost;
-
-/// How long past research's close a branch may go on writing: its session's bound.
-const MARGIN: Duration = Duration::from_secs(2 * 60);
-
-/// How long a branch's turn is waited on past its bound for what it had written.
-const GRACE: Duration = Duration::from_secs(30);
 
 /// The work key a branch's seat and turn are laid under, and the line it goes out on.
 const LINE: &str = "search";
@@ -73,7 +66,6 @@ struct Held {
   seat: Option<String>,
   session: Option<String>,
   demand: Option<i64>,
-  until: i64,
   bound: bool,
 }
 
@@ -81,7 +73,7 @@ impl Held {
   /// Everything given back with the word its end came to.
   async fn give_back(&mut self, outcome: &str) {
     if let Some(session) = self.session.take() {
-      runner::end_session(&self.app, self.run, &session, self.until).await;
+      runner::end_session(&self.app, self.run, &session).await;
     }
     if let Some(seat) = self.seat.take() {
       let cancel = !self.bound;
@@ -104,7 +96,6 @@ impl Drop for Held {
       seat: self.seat.take(),
       session: self.session.take(),
       demand: self.demand.take(),
-      until: self.until,
       bound: self.bound,
     };
     tokio::spawn(async move { left.give_back("stopped: its caller let go").await });
@@ -142,7 +133,6 @@ pub async fn open(app: Arc<App>, ask: BranchAsk) -> Result<BranchEnd, Refusal> {
     seat: None,
     session: None,
     demand: None,
-    until: closes_at + MARGIN.as_millis() as i64 + GRACE.as_millis() as i64,
     bound: false,
   };
   match engine::branch_card(&app, row.id, &row.provider, &row.model, index, closes_at).await {
@@ -226,8 +216,8 @@ fn failed(index: i64, why: &str) -> BranchEnd {
   }
 }
 
-/// The seated branch's session started on the run's road, the seat bound to it, and its one turn waited on to
-/// its bound and the grace past it: what the turn wrote, and whether research closed before it ended.
+/// The seated branch's session started on the run's road, the seat bound to it, and its one turn waited on
+/// until it ends: what the turn wrote, and whether research closed before it ended.
 async fn seated(
   app: &App,
   row: &crate::store::ResearchRunRow,
@@ -242,7 +232,6 @@ async fn seated(
   let record = runner::branch_record(&row.record, row.id);
   let capabilities = runner::capabilities(app, false, false);
   let left = (closes_at - now_ms()).max(0) as u64;
-  let bound_ms = left as i64 + MARGIN.as_millis() as i64;
   let session = runner::start_session(
     app,
     row.id,
@@ -253,7 +242,6 @@ async fn seated(
       system: &system,
       record: &record,
       capabilities: &capabilities,
-      bound_ms,
       demand: held.demand,
     },
   )
@@ -280,12 +268,6 @@ async fn seated(
       work_key: LINE,
     },
   );
-  let within = Duration::from_millis(left) + MARGIN + GRACE;
-  let answered = app.peers.send_turn(&session, &body, within).await;
-  let closed = now_ms() >= closes_at;
-  match answered {
-    Ok(turn) => Ok((runner::written(&turn), closed)),
-    Err(_) if closed => Ok((String::new(), true)),
-    Err(fault) => Err(fault.why),
-  }
+  let turn = app.peers.send_turn(&session, &body).await.map_err(|fault| fault.why)?;
+  Ok((runner::written(&turn), now_ms() >= closes_at))
 }

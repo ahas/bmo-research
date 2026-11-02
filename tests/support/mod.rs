@@ -84,6 +84,11 @@ pub struct World {
   pub branch_wait_ms: u64,
   /// How many ends of a session are answered busy before one is answered.
   pub busy_ends: u32,
+  /// How many sends of a turn are answered busy, the session in a turn an earlier send lost, before one is
+  /// carried.
+  pub busy_turns: u32,
+  /// How many reads of a session's state name a run going in it before one names none.
+  pub turn_running_reads: u32,
   /// Whether the tool host lists no web tool.
   pub no_listing: bool,
   /// What each research run's turns write, and the document the archive files it as.
@@ -336,6 +341,19 @@ async fn agency_session_end(State(w): State<Shared>, method: Method, uri: Uri, b
   StatusCode::NO_CONTENT.into_response()
 }
 
+async fn agency_session_state(State(w): State<Shared>, method: Method, uri: Uri, body: Bytes) -> Response {
+  keep(&w, "agency", &method, &uri, &body);
+  let mut world = w.lock().unwrap();
+  let session = uri.path().trim_start_matches("/sessions/").to_string();
+  let run = if world.turn_running_reads > 0 {
+    world.turn_running_reads -= 1;
+    json!("research-lost")
+  } else {
+    Value::Null
+  };
+  axum::Json(json!({"session": session, "run": run})).into_response()
+}
+
 async fn agency_roles(State(w): State<Shared>, method: Method, uri: Uri, body: Bytes) -> Response {
   keep(&w, "agency", &method, &uri, &body);
   axum::Json(json!({"items": [{"name": "scout", "tier": "Light"}, {"name": "verifier", "tier": "Reliable"}], "more": false}))
@@ -440,6 +458,17 @@ async fn research_turn(w: &Shared, name: &str) -> Response {
 async fn agency_turn(State(w): State<Shared>, method: Method, uri: Uri, body: Bytes) -> Response {
   keep(&w, "agency", &method, &uri, &body);
   let asked: Value = serde_json::from_slice(&body).unwrap_or_default();
+  {
+    let mut world = w.lock().unwrap();
+    if world.busy_turns > 0 {
+      world.busy_turns -= 1;
+      return (
+        StatusCode::CONFLICT,
+        axum::Json(json!({"code": "session-busy", "error": "the session is in a turn"})),
+      )
+        .into_response();
+    }
+  }
   research_turn(&w, asked["name"].as_str().unwrap_or_default()).await
 }
 
@@ -488,7 +517,7 @@ pub fn agency(world: Shared) -> Router {
     .route("/seat-requests", post(agency_seat))
     .route("/seat-requests/{token}", axum::routing::patch(agency_seat_move))
     .route("/sessions", post(agency_session))
-    .route("/sessions/{session}", delete(agency_session_end))
+    .route("/sessions/{session}", delete(agency_session_end).get(agency_session_state))
     .route("/roles", get(agency_roles))
     .route("/translation-runs", post(agency_translation))
     .route("/sessions/{session}/turns", post(agency_turn))

@@ -41,9 +41,6 @@ pub const LOOK_EVERY: Duration = Duration::from_millis(500);
 /// How often an end answered busy is asked again.
 const END_EVERY: Duration = Duration::from_secs(2);
 
-/// How long past a turn's bound its send is waited on.
-const SEND_SLACK: Duration = Duration::from_secs(60);
-
 /// The line a research key goes out on.
 pub fn line_of(key: &str) -> &'static str {
   if key == "browse" { "browse" } else { "search" }
@@ -497,17 +494,13 @@ pub async fn give_back(app: &App, run: i64, token: &str, outcome: &str, cancel: 
   held
 }
 
-/// A session ended once its turn is over: an end answered busy asked again until `until` (epoch
-/// milliseconds) has passed.
-pub async fn end_session(app: &App, run: i64, session: &str, until: i64) {
+/// A session ended once its turn is over: an end answered busy asked again until it goes through, however
+/// long the turn it is in takes.
+pub async fn end_session(app: &App, run: i64, session: &str) {
   loop {
     match app.peers.end_session(session).await {
       Ok(()) => break,
-      Err(Ending::Busy) if now_ms() < until => tokio::time::sleep(END_EVERY).await,
-      Err(Ending::Busy) => {
-        eprintln!("bmo-research: research {run}: session {session} was still busy at its bound");
-        break;
-      }
+      Err(Ending::Busy) => tokio::time::sleep(END_EVERY).await,
       Err(Ending::Failed(why)) => {
         eprintln!("bmo-research: research {run}: session {session} was not ended: {why}");
         break;
@@ -525,12 +518,12 @@ pub struct Start<'a> {
   pub system: &'a str,
   pub record: &'a Value,
   pub capabilities: &'a [String],
-  pub bound_ms: i64,
   /// The arbiter demand every turn of the session stands on, where its run or branch holds one.
   pub demand: Option<i64>,
 }
 
-/// A thrown-away session started on agency's line, its id kept as the run's hold.
+/// A thrown-away session started on agency's line, its id kept as the run's hold. It names no bound, so
+/// agency cuts none of its turns (`docs/runner.md`, 「The run's clock」).
 pub async fn start_session(app: &App, run: i64, start: &Start<'_>) -> Result<String, Fault> {
   let mut body = json!({
     "agent": start.line,
@@ -542,7 +535,6 @@ pub async fn start_session(app: &App, run: i64, start: &Start<'_>) -> Result<Str
     "systemPrompt": start.system,
     "labels": { "research": start.record },
     "toolsAllowed": start.capabilities,
-    "boundMs": start.bound_ms,
   });
   if let Some(demand) = start.demand {
     body["demandId"] = json!(demand);
@@ -717,7 +709,6 @@ struct Going {
   provider: String,
   model: String,
   closes_at: i64,
-  bound_ms: i64,
   demand: Option<i64>,
   /// The earlier result the run continues from, or none.
   continued: Option<Continued>,
@@ -790,7 +781,6 @@ pub async fn launch(
   };
   let prompt = request(&ask, kept);
   let closes_at = now_ms() + kept.minutes * 60_000;
-  let bound_ms = (kept.minutes + app.settings.runner.writing_margin_minutes.max(0)) * 60_000;
   let run = app
     .store
     .open_research_run(&NewResearchRun {
@@ -879,7 +869,6 @@ pub async fn launch(
       system: &system,
       record: &record,
       capabilities: &capabilities,
-      bound_ms,
       demand,
     },
   )
@@ -914,7 +903,6 @@ pub async fn launch(
     provider,
     model,
     closes_at,
-    bound_ms,
     demand,
     continued,
     lost: Mutex::new(None),
@@ -927,7 +915,6 @@ pub async fn launch(
 /// in the ledger and told to its room.
 async fn go(app: Arc<App>, going: Going) {
   let run = going.run;
-  let until = now_ms() + going.bound_ms + SEND_SLACK.as_millis() as i64;
   let seated = admitted(&app, &going).await;
   // A seat that never ran is cancelled rather than finished.
   let never_ran = seated.is_err();
@@ -945,14 +932,14 @@ async fn go(app: Arc<App>, going: Going) {
         }
         other => other,
       };
-      end_session(&app, run, &going.session, until).await;
+      end_session(&app, run, &going.session).await;
       match first {
         Ok(answer) if rounds_follow => Ok(rounds(&app, &going, &seat, answer).await),
         other => other,
       }
     }
     Err(why) => {
-      end_session(&app, run, &going.session, until).await;
+      end_session(&app, run, &going.session).await;
       Err(why)
     }
   };
@@ -1009,7 +996,8 @@ async fn admitted(app: &App, going: &Going) -> Result<Seat, String> {
   Ok(seat)
 }
 
-/// One turn into a session, answered once it ends: what it wrote, or why it wrote nothing.
+/// One turn into a session, answered once it ends however long that takes (`docs/runner.md`, 「A turn's
+/// send」): what it wrote, or why it wrote nothing.
 async fn turn(
   app: &App,
   going: &Going,
@@ -1031,10 +1019,9 @@ async fn turn(
       work_key: &going.ask.key,
     },
   );
-  let within = Duration::from_millis(going.bound_ms.max(0) as u64) + SEND_SLACK;
   let answered = app
     .peers
-    .send_turn(session, &body, within)
+    .send_turn(session, &body)
     .await
     .map_err(|fault| going.met(fault, &format!("the turn {name} did not come back")))?;
   let text = written(&answered);
@@ -1090,7 +1077,6 @@ async fn rounds(app: &App, going: &Going, seat: &Seat, first: String) -> String 
     system: &going.system,
     record: &record,
     capabilities: &capabilities,
-    bound_ms: going.bound_ms,
     demand: going.demand,
   };
   let session = match start_session(app, run, &start).await {
@@ -1144,7 +1130,7 @@ async fn rounds(app: &App, going: &Going, seat: &Seat, first: String) -> String 
   }
   let last = whole(app, going, &session, seat, last).await;
   let last = narrated(app, going, &session, seat, last).await;
-  end_session(app, run, &session, now_ms() + going.bound_ms + SEND_SLACK.as_millis() as i64).await;
+  end_session(app, run, &session).await;
   last
 }
 
@@ -1219,7 +1205,7 @@ pub fn review_prompt(page: &str) -> String {
 
 /// One review of a run's finished page (`docs/runner.md`, 「The review」): a seat and a session of its own on
 /// the run's road, held under the run, the seat waited on for its place however long that takes, one turn
-/// asked with `prompt` and waited on to the session's bound, the session ended and the seat given back.
+/// asked with `prompt` and waited on until it ends, the session ended and the seat given back.
 /// Answers what the turn wrote, or why it wrote nothing.
 pub async fn review(app: &App, run: i64, prompt: &str) -> Result<String, String> {
   let row = app.store.research_run(run).map_err(|why| why.to_string())?;
@@ -1249,7 +1235,6 @@ pub async fn review(app: &App, run: i64, prompt: &str) -> Result<String, String>
   let _ = app.store.hold(run, "seat", &seat.token);
   let provider = if row.provider.is_empty() { seat.provider.clone() } else { row.provider.clone() };
   let model = if row.model.is_empty() { seat.model.clone() } else { row.model.clone() };
-  let bound_ms = app.settings.runner.review_minutes.max(1) * 60_000;
   let started = start_session(
     app,
     run,
@@ -1260,7 +1245,6 @@ pub async fn review(app: &App, run: i64, prompt: &str) -> Result<String, String>
       system: &system,
       record: &row.record,
       capabilities: &[],
-      bound_ms,
       demand: None,
     },
   )
@@ -1272,7 +1256,6 @@ pub async fn review(app: &App, run: i64, prompt: &str) -> Result<String, String>
       return Err(format!("agency started no session for the review: {fault}"));
     }
   };
-  let until = now_ms() + bound_ms + SEND_SLACK.as_millis() as i64;
   let answered = async {
     while !seat.admitted() {
       if seat.ended() {
@@ -1307,8 +1290,7 @@ pub async fn review(app: &App, run: i64, prompt: &str) -> Result<String, String>
         work_key: &row.key,
       },
     );
-    let within = Duration::from_millis(bound_ms as u64) + SEND_SLACK;
-    let turned = app.peers.send_turn(&session, &body, within).await;
+    let turned = app.peers.send_turn(&session, &body).await;
     let _ = app.store.keep_research_turn(run, &name, None);
     let turned = turned.map_err(|fault| format!("the turn {name} did not come back: {fault}"))?;
     let text = written(&turned);
@@ -1319,7 +1301,7 @@ pub async fn review(app: &App, run: i64, prompt: &str) -> Result<String, String>
     Ok(text)
   }
   .await;
-  end_session(app, run, &session, until).await;
+  end_session(app, run, &session).await;
   let outcome = match &answered {
     Ok(_) => "answered".to_string(),
     Err(why) => format!("failed: {why}"),
@@ -1598,8 +1580,7 @@ pub async fn sweep(app: &Arc<App>) -> usize {
     match kind.as_str() {
       "session" => {
         let app = app.clone();
-        let until = now_ms() + (app.settings.runner.review_minutes.max(1) + 1) * 60_000;
-        tokio::spawn(async move { end_session(&app, run, &value, until).await });
+        tokio::spawn(async move { end_session(&app, run, &value).await });
       }
       _ => {
         give_back(app, run, &value, "stopped: the research unit restarted", false).await;
@@ -1608,16 +1589,12 @@ pub async fn sweep(app: &Arc<App>) -> usize {
   }
   for row in &open {
     let run = row.id;
-    // A turn under way runs on in agency until its session's bound, which is the run's clock and the writing
-    // margin: its session is ended once it is over.
-    let until = row.closes_at.unwrap_or_else(now_ms)
-      + (app.settings.runner.writing_margin_minutes.max(0) + 1) * 60_000
-      + SEND_SLACK.as_millis() as i64;
+    // A turn under way runs on in agency to its end: its session is ended once it is over.
     for (kind, value) in app.store.holds(run).unwrap_or_default() {
       match kind.as_str() {
         "session" => {
           let app = app.clone();
-          tokio::spawn(async move { end_session(&app, run, &value, until).await });
+          tokio::spawn(async move { end_session(&app, run, &value).await });
         }
         _ => {
           give_back(app, run, &value, "stopped: the research unit restarted", false).await;

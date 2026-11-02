@@ -20,7 +20,7 @@ of a run is this unit's.
   - **the branch role:** the co-worker role a search's branches are seated under, one agency's `GET /roles`
     lists;
   - **each key's branches and clock:** how many branches a run of it may open, and how many minutes its web
-    tools stay open from the moment it is asked;
+    tools stay open from the moment it is asked (「The run's clock」);
   - **each key's budget:** how many pages its first answer may fetch, and how many each branch may. The request
     states it as a ceiling; the record carries it as `pages` and `branchPages` for the web tools that hold a
     run to it;
@@ -76,9 +76,9 @@ of a run is this unit's.
    under its run and the count of its asks (「The review」).
 4. **The session:** agency's `POST /sessions` with `agent` the line, `scope` `apart`, the provider and the model
    the ask names, else the seat's, `cwd` empty, `line` the line, `systemPrompt` the composed instructions,
-   `labels` `{research: <the run's record>}`, `toolsAllowed` the run's capabilities, and `boundMs` the clock
-   and a writing margin of `runner.writing_margin_minutes`, and `demandId` the run's demand where it holds
-   one. A seat or a session agency cannot be asked for — agency not reached, or answering with a failure of
+   `labels` `{research: <the run's record>}`, `toolsAllowed` the run's capabilities, and `demandId` the run's
+   demand where it holds one; it names no `boundMs`, since no turn of a run is cut (「The run's clock」). A
+   seat or a session agency cannot be asked for — agency not reached, or answering with a failure of
    its own (5xx) — is answered 503 with agency's sentence; one agency refuses for what it asks, or a seat
    with no token or no model, is answered 502. Either way a seat already asked is cancelled and nothing is
    left standing.
@@ -94,7 +94,8 @@ of a run is this unit's.
 7. **The first turn:** the request, as one turn of the session (`POST /sessions/{id}/turns`) carrying the work
    parts — the provider, the model, the seat's mapping (model, effort, tier), a fresh resume, an empty folder,
    the name `research-<run>`, the title, the room or 0, the key as the work key, no words heard and no
-   variables — waited on until it ends; what it wrote is its whole text (「What a turn wrote」). The session is
+   variables — waited on until it ends (「A turn's send」); what it wrote is its whole text (「What a turn
+   wrote」). The session is
    then ended (`DELETE /sessions/{id}`). A run that continues from an earlier run's result asks no first
    turn: that result is its first answer (「A run that continues」).
 8. **The rounds:** the key's rounds, or those a continuing run has left (「A run that continues」), are
@@ -112,6 +113,24 @@ of a run is this unit's.
    drawn into its document and filed (「The document」; a deep dive's held to its shape first, 「The deep dive's
    page」), the run is closed in the ledger with its outcome, the document and its link, and its room is told
    (「The room」). Every step is written into the run's log.
+
+## The run's clock
+
+- **The clock is held between turns, never by cutting one.** The key's minutes close the run's web tools at
+  `closesAt`: from then on they answer RESEARCH CLOSED, and the turn writes its answer from what it has. The
+  rounds' ceiling is read before each round (「The rounds」). Nothing else of the clock reaches a turn: no
+  session this unit starts names `boundMs`, so agency cuts none of its turns, and no turn's send carries a
+  clock of this unit's.
+
+## A turn's send
+
+- **A turn is waited on until agency answers it,** however long the card its model needs takes to be granted
+  — a voice, a bench or another run holding it — and however long the turn then writes.
+- **A send answered 409 `session-busy`** finds its session still in a turn that an earlier send of this unit
+  lost on the way, which agency carries to its end all the same. It waits for that turn's end: the session's
+  state (`GET /sessions/{id}`) is read every two seconds until it names no run, and the turn is then sent
+  again, as many times as it is answered busy. A session agency no longer holds (404) is a loss (「A cut
+  run」).
 
 ## The rounds
 
@@ -144,16 +163,16 @@ of a run is this unit's.
 - **A branch** is a seat of the common co-worker pool under the settings' branch role and a thrown-away session
   on the run's provider and model, on the branch instructions, its record the run's with `branchOf` the run's
   id, `pages` the run's `branchPages`, `branches` 0 and no `branchPages`, `branchesAt` or `branchesToken`. Its
-  one turn carries the angle, framed as data, and how long is left before research closes; its session is
-  bounded to two minutes past the close, which cuts a turn still working then, and the turn is waited on to
-  that bound and half a minute more.
+  one turn carries the angle, framed as data, and how long is left before research closes; the turn is
+  waited on until it ends (「A turn's send」), its web tools answering RESEARCH CLOSED past the close, as the
+  run's do.
 - **A branch of a run holding a demand** asks the arbiter's master its own first, for the service the engine
   watch maps the branch's model to, `within` the run's demand, and waits for the grant until research
   closes; its seat's admission and its session both stand on that demand, naming it as `demandId`, and it
   is given back as the branch ends (`docs/api.md`, 「The engine」).
-- **A branch ends** `completed`, `stopped` (cut at the close, its notes as far as they got) or `failed`, its
-  session ended and its seat given back with the same word; a caller that lets go of the ask ends it the same
-  way.
+- **A branch ends** `completed`, `stopped` (ended after research closed, its notes as far as they got) or
+  `failed`, its session ended and its seat given back with the same word; a caller that lets go of the ask
+  ends it the same way.
 
 ## The document
 
@@ -269,11 +288,11 @@ daemon finishes, held first to the shape the deep dive asked for.
   ledger keeps, counted before each ask so a review asked again is never asked under a request agency gave
   back, `owner` `research:<run>`, the settings'
   `runner.role`, `selection` `auto`, `workKey` the run's key, `source` its line and the run's provider; a
-  session on the run's line, its provider and model, its record the run's, no capabilities, and `boundMs`
-  the settings' `runner.review_minutes`, its system prompt the deep-dive rulebook's section on the review
-  (`prompts/runner.toml`, `[review]`) and the rulebook against destroying the system. The seat waits for its
-  place however long that takes, with no clock of this unit's, and is bound to the session; the one turn,
-  named `research-<run>-review`, is waited on to the session's bound; the session is then ended and the
+  session on the run's line, its provider and model, its record the run's, no capabilities and no
+  `boundMs`, its system prompt the deep-dive rulebook's section on the review (`prompts/runner.toml`,
+  `[review]`) and the rulebook against destroying the system. The seat waits for its place however long that
+  takes, with no clock of this unit's, and is bound to the session; the one turn, named
+  `research-<run>-review`, is waited on until it ends (「A turn's send」); the session is then ended and the
   seat given back. Its seat and its session are held under the run, so a restart gives them back. Agency
   asks the card its model needs for them, as for any seat that names no demand.
 - **The turn is handed the finished page:** the review question, then the English side and the Korean side,
@@ -397,8 +416,8 @@ daemon finishes, held first to the shape the deep dive asked for.
 ## Ending a session
 
 - **A session is ended once its turn has answered.** Agency answers the end 409 while a turn of the session
-  runs and does not interrupt it; the session's bound cuts such a turn. An end answered 409 is asked again
-  every two seconds until the turn is over, at most for what is left of the session's bound.
+  runs — one whose send was lost on the way — and does not interrupt it. An end answered 409 is asked again
+  every two seconds until the turn is over, however long that takes.
 
 ## A restart
 
