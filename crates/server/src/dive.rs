@@ -23,11 +23,11 @@ use crate::App;
 use crate::document::{self, Drawn};
 use crate::engine;
 use crate::page::{self, Side, Sound};
-use crate::peers::Synthesis;
+use crate::peers::{Peers, Synthesis};
 use crate::reading::{self, Exposure};
 use crate::review::{self, Answer, Part, Shown};
 use crate::runner::{self, Filing, PageAsk, Refused};
-use crate::store::{Filed, Review, now_ms};
+use crate::store::{Filed, Review, Store, now_ms};
 use crate::translation::{self, English, Rendering};
 use crate::words::{self, fill};
 
@@ -1543,18 +1543,118 @@ async fn tell(
   }
 }
 
-/// A notice told to an agent on a task of its own, so the dive goes on while the agent's turn works: agency
-/// answers the send once the turn ends, however long that takes, and the report row is kept then.
+/// A notice told to an agent on a task of its own, so the dive goes on while the agent's run works: the report
+/// row is kept once the run ends, however long that takes.
 fn tell_agent(app: &App, agent: &str, notice: &str, item: i64, kind: &str) {
   let (peers, store) = (app.peers.clone(), app.store.clone());
   let (agent, notice, kind) = (agent.to_string(), notice.to_string(), kind.to_string());
   tokio::spawn(async move {
-    let said = peers.turn(&agent, &notice).await;
+    let said = tell_by_run((&peers, &store), &agent, &notice, item, &kind).await;
     if let Err(why) = &said {
       eprintln!("bmo-research: agent {agent} refused item {item}: {why}");
     }
     let _ = store.keep_report(item, &format!("agent:{agent}"), &kind, None, said.err().as_deref());
   });
+}
+
+/// The role a notice to an agent runs as.
+pub const NOTICE_ROLE: &str = "worker";
+
+/// The source a notice's slot is asked under.
+const NOTICE_SOURCE: &str = "notice";
+
+/// What a notice holds of agency under these kinds, kept under its item: its slot's token and its session.
+pub const NOTICE_SLOT: &str = "notice-slot";
+pub const NOTICE_SESSION: &str = "notice-session";
+
+/// A notice told to an agent by one run of agency's worker role at its repository's checkout (`docs/api.md`,
+/// 「The notices」): a slot asked at the checkout under a key drawn for it and waited for however long the
+/// role's line takes, a session started on it, the slot bound to the turn's run name, the notice sent as the
+/// turn and waited on until it ends, the session ended and the slot given back. Each is kept under the item
+/// while it stands, so a restart gives it back. Answers why it was not told, where it was not.
+pub async fn tell_by_run(
+  (peers, store): (&Peers, &Store),
+  agent: &str,
+  notice: &str,
+  item: i64,
+  kind: &str,
+) -> Result<(), String> {
+  let repository = peers
+    .repository(agent)
+    .await
+    .map_err(|fault| format!("agency named no repository {agent}: {fault}"))?;
+  let checkout = repository["path"]
+    .as_str()
+    .filter(|path| !path.is_empty())
+    .ok_or_else(|| format!("agency named no checkout of the repository {agent}"))?;
+  let mut drawn = [0u8; 8];
+  getrandom::fill(&mut drawn).map_err(|e| format!("no key could be drawn for the notice's slot: {e}"))?;
+  let drawn: String = drawn.iter().map(|b| format!("{b:02x}")).collect();
+  let asked = json!({
+    "requestKey": format!("research:notice:{item}:{agent}:{drawn}"),
+    "owner": format!("research:notice:{item}"),
+    "role": NOTICE_ROLE,
+    "source": NOTICE_SOURCE,
+    "path": checkout,
+    "placeKey": agent,
+    "title": format!("research {kind} notice to {agent}"),
+  });
+  let said = peers
+    .ask_slot(&asked)
+    .await
+    .map_err(|fault| format!("agency gave the notice no slot: {fault}"))?;
+  let mut slot =
+    runner::Slot::of(&said).ok_or_else(|| "agency answered the notice's slot with no token".to_string())?;
+  let _ = store.hold(item, NOTICE_SLOT, &slot.token);
+  let mut session = None;
+  let told = async {
+    while !slot.admitted() {
+      if slot.ended() {
+        return Err("agency ended the notice's slot request before it got a place".to_string());
+      }
+      tokio::time::sleep(runner::LOOK_EVERY).await;
+      match peers.move_slot(&slot.token, &runner::admission(None)).await {
+        Ok(said) => {
+          if let Some(now) = runner::Slot::admission(&said) {
+            slot = now;
+          }
+        }
+        Err(fault) => return Err(format!("the notice's slot could not be let in: {fault}")),
+      }
+    }
+    let started = peers
+      .start_session(&json!({ "scope": "role", "slot": slot.token }))
+      .await
+      .map_err(|fault| format!("agency started no session for the notice: {fault}"))?;
+    let _ = store.hold(item, NOTICE_SESSION, &started);
+    let started: &str = session.insert(started);
+    let name = format!("research-notice-{item}-{agent}");
+    let bound = json!({ "state": "bound", "childId": name });
+    if let Err(fault) = peers.move_slot(&slot.token, &bound).await {
+      return Err(format!("the notice's slot could not be bound to its turn: {fault}"));
+    }
+    let body = json!({
+      "prompt": notice,
+      "name": name,
+      "title": format!("research {kind} notice"),
+    });
+    let turned = peers
+      .send_turn(started, &body)
+      .await
+      .map_err(|fault| format!("the notice's turn did not come back: {fault}"))?;
+    Ok(turned["outcome"].as_str().unwrap_or("answered").to_string())
+  }
+  .await;
+  if let Some(session) = &session {
+    runner::end_session_held((peers, store), (item, NOTICE_SESSION), session).await;
+  }
+  let outcome = match &told {
+    Ok(outcome) => outcome.clone(),
+    Err(why) => format!("failed: {why}"),
+  };
+  runner::give_back_held((peers, store), (item, NOTICE_SLOT), &slot.token, &outcome, !slot.admitted())
+    .await;
+  told.map(|_| ())
 }
 
 /// One notice to every recipient of the category, each kept as a report row.

@@ -66,8 +66,12 @@ pub struct World {
   /// Each slot's token and the road its ask fixed, by the request key it was first asked under, as agency
   /// keeps a key to its one request.
   pub slot_keys: BTreeMap<String, (String, Option<(String, String)>)>,
-  /// The slots given back, by token, which a key asked again answers as given back.
+  /// Each slot's role, by token.
+  pub slot_roles: BTreeMap<String, String>,
+  /// The slots given back, by token, whose key an ask under it again is refused.
   pub slots_finished: BTreeSet<String>,
+  /// The repositories agency holds no row of.
+  pub repositories_missing: BTreeSet<String>,
   /// How many admission asks a slot waits through before it is let in.
   pub slot_waits: u32,
   /// How long the next admission ask waits before it is answered, in milliseconds.
@@ -247,6 +251,22 @@ pub async fn serve(router: Router) -> String {
 /// The roles the stand-in agency holds.
 pub const ROLES: [&str; 3] = ["searcher", "browser", "scout"];
 
+/// The role a repository's worker runs as, which the stand-in agency holds beside the research roles.
+pub const WORKER_ROLE: &str = "worker";
+
+/// Each role's order in the stand-in agency: the slot's own road first, then a second provider.
+pub fn role_order() -> Value {
+  json!([
+    {"provider": "registered", "model": "slot-model"},
+    {"provider": "deepseek", "model": "deepseek-flash"},
+  ])
+}
+
+/// The checkout the stand-in agency names for a repository.
+pub fn checkout_of(repository: &str) -> String {
+  format!("/checkouts/{repository}")
+}
+
 /// A slot request's answer: its token, its role, its state, and the road it is let in on — the one its ask
 /// fixed, else its role's order's first — empty while it waits unless its ask fixed one.
 fn slot_of(token: &str, role: &str, state: &str, fixed: &Option<(String, String)>) -> Value {
@@ -269,7 +289,7 @@ async fn agency_slot(State(w): State<Shared>, method: Method, uri: Uri, body: By
   keep(&w, "agency", &method, &uri, &body);
   let asked: Value = serde_json::from_slice(&body).unwrap_or_default();
   let role = asked["role"].as_str().unwrap_or_default().to_string();
-  if !ROLES.contains(&role.as_str()) {
+  if !ROLES.contains(&role.as_str()) && role != WORKER_ROLE {
     return (
       StatusCode::UNPROCESSABLE_ENTITY,
       axum::Json(json!({"code": "unknown-role", "error": format!("No role is named {role}")})),
@@ -298,12 +318,21 @@ async fn agency_slot(State(w): State<Shared>, method: Method, uri: Uri, body: By
   }
   let key = asked["requestKey"].as_str().unwrap_or_default().to_string();
   if let Some((token, fixed)) = world.slot_keys.get(&key).cloned() {
-    let state = if world.slots_finished.contains(&token) { "released" } else { "active" };
-    return (StatusCode::CREATED, axum::Json(slot_of(&token, &role, state, &fixed))).into_response();
+    if world.slots_finished.contains(&token) {
+      return (
+        StatusCode::UNPROCESSABLE_ENTITY,
+        axum::Json(
+          json!({"code": "unprocessable-entity", "error": format!("The request key {key} is spent")}),
+        ),
+      )
+        .into_response();
+    }
+    return (StatusCode::CREATED, axum::Json(slot_of(&token, &role, "active", &fixed))).into_response();
   }
   world.next_slot += 1;
   let token = format!("slot-{}", world.next_slot);
   world.slot_keys.insert(key, (token.clone(), fixed.clone()));
+  world.slot_roles.insert(token.clone(), role.clone());
   let state = if world.slot_waits == 0 { "active" } else { "waiting" };
   (StatusCode::CREATED, axum::Json(slot_of(&token, &role, state, &fixed))).into_response()
 }
@@ -362,14 +391,35 @@ async fn agency_session(State(w): State<Shared>, method: Method, uri: Uri, body:
     )
       .into_response();
   }
-  let role = asked["role"].as_str().unwrap_or_default();
-  if asked["scope"] != "role" || !ROLES.contains(&role) || asked["model"].as_str().is_none_or(str::is_empty)
-  {
+  // A role's run names the slot it was let in on, and runs as the slot's role on the slot's road.
+  let token = asked["slot"].as_str().unwrap_or_default();
+  let Some((_, fixed)) = world
+    .slot_keys
+    .values()
+    .find(|(held, _)| held == token && !world.slots_finished.contains(token))
+    .cloned()
+  else {
     return (
       StatusCode::UNPROCESSABLE_ENTITY,
-      axum::Json(
-        json!({"code": "unknown-role", "error": "a role's run names a role agency holds and its model"}),
-      ),
+      axum::Json(json!({"code": "slot-not-active", "error": format!("No active slot request holds the token {token}")})),
+    )
+      .into_response();
+  };
+  let role = world.slot_roles.get(token).cloned().unwrap_or_default();
+  let road = slot_of(token, &role, "active", &fixed);
+  for field in ["role", "provider", "model"] {
+    if asked.get(field).is_some_and(|named| *named != road[field]) {
+      return (
+        StatusCode::UNPROCESSABLE_ENTITY,
+        axum::Json(json!({"code": "contradicts-slot", "error": format!("The slot names another {field}")})),
+      )
+        .into_response();
+    }
+  }
+  if asked["scope"] != "role" {
+    return (
+      StatusCode::BAD_REQUEST,
+      axum::Json(json!({"code": "bad-request", "error": "scope is agent, room, role or conversation"})),
     )
       .into_response();
   }
@@ -377,7 +427,7 @@ async fn agency_session(State(w): State<Shared>, method: Method, uri: Uri, body:
   let id = format!("{role}@run:{}", world.next_session);
   (
     StatusCode::CREATED,
-    axum::Json(json!({"id": id, "agentName": role, "scope": "role", "provider": asked["provider"], "model": asked["model"], "boundMs": asked["boundMs"]})),
+    axum::Json(json!({"id": id, "agentName": role, "scope": "role", "provider": road["provider"], "model": road["model"], "boundMs": asked["boundMs"]})),
   )
     .into_response()
 }
@@ -413,6 +463,42 @@ async fn agency_roles(State(w): State<Shared>, method: Method, uri: Uri, body: B
   keep(&w, "agency", &method, &uri, &body);
   let roles: Vec<Value> = ROLES.iter().map(|name| json!({"name": name, "code": name})).collect();
   axum::Json(json!({"roles": roles, "bundles": [], "lines": ["search", "browse"]})).into_response()
+}
+
+async fn agency_role(
+  State(w): State<Shared>,
+  Path(name): Path<String>,
+  method: Method,
+  uri: Uri,
+  body: Bytes,
+) -> Response {
+  keep(&w, "agency", &method, &uri, &body);
+  if !ROLES.contains(&name.as_str()) {
+    return (
+      StatusCode::NOT_FOUND,
+      axum::Json(json!({"code": "not-found", "error": format!("No role is named {name}")})),
+    )
+      .into_response();
+  }
+  axum::Json(json!({"name": name, "order": role_order(), "provider": "registered"})).into_response()
+}
+
+async fn agency_repository(
+  State(w): State<Shared>,
+  Path(name): Path<String>,
+  method: Method,
+  uri: Uri,
+  body: Bytes,
+) -> Response {
+  keep(&w, "agency", &method, &uri, &body);
+  if w.lock().unwrap().repositories_missing.contains(&name) {
+    return (
+      StatusCode::NOT_FOUND,
+      axum::Json(json!({"code": "not-found", "error": format!("No repository is named {name}")})),
+    )
+      .into_response();
+  }
+  axum::Json(json!({"name": name, "path": checkout_of(&name)})).into_response()
 }
 
 /// The research run a turn's name is under: `research-<run>`, a round's or a branch's after it.
@@ -574,6 +660,8 @@ pub fn agency(world: Shared) -> Router {
     .route("/sessions", post(agency_session))
     .route("/sessions/{session}", delete(agency_session_end).get(agency_session_state))
     .route("/roles", get(agency_roles))
+    .route("/roles/{name}", get(agency_role))
+    .route("/repositories/{name}", get(agency_repository))
     .route("/translation-runs", post(agency_translation))
     .route("/sessions/{session}/turns", post(agency_turn))
     .with_state(world)
@@ -1164,7 +1252,7 @@ impl Ground {
       .map(|a| a.body)
       .filter(|b| {
         let key = b["requestKey"].as_str().unwrap_or_default();
-        !key.contains(":branch:") && !key.contains(":review:")
+        !key.contains(":branch:") && !key.contains(":review:") && !key.starts_with("research:notice:")
       })
       .collect()
   }

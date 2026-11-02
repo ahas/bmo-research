@@ -142,9 +142,13 @@ async fn a_manual_is_asked_read_filed_and_told_with_what_the_owner_s_word_needs(
     (slots[0]["role"].as_str(), slots[0]["provider"].as_str(), slots[0]["model"].as_str()),
     (Some("searcher"), Some("registered"), Some("flash-next"))
   );
-  assert_eq!(ground.turns_named("research-1")[0]["workKey"], "search:exhaustive");
+  assert!(
+    ground.turns_named("research-1")[0].get("workKey").is_none(),
+    "the turn's road is its session's"
+  );
   let started = ground.asked_path("agency", "POST", "/sessions");
-  assert_eq!(started[0].body["model"], "flash-next");
+  assert_eq!(started[0].body["slot"], "slot-1", "the run's session runs on its slot");
+  assert_eq!(started[0].body["labels"]["research"]["model"], "flash-next");
   assert_eq!(started[0].body["labels"]["research"]["chat"], 0, "the run names no room");
   let query = ground.turns_named("research-1")[0]["prompt"].as_str().unwrap().to_string();
   assert!(query.contains("Thing-7B") && query.contains("https://example.org/thing"), "{query}");
@@ -1736,16 +1740,58 @@ async fn an_advisory_tells_each_touched_repository_s_worker_its_part_and_the_rec
     }
     tokio::time::sleep(std::time::Duration::from_millis(10)).await;
   }
-  let part = ground.asked_path("agency", "POST", "/sessions/worker-a@worker/turns");
+  assert!(
+    ground.asked("agency").iter().all(|a| !a.path.contains("@worker")),
+    "no turn goes to a worker's address"
+  );
+  let part = ground.turns_named(&format!("research-notice-{}-worker-a", item.id));
   assert_eq!(part.len(), 1);
-  let prompt = part[0].body["prompt"].as_str().unwrap();
+  let prompt = part[0]["prompt"].as_str().unwrap();
   assert!(prompt.contains("services/alpha") && !prompt.contains("services/beta"), "{prompt}");
   assert!(prompt.contains("https://share.example/d77"));
-  let whole = ground.asked_path("agency", "POST", "/sessions/watcher@worker/turns");
+  let whole = ground.turns_named(&format!("research-notice-{}-watcher", item.id));
   assert_eq!(whole.len(), 1);
-  assert_eq!(whole[0].body["prompt"], room[0]["said"]["order"]);
+  assert_eq!(whole[0]["prompt"], room[0]["said"]["order"]);
   let reports = store.reports(item.id).unwrap();
   assert!(reports.contains(&("agent:worker-a".into(), "part".into(), "sent".into())));
+
+  // Each notice is a run of the worker role at its repository's checkout, on a slot asked for it alone.
+  let slots: Vec<Value> = ground
+    .asked_path("agency", "POST", "/slot-requests")
+    .into_iter()
+    .map(|a| a.body)
+    .filter(|b| b["role"] == "worker")
+    .collect();
+  assert_eq!(slots.len(), 2, "one slot for each agent told: {slots:?}");
+  let slot = slots.iter().find(|b| b["placeKey"] == "worker-a").unwrap();
+  assert_eq!(
+    (slot["path"].as_str(), slot["source"].as_str(), slot["owner"].as_str()),
+    (
+      Some(support::checkout_of("worker-a").as_str()),
+      Some("notice"),
+      Some(format!("research:notice:{}", item.id).as_str())
+    )
+  );
+  let key = slot["requestKey"].as_str().unwrap();
+  assert!(key.starts_with(&format!("research:notice:{}:worker-a:", item.id)), "{key}");
+  assert_ne!(slots[0]["requestKey"], slots[1]["requestKey"], "no two notices share a key");
+  let started: Vec<Value> = ground
+    .asked_path("agency", "POST", "/sessions")
+    .into_iter()
+    .filter(|a| a.path == "/sessions" && a.body["slot"].is_string() && a.body.get("line").is_none())
+    .map(|a| a.body)
+    .collect();
+  assert_eq!(started.len(), 2);
+  for session in &started {
+    assert_eq!(
+      session.as_object().unwrap().len(),
+      2,
+      "a notice's session names its scope and slot: {session}"
+    );
+  }
+  let worker_sessions = ground.asked_path("agency", "DELETE", "/sessions/worker@run:");
+  assert_eq!(worker_sessions.len(), 2, "each notice's session is ended");
+  assert!(store.notice_holds().unwrap().is_empty(), "nothing of a notice is held once it is told");
 }
 
 #[tokio::test]
@@ -2118,7 +2164,15 @@ async fn a_whole_page_is_reviewed_once_on_a_slot_of_its_own_and_its_report_told_
   assert!(system.contains("## The review"), "the review's rules are its instructions: {system}");
   assert_eq!(session["toolsAllowed"], serde_json::json!([]), "the review reads no tool");
   assert!(session.get("demandId").is_none(), "agency asks the review's card");
-  assert_eq!((session["scope"].as_str(), session["role"].as_str()), (Some("role"), Some("searcher")));
+  assert_eq!(session["scope"], "role");
+  assert!(session.get("role").is_none(), "the review's session runs as its slot's role");
+  let tokens: Vec<Value> = ground
+    .asked_path("agency", "PATCH", "/slot-requests/")
+    .into_iter()
+    .filter(|a| a.body == serde_json::json!({"state": "bound", "childId": "research-1-review"}))
+    .map(|a| Value::String(a.path.trim_start_matches("/slot-requests/").to_string()))
+    .collect();
+  assert_eq!(tokens, [session["slot"].clone()], "the review's session runs on the review's own slot");
   let asked = review_turns(&ground, 1);
   assert_eq!(asked.len(), 1);
   let prompt = asked[0]["prompt"].as_str().unwrap();
@@ -2669,4 +2723,89 @@ async fn a_filed_korean_side_that_does_not_agree_is_set_aside_and_only_its_broke
   assert_eq!(item.languages, ["ko", "en"]);
   assert!(!item.pending.contains(&"korean".to_string()));
   assert_eq!(orders(&ground).len(), 1, "the report is not told again");
+}
+
+#[tokio::test]
+async fn a_notice_to_an_agent_with_no_repository_asks_no_slot_and_is_kept_refused() {
+  let ground = support::ground(|_| {}).await;
+  ground.world.lock().unwrap().repositories_missing.insert("nowhere".into());
+  let said = research_server::dive::tell_by_run(
+    (&ground.app.peers, &ground.app.store),
+    "nowhere",
+    "Read this.",
+    41,
+    "report",
+  )
+  .await;
+  let why = said.unwrap_err();
+  assert!(why.contains("no repository nowhere"), "{why}");
+  assert!(ground.asked_path("agency", "POST", "/slot-requests").is_empty());
+  assert!(ground.app.store.notice_holds().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_notice_waits_for_its_slot_then_runs_and_gives_everything_back() {
+  let ground = support::ground(|_| {}).await;
+  ground.world.lock().unwrap().slot_waits = 2;
+  research_server::dive::tell_by_run(
+    (&ground.app.peers, &ground.app.store),
+    "worker-a",
+    "Patch it.",
+    42,
+    "part",
+  )
+  .await
+  .unwrap();
+  let moves: Vec<Value> = ground
+    .asked_path("agency", "PATCH", "/slot-requests/slot-1")
+    .into_iter()
+    .map(|a| a.body)
+    .collect();
+  let admissions = moves.iter().filter(|b| **b == serde_json::json!({})).count();
+  assert!(admissions >= 2, "asked for its place until let in: {moves:?}");
+  assert_eq!(
+    moves.iter().rev().nth(1).cloned(),
+    Some(serde_json::json!({"state": "bound", "childId": "research-notice-42-worker-a"}))
+  );
+  assert_eq!(moves.last().unwrap()["state"], "finished");
+  let turn = &ground.turns_named("research-notice-42-worker-a")[0];
+  assert_eq!(turn["prompt"], "Patch it.");
+  for part in ["provider", "model", "mapping", "workKey", "cwd"] {
+    assert!(turn.get(part).is_none(), "a notice's turn names no {part}");
+  }
+  let order: Vec<String> = ground
+    .asked("agency")
+    .into_iter()
+    .filter(|a| a.path.starts_with("/sessions/worker@run:") || a.path == "/slot-requests/slot-1")
+    .filter(|a| a.method == "DELETE" || a.body["state"] == "finished")
+    .map(|a| a.method)
+    .collect();
+  assert_eq!(order, ["DELETE", "PATCH"], "the session is ended before the slot is given back");
+  assert!(ground.app.store.notice_holds().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_restart_ends_a_notice_s_session_then_gives_back_its_slot() {
+  let ground = support::ground(|_| {}).await;
+  let store = &ground.app.store;
+  store.hold(43, research_server::dive::NOTICE_SLOT, "slot-notice").unwrap();
+  store.hold(43, research_server::dive::NOTICE_SESSION, "worker@run:7").unwrap();
+
+  assert_eq!(research_server::runner::sweep(&ground.app).await, 0, "a notice is no run");
+  for _ in 0..200 {
+    if store.notice_holds().unwrap().is_empty() {
+      break;
+    }
+    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+  }
+  assert!(store.notice_holds().unwrap().is_empty());
+  let order: Vec<String> = ground
+    .asked("agency")
+    .into_iter()
+    .filter(|a| a.path == "/sessions/worker@run:7" || a.path == "/slot-requests/slot-notice")
+    .map(|a| a.method)
+    .collect();
+  assert_eq!(order, ["DELETE", "PATCH"]);
+  let gave_back = ground.asked_path("agency", "PATCH", "/slot-requests/slot-notice");
+  assert_eq!(gave_back[0].body["state"], "finished");
 }

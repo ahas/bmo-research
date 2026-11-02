@@ -2237,7 +2237,24 @@ impl Store {
       .prepare(
         "select h.run_id, h.kind, h.value from research_holds h
            join research_runs r on r.id = h.run_id
-         where r.state = 'closed' order by h.id",
+         where r.state = 'closed' and h.kind in ('slot', 'session') order by h.id",
+      )
+      .map_err(|e| e.to_string())?;
+    stmt
+      .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+      .map_err(|e| e.to_string())?
+      .collect::<Result<Vec<_>, _>>()
+      .map_err(|e| e.to_string())
+  }
+
+  /// What the notices to agents still hold, each item, kind and value, in the order it was taken: a notice's
+  /// slot and session left at a restart.
+  pub fn notice_holds(&self) -> Result<Vec<(i64, String, String)>, String> {
+    let conn = self.lock();
+    let mut stmt = conn
+      .prepare(
+        "select run_id, kind, value from research_holds
+         where kind in ('notice-slot', 'notice-session') order by id",
       )
       .map_err(|e| e.to_string())?;
     stmt
@@ -2251,7 +2268,9 @@ impl Store {
   pub fn holds(&self, run_id: i64) -> Result<Vec<(String, String)>, String> {
     let conn = self.lock();
     let mut stmt = conn
-      .prepare("select kind, value from research_holds where run_id = ?1 order by id")
+      .prepare(
+        "select kind, value from research_holds where run_id = ?1 and kind in ('slot', 'session') order by id",
+      )
       .map_err(|e| e.to_string())?;
     stmt
       .query_map(params![run_id], |r| Ok((r.get(0)?, r.get(1)?)))

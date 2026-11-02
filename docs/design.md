@@ -275,9 +275,10 @@ take; so its own area stays the research and the measurement, however many categ
 
 - **A recipient is a room or an agent,** a registration on the category (`/categories`, `research/rooms`
   and `research/recipients`): a room is told through the receiver's instruction route, which hands the
-  notice to the room's answerer; an agent that answers no room — a worker — is told by a turn into its
-  session through agency's session route, the notice as the turn's words. A worker's turn is a notice,
-  never an order to deploy: what it does with it is the worker's rules'.
+  notice to the room's answerer; an agent that answers no room — a repository's worker — is told by one run
+  of agency's `worker` role at that repository's checkout, on a slot this unit asks and gives back, the
+  notice as the turn's words (`docs/api.md`, 「The notices」). A worker's turn is a notice, never an order to
+  deploy: what it does with it is the worker's rules'.
 - **A security notice names its repository.** The stack inventory maps each component to the repository
   or host that runs it and the worker that keeps it; the advisory investigation's exposure table carries
   that column, and the daemon sends each touched repository's worker its own part. A component with no

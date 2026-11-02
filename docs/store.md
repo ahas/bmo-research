@@ -259,13 +259,14 @@ The runner's ledger (`docs/runner.md`): one row per research run.
 
 ## `research_holds`
 
-What a research run, or its page's review, holds of agency while it stands, so a restart gives it back.
+What a research run, its page's review, or a notice to an agent holds of agency while it stands, so a
+restart gives it back.
 
 | Column | Holds |
 |---|---|
 | `id` | The hold's key |
-| `run_id` | The research run |
-| `kind`, `value` | `slot` and the slot request's token, or `session` and the session's id |
+| `run_id` | The research run; for a notice's hold, the item the notice is about |
+| `kind`, `value` | `slot` and the slot request's token, or `session` and the session's id, for a run or its review; `notice-slot` or `notice-session` and the same for a notice |
 
 ## `demands`
 

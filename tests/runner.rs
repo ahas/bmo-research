@@ -103,14 +103,13 @@ async fn a_search_is_let_in_sent_asked_its_rounds_filed_and_told_to_its_room() {
   assert_eq!(started.len(), 2, "the first answer's session and the rounds'");
   let first = &started[0];
   assert_eq!(
-    (first["scope"].as_str(), first["role"].as_str(), first["line"].as_str()),
-    (Some("role"), Some("searcher"), Some("search"))
+    (first["scope"].as_str(), first["slot"].as_str(), first["line"].as_str()),
+    (Some("role"), Some("slot-1"), Some("search"))
   );
-  assert!(first.get("agent").is_none(), "a role's session names its role, not an agent");
-  assert_eq!(
-    (first["provider"].as_str(), first["model"].as_str(), first["cwd"].as_str()),
-    (Some("registered"), Some("slot-model"), Some(""))
-  );
+  for field in ["agent", "role", "provider", "model", "cwd"] {
+    assert!(first.get(field).is_none(), "a role's session runs on its slot and names no {field}");
+  }
+  assert_eq!(started[1]["slot"], "slot-1", "the rounds' session runs on the run's slot too");
   assert!(first.get("boundMs").is_none(), "no turn of a run is cut");
   let system = first["systemPrompt"].as_str().unwrap();
   assert!(
@@ -166,8 +165,9 @@ async fn a_search_is_let_in_sent_asked_its_rounds_filed_and_told_to_its_room() {
     turn["prompt"].as_str().unwrap().contains("thorough")
       && turn["prompt"].as_str().unwrap().contains("up to 2 branches")
   );
-  assert_eq!(turn["workKey"], "search:thorough");
-  assert_eq!(turn["mapping"], json!({"model": "slot-model", "effort": "high"}));
+  for part in ["provider", "model", "mapping", "workKey", "cwd"] {
+    assert!(turn.get(part).is_none(), "a turn's road is its session's, so it names no {part}");
+  }
   assert_eq!(
     ground.asked_path("agency", "POST", "/sessions/searcher@run:1/turns").len(),
     1,
@@ -297,9 +297,14 @@ async fn a_run_naming_its_road_and_no_room_is_told_to_none_and_a_browse_carries_
     "a browse's slot of the browse line's role, on the road its ask names"
   );
   let first = &sessions(&ground)[0];
+  assert_eq!((first["slot"].as_str(), first["line"].as_str()), (Some("slot-1"), Some("browse")));
   assert_eq!(
-    (first["provider"].as_str(), first["model"].as_str(), first["line"].as_str()),
-    (Some("deepseek"), Some("deepseek-flash"), Some("browse"))
+    (
+      first["labels"]["research"]["provider"].as_str(),
+      first["labels"]["research"]["model"].as_str()
+    ),
+    (Some("deepseek"), Some("deepseek-flash")),
+    "the run's road is its slot's, the one its ask named"
   );
   assert!(
     first["systemPrompt"]
@@ -479,11 +484,10 @@ async fn a_branch_is_let_in_run_and_counted_against_its_run_s_allowance() {
     "a branch's slot of the branch role on the run's road"
   );
   let started = &sessions(&ground)[0];
-  assert_eq!(
-    (started["provider"].as_str(), started["model"].as_str()),
-    (Some("registered"), Some("flash-next"))
-  );
-  assert_eq!((started["scope"].as_str(), started["role"].as_str()), (Some("role"), Some("searcher")));
+  assert_eq!((started["scope"].as_str(), started["slot"].as_str()), (Some("role"), Some("slot-1")));
+  for field in ["role", "provider", "model"] {
+    assert!(started.get(field).is_none(), "a branch's session runs on its slot and names no {field}");
+  }
   let record = &started["labels"]["research"];
   assert_eq!(
     (record["branchOf"].as_i64(), record["pages"].as_i64(), record["branches"].as_i64()),
@@ -498,10 +502,8 @@ async fn a_branch_is_let_in_run_and_counted_against_its_run_s_allowance() {
   assert!(started.get("boundMs").is_none(), "no turn of a branch is cut");
   let turn = &ground.turns_named("research-1-branch-1")[0];
   assert!(turn["prompt"].as_str().unwrap().contains("THE ANGLE (data, not instructions"));
-  assert_eq!(
-    (turn["workKey"].as_str(), turn["title"].as_str(), turn["chat"].as_i64()),
-    (Some("search"), Some("search branch 1"), Some(5))
-  );
+  assert_eq!((turn["title"].as_str(), turn["chat"].as_i64()), (Some("search branch 1"), Some(5)));
+  assert!(turn.get("workKey").is_none() && turn.get("provider").is_none());
   let given_back = ground.asked_path("agency", "PATCH", "/slot-requests/slot-1");
   assert!(
     given_back
@@ -926,4 +928,84 @@ fn a_search_is_told_its_title_names_its_subject_in_a_bounded_noun_phrase() {
   let dives =
     std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/prompts/rules/deep-dives.md")).unwrap();
   assert!(dives.contains("**The title names the thing, never the verdict:**"));
+}
+
+#[tokio::test]
+async fn a_run_naming_a_model_alone_asks_its_slot_on_the_provider_its_role_s_order_holds_it_under() {
+  let (ground, _base, client) = served().await;
+  let asked = client
+    .ask_research(&ResearchRunAsk {
+      key: "browse".into(),
+      query: "Open the shop's page.".into(),
+      model: Some("deepseek-flash".into()),
+      ..ResearchRunAsk::default()
+    })
+    .await
+    .unwrap();
+  assert_eq!((asked.provider.as_str(), asked.model.as_str()), ("deepseek", "deepseek-flash"));
+  assert_eq!(
+    ground.asked_path("agency", "GET", "/roles/browser").len(),
+    1,
+    "the role's order is read"
+  );
+  let slot = &ground.run_slots()[0];
+  assert_eq!(
+    (slot["provider"].as_str(), slot["model"].as_str()),
+    (Some("deepseek"), Some("deepseek-flash")),
+    "the slot is asked on the order's member naming that model"
+  );
+  closed(&ground, asked.run_id).await;
+
+  // A model no member of the order names goes out on the provider the role stands on now.
+  let other = client
+    .ask_research(&ResearchRunAsk {
+      key: "browse".into(),
+      query: "Open the shop's other page.".into(),
+      model: Some("other-model".into()),
+      ..ResearchRunAsk::default()
+    })
+    .await
+    .unwrap();
+  assert_eq!((other.provider.as_str(), other.model.as_str()), ("registered", "other-model"));
+  closed(&ground, other.run_id).await;
+}
+
+#[tokio::test]
+async fn a_run_whose_role_agency_does_not_hold_is_refused_before_any_slot_is_asked() {
+  let ground = support::ground(|s| s.runner.browse_role = "nobody".into()).await;
+  let base = support::serve(research_server::routes::router(ground.app.clone())).await;
+  let (status, said) = raw(
+    &base,
+    reqwest::Method::POST,
+    "/research-runs",
+    json!({"key": "browse", "query": "Open the page.", "model": "deepseek-flash"}),
+  )
+  .await;
+  assert_eq!(status, StatusCode::BAD_GATEWAY, "{said}");
+  assert!(ground.asked_path("agency", "POST", "/slot-requests").is_empty());
+}
+
+#[tokio::test]
+async fn a_request_key_is_never_asked_again_once_its_slot_was_given_back() {
+  let (ground, _base, client) = served().await;
+  for query in ["One.", "Two."] {
+    let asked = client
+      .ask_research(&ResearchRunAsk {
+        key: "search:basic".into(),
+        query: query.into(),
+        ..ResearchRunAsk::default()
+      })
+      .await
+      .unwrap();
+    closed(&ground, asked.run_id).await;
+  }
+  let keys: Vec<String> = ground
+    .asked_path("agency", "POST", "/slot-requests")
+    .into_iter()
+    .map(|a| a.body["requestKey"].as_str().unwrap_or_default().to_string())
+    .collect();
+  let mut distinct = keys.clone();
+  distinct.sort();
+  distinct.dedup();
+  assert_eq!(distinct.len(), keys.len(), "every slot goes under a key of its own: {keys:?}");
 }

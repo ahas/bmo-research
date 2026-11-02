@@ -1395,7 +1395,7 @@
         "type": "object"
       },
       "ResearchRun": {
-        "description": "A research run as it was asked: its id, its key, its slot's state and the road its ask named.",
+        "description": "A research run as it was asked: its id, its key, its slot's state and the road its slot stands on.",
         "properties": {
           "key": {
             "type": "string"
@@ -1450,7 +1450,7 @@
             ]
           },
           "provider": {
-            "description": "the provider the run goes out on, named only with its model; its slot's where none is named",
+            "description": "the provider the run goes out on, named only with its model; where a model alone is named, the one its\nrole's order holds that model under; its slot's where none is named",
             "type": [
               "string",
               "null"

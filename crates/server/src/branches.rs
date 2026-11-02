@@ -159,7 +159,7 @@ pub async fn open(app: Arc<App>, ask: BranchAsk) -> Result<BranchEnd, Refusal> {
       }
     }
   }
-  let end = match let_in(&app, &row, &mut held, &slot, &role, index, angle).await {
+  let end = match let_in(&app, &row, &mut held, &slot, index, angle).await {
     Ok(notes) => BranchEnd {
       index,
       state: BranchState::Completed,
@@ -186,14 +186,13 @@ fn failed(index: i64, why: &str) -> BranchEnd {
   }
 }
 
-/// The let-in branch's session of its role started on the run's road, the slot bound to its turn's run
-/// name, and that one turn waited on until it ends: what the turn wrote.
+/// The let-in branch's session started on its slot, on the run's road, the slot bound to its turn's run name,
+/// and that one turn waited on until it ends: what the turn wrote.
 async fn let_in(
   app: &App,
   row: &crate::store::ResearchRunRow,
   held: &mut Held,
   slot: &Slot,
-  role: &str,
   index: i64,
   angle: &str,
 ) -> Result<String, String> {
@@ -206,9 +205,7 @@ async fn let_in(
     row.id,
     &Start {
       line: LINE,
-      role,
-      provider: &row.provider,
-      model: &row.model,
+      slot: &slot.token,
       system: &system,
       record: &record,
       capabilities: &capabilities,
@@ -229,13 +226,9 @@ async fn let_in(
   let body = runner::turn_body(
     &branch_prompt(angle),
     &Turn {
-      provider: &row.provider,
-      model: &row.model,
-      slot,
       name: &name,
       title: &title,
       chat: row.room_id.unwrap_or(0),
-      work_key: LINE,
     },
   );
   let turn = app.peers.send_turn(&session, &body).await.map_err(|fault| fault.why)?;

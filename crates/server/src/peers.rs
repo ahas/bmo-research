@@ -362,25 +362,6 @@ impl Peers {
     }
   }
 
-  /// A notice told to an agent by a turn into its worker session, answered once agency answers the turn,
-  /// however long the turn works.
-  pub async fn turn(&self, agent: &str, prompt: &str) -> Result<(), String> {
-    let agency = self.agency()?;
-    let path = format!("/sessions/{agent}@worker/turns");
-    let request = self.request(&agency, reqwest::Method::POST, &path).json(&json!({ "prompt": prompt }));
-    match request.send().await {
-      Ok(answer) if answer.status().is_success() => Ok(()),
-      Ok(answer) => {
-        let status = answer.status().as_u16();
-        Err(format!(
-          "agency POST {path} answered {status}: {}",
-          answer.text().await.unwrap_or_default()
-        ))
-      }
-      Err(e) => Err(format!("agency POST {path}: {e}")),
-    }
-  }
-
   /// One text translated by agency's translator, with the note that gives it its context and the terms it keeps
   /// exactly as written: sent once fewer than `translation.parts_out_total` others are out, and waited on until
   /// agency answers, however long the card the translations share takes to be granted.
@@ -704,6 +685,22 @@ impl Peers {
     let agency = self.agency().map_err(Fault::kept)?;
     let request = self.request(&agency, reqwest::Method::POST, "/slot-requests").json(ask);
     self.held_call(&agency, request, "POST /slot-requests", false).await
+  }
+
+  /// One role as agency answers it, its order among its fields.
+  pub async fn role(&self, name: &str) -> Result<Value, Fault> {
+    let agency = self.agency().map_err(Fault::kept)?;
+    let path = format!("/roles/{}", segment(name));
+    let request = self.request(&agency, reqwest::Method::GET, &path);
+    self.held_call(&agency, request, &format!("GET {path}"), false).await
+  }
+
+  /// One repository as agency answers it, the path of its checkout among its fields.
+  pub async fn repository(&self, name: &str) -> Result<Value, Fault> {
+    let agency = self.agency().map_err(Fault::kept)?;
+    let path = format!("/repositories/{}", segment(name));
+    let request = self.request(&agency, reqwest::Method::GET, &path);
+    self.held_call(&agency, request, &format!("GET {path}"), false).await
   }
 
   /// A slot moved: asked for its place, bound to its turn's run, or given back.

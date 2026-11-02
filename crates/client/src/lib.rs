@@ -640,7 +640,8 @@ pub struct ResearchRunAsk {
   /// the room the result is told to; the owner's private room where none is named
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub room_id: Option<i64>,
-  /// the provider the run goes out on, named only with its model; its slot's where none is named
+  /// the provider the run goes out on, named only with its model; where a model alone is named, the one its
+  /// role's order holds that model under; its slot's where none is named
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub provider: Option<String>,
   /// the model the run goes out on; its slot's where none is named
@@ -673,7 +674,7 @@ impl ResearchRunState {
   }
 }
 
-/// A research run as it was asked: its id, its key, its slot's state and the road its ask named.
+/// A research run as it was asked: its id, its key, its slot's state and the road its slot stands on.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ResearchRun {
