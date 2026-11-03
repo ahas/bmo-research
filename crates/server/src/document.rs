@@ -1,4 +1,4 @@
-//! A research run's document (`docs/runner.md`, 「The document」 and 「The deep dive's page」): the searcher's
+//! A research run's document (`docs/runner.md`, 「The document」 and 「The deep dive's page」): the voyager's
 //! structure lines made into a document written for its reader — its title, description, kind and labels from
 //! the head, its body as headed sections in the question's language with the sources as links last, its
 //! pictures kept beside it — and nothing of the structure lines themselves; a deep dive's held to its shape

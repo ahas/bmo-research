@@ -140,7 +140,7 @@ async fn a_manual_is_asked_read_filed_and_told_with_what_the_owner_s_word_needs(
   assert_eq!(slots.len(), 1);
   assert_eq!(
     (slots[0]["role"].as_str(), slots[0]["provider"].as_str(), slots[0]["model"].as_str()),
-    (Some("searcher"), Some("registered"), Some("flash-next"))
+    (Some("voyager"), Some("registered"), Some("flash-next"))
   );
   assert!(
     ground.turns_named("research-1")[0].get("workKey").is_none(),
@@ -2008,7 +2008,7 @@ async fn a_restarted_daemon_cuts_the_runs_it_left_open_and_takes_up_its_tries() 
   };
   let research = open(false, None);
   store.hold(research, "slot", "slot-left").unwrap();
-  store.hold(research, "session", "searcher@run:9").unwrap();
+  store.hold(research, "session", "voyager@run:9").unwrap();
   let asked_by_room = open(true, Some(5));
   store.keep_research_turn(asked_by_room, "research-2", Some("Half of it.")).unwrap();
   let (run, _) = store.start_try("it", &[asked.id]).unwrap().unwrap();
@@ -2035,7 +2035,7 @@ async fn a_restarted_daemon_cuts_the_runs_it_left_open_and_takes_up_its_tries() 
   assert!(ground.asked_path("agency", "PATCH", "/slot-requests/slot-left").is_empty());
   assert!(store.holds(research).unwrap().is_empty(), "nothing of the run is kept held");
   assert_eq!(
-    ground.asked_path("agency", "DELETE", "/sessions/searcher@run:9").len(),
+    ground.asked_path("agency", "DELETE", "/sessions/voyager@run:9").len(),
     1,
     "a session agency did not end with the owner's release is ended"
   );
@@ -2219,7 +2219,7 @@ async fn a_whole_page_is_reviewed_once_on_a_slot_of_its_own_and_its_report_told_
   for (field, value) in [
     ("requestKey", "research:1:review:1"),
     ("owner", "research:1"),
-    ("role", "searcher"),
+    ("role", "voyager"),
     ("source", "search"),
     ("provider", "registered"),
     ("model", "flash-next"),

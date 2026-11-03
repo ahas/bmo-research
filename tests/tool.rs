@@ -181,7 +181,7 @@ async fn a_research_is_sent_out_through_the_runner() {
   let slots = ground.run_slots();
   assert_eq!(
     (slots[0]["role"].as_str(), slots[0]["source"].as_str()),
-    (Some("searcher"), Some("search"))
+    (Some("voyager"), Some("search"))
   );
   let refused = research_tool::answer(handed(
     &root,

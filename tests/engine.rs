@@ -226,7 +226,8 @@ async fn a_branch_of_a_run_holding_a_card_asks_its_own_within_the_run_s() {
       tells: false,
     })
     .unwrap();
-  let record = json!({"run": run, "source": "search", "role": "searcher", "branches": 2, "pages": 8, "branchPages": 4});
+  let record =
+    json!({"run": run, "source": "search", "role": "voyager", "branches": 2, "pages": 8, "branchPages": 4});
   store.keep_research_road(run, "registered", "flash-next", &record).unwrap();
   store.research_running(run).unwrap();
   store.keep_demand(3000, Some(5), Some(run), None, "lab-arena").unwrap();
@@ -288,7 +289,8 @@ async fn a_branch_s_card_granted_late_still_opens_the_branch() {
       tells: false,
     })
     .unwrap();
-  let record = json!({"run": run, "source": "search", "role": "searcher", "branches": 2, "pages": 8, "branchPages": 4});
+  let record =
+    json!({"run": run, "source": "search", "role": "voyager", "branches": 2, "pages": 8, "branchPages": 4});
   store.keep_research_road(run, "registered", "flash-next", &record).unwrap();
   store.research_running(run).unwrap();
   store.keep_demand(3000, Some(5), Some(run), None, "lab-arena").unwrap();

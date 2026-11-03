@@ -169,8 +169,8 @@ impl Runner {
 impl Default for Runner {
   fn default() -> Self {
     Runner {
-      search_role: "searcher".into(),
-      browse_role: "browser".into(),
+      search_role: "voyager".into(),
+      browse_role: "seeker".into(),
       capabilities: ["room.chat", "room.tools", "web.read", "web.sites", "web.branches", "web.rulebooks"]
         .map(String::from)
         .to_vec(),
@@ -208,7 +208,7 @@ impl Default for ResearchDefaults {
       branch_pages,
     };
     ResearchDefaults {
-      branch_role: "searcher".into(),
+      branch_role: "voyager".into(),
       strategy: "direct-then-browser".into(),
       host_interval_ms: None,
       engine_interval_ms: None,

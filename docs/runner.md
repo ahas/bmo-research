@@ -9,8 +9,8 @@ run is this unit's.
 ## The keys
 
 - **A run is asked at a key:** `search:basic`, `search:thorough` and `search:exhaustive` go out on agency's
-  search line, `browse` on its browse line. A run holds the role the settings name for its line — `searcher`
-  for the search line, `browser` for the browse line (`docs/settings.md`, `[runner]`) — and goes out on the
+  search line, `browse` on its browse line. A run holds the role the settings name for its line — `voyager`
+  for the search line, `seeker` for the browse line (`docs/settings.md`, `[runner]`) — and goes out on the
   provider, the model and the effort that role's order gives its slot as agency lets it in, unless the ask
   names a road of its own (「One run, step by step」). Its turns go out on the road its slot was let in on,
   which agency reads off the session, and carry no work parts of their own.
@@ -214,7 +214,7 @@ run is this unit's.
 
 - **Every result that may be filed leaves a document,** filed with the artifact service's `POST /documents`
   and given a share link with `POST /shares` that ends a day after it is made; the document stays in the
-  archive. The result is the searcher's structure lines (`prompts/search/task.md`); the document is made of
+  archive. The result is the voyager's structure lines (`prompts/search/task.md`); the document is made of
   them and carries none of them:
   - **its head:** the title the `TITLE:` line — a noun phrase naming the subject, never a sentence or a
     verdict, at most 15 Korean syllables or 30 characters in English (`docs/design.md`, 「Reports and

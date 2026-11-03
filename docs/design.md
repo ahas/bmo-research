@@ -25,7 +25,7 @@ research feature; agency supplies it slots and sessions and nothing more.
 ## Principles
 
 - **It calls other units through their documented APIs alone** and depends on no other unit's code:
-  - agency, for a slot of the searcher or the browser role and a session of that role on its search or
+  - agency, for a slot of the voyager or the seeker role and a session of that role on its search or
     browse line, and the turns into it (「Where the runner lives」);
   - the tool host, for the web namespace's listing a search's instructions carry and for the web tools'
     search engines' state;
@@ -159,7 +159,7 @@ A source is a registration: a category, a kind, an address and, where the kind t
 - **The research runner is this unit's** (`docs/runner.md`): the search and browse instructions, the
   rulebooks, the request, the research settings, the rounds, the branch allowance, the filing of the
   document and the room's instruction, and the run's ledger and log. Agency supplies a slot of the role a
-  run holds — `searcher` on its search line, `browser` on its browse line — whose road is that role's order's,
+  run holds — `voyager` on its search line, `seeker` on its browse line — whose road is that role's order's,
   and sessions of that role, whose system prompt this unit hands in whole and whose record carries the run's
   settings under the labels this unit names; it runs nothing of research on its own.
 - **Every research goes through the one runner:** the chat agent's `research/run`, any caller of

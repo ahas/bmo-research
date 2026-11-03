@@ -95,7 +95,7 @@ async fn a_search_is_let_in_sent_asked_its_rounds_filed_and_told_to_its_room() {
   assert_eq!(slots.len(), 1);
   assert_eq!(
     slots[0],
-    json!({"requestKey": "research:1", "owner": "research:1", "role": "searcher", "source": "search"}),
+    json!({"requestKey": "research:1", "owner": "research:1", "role": "voyager", "source": "search"}),
     "a slot of the search line's role on its role's own road"
   );
 
@@ -129,7 +129,7 @@ async fn a_search_is_let_in_sent_asked_its_rounds_filed_and_told_to_its_room() {
     ("run", json!(1)),
     ("owner", json!("the owner")),
     ("source", json!("search")),
-    ("role", json!("searcher")),
+    ("role", json!("voyager")),
     ("branches", json!(2)),
     ("pages", json!(8)),
     ("branchPages", json!(4)),
@@ -169,7 +169,7 @@ async fn a_search_is_let_in_sent_asked_its_rounds_filed_and_told_to_its_room() {
     assert!(turn.get(part).is_none(), "a turn's road is its session's, so it names no {part}");
   }
   assert_eq!(
-    ground.asked_path("agency", "POST", "/sessions/searcher@run:1/turns").len(),
+    ground.asked_path("agency", "POST", "/sessions/voyager@run:1/turns").len(),
     1,
     "the turn goes to the session by the id agency named"
   );
@@ -225,9 +225,9 @@ async fn a_search_is_let_in_sent_asked_its_rounds_filed_and_told_to_its_room() {
     [
       "POST /sessions",
       "POST /sessions",
-      "DELETE /sessions/searcher@run:1",
+      "DELETE /sessions/voyager@run:1",
       "PATCH /slot-requests/slot-1",
-      "DELETE /sessions/searcher@run:2",
+      "DELETE /sessions/voyager@run:2",
     ],
     "the first session is ended once the rounds' session stands on the slot, and the slot is given back \
      before the session it is bound to then is ended"
@@ -328,7 +328,7 @@ async fn a_run_naming_its_road_and_no_room_is_told_to_none_and_a_browse_carries_
   closed(&ground, asked.run_id).await;
   assert_eq!(
     ground.run_slots()[0],
-    json!({"requestKey": "research:1", "owner": "research:1", "role": "browser", "source": "browse", "provider": "deepseek", "model": "deepseek-flash"}),
+    json!({"requestKey": "research:1", "owner": "research:1", "role": "seeker", "source": "browse", "provider": "deepseek", "model": "deepseek-flash"}),
     "a browse's slot of the browse line's role, on the road its ask names"
   );
   let first = &sessions(&ground)[0];
@@ -468,7 +468,7 @@ async fn a_turn_sent_into_a_session_still_in_a_turn_waits_for_its_end_and_is_sen
     ground.asked_path("agency", "GET", "/sessions/").into_iter().map(|a| a.path).collect();
   assert_eq!(
     reads,
-    ["/sessions/searcher@run:1", "/sessions/searcher@run:1"],
+    ["/sessions/voyager@run:1", "/sessions/voyager@run:1"],
     "read until it named no run"
   );
   let log = ground.app.store.research_log(1).unwrap();
@@ -492,7 +492,7 @@ fn running(ground: &support::Ground, branches: i64) -> i64 {
       tells: true,
     })
     .unwrap();
-  let record = json!({"run": run, "source": "search", "role": "searcher", "branches": branches, "pages": 8, "branchPages": 4, "branchesAt": "http://x", "branchesToken": "t"});
+  let record = json!({"run": run, "source": "search", "role": "voyager", "branches": branches, "pages": 8, "branchPages": 4, "branchesAt": "http://x", "branchesToken": "t"});
   store.keep_research_road(run, "registered", "flash-next", &record).unwrap();
   store.research_running(run).unwrap();
   run
@@ -515,7 +515,7 @@ async fn a_branch_is_let_in_run_and_counted_against_its_run_s_allowance() {
   let slot = &ground.asked_path("agency", "POST", "/slot-requests")[0].body;
   assert_eq!(
     slot,
-    &json!({"requestKey": "research:1:branch:1", "owner": "research:1", "role": "searcher", "source": "search", "provider": "registered", "model": "flash-next"}),
+    &json!({"requestKey": "research:1:branch:1", "owner": "research:1", "role": "voyager", "source": "search", "provider": "registered", "model": "flash-next"}),
     "a branch's slot of the branch role on the run's road"
   );
   let started = &sessions(&ground)[0];
@@ -691,7 +691,7 @@ async fn the_research_settings_are_read_changed_and_refused_where_they_do_not_st
   let read = client.research_settings().await.unwrap();
   assert_eq!(
     (read.source.as_str(), read.branch_role.as_str(), read.strategy.as_str()),
-    ("default", "searcher", "direct-then-browser")
+    ("default", "voyager", "direct-then-browser")
   );
   let keys: Vec<&str> = read.keys.iter().map(|k| k.key.as_str()).collect();
   assert_eq!(keys, ["search:basic", "search:thorough", "search:exhaustive", "browse"]);
@@ -1055,7 +1055,7 @@ async fn a_run_naming_a_model_alone_asks_its_slot_on_the_provider_its_role_s_ord
     .unwrap();
   assert_eq!((asked.provider.as_str(), asked.model.as_str()), ("deepseek", "deepseek-flash"));
   assert_eq!(
-    ground.asked_path("agency", "GET", "/roles/browser").len(),
+    ground.asked_path("agency", "GET", "/roles/seeker").len(),
     1,
     "the role's order is read"
   );

@@ -258,7 +258,7 @@ pub async fn serve(router: Router) -> String {
 }
 
 /// The roles the stand-in agency holds.
-pub const ROLES: [&str; 3] = ["searcher", "browser", "scout"];
+pub const ROLES: [&str; 3] = ["voyager", "seeker", "scout"];
 
 /// The role a repository's worker runs as, which the stand-in agency holds beside the research roles.
 pub const WORKER_ROLE: &str = "worker";
