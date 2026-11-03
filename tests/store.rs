@@ -1,5 +1,5 @@
 //! The store and the queue's rules (`docs/store.md`, `docs/api.md` 「queue」): the categories it starts with,
-//! the cap per category, the queue's order, a candidate judged once, where each item came from, a stuck item's
+//! no cap on the queue, the queue's order, a candidate judged once, where each item came from, a stuck item's
 //! moves, an error dated by its try, the step that stands every item a store held given up stuck, the step
 //! that dates every error the store held, the count of each run's review asks, and the step that takes the
 //! run's clock off its runs and its kept settings.
@@ -27,8 +27,13 @@ fn candidate(name: &str, kind: ItemKind) -> Candidate {
   }
 }
 
-/// What undoes the step that keeps a page by its document: its table dropped and the item's columns back.
-const UNDO_PAGES: &str = "drop table pages;
+/// What undoes the step that takes the categories' cap away: the column back, each category holding one.
+const UNDO_CAP: &str = "alter table categories add column cap integer not null default 5;";
+
+/// What undoes the step that keeps a page by its document, and every step after it: its table dropped, the
+/// item's columns back and the categories' cap back.
+const UNDO_PAGES: &str = "alter table categories add column cap integer not null default 5;
+  drop table pages;
   alter table queue add column languages text not null default '[]';
   alter table queue add column narrations text not null default '[]';
   alter table queue add column pending text not null default '[]';
@@ -51,7 +56,7 @@ fn a_new_store_holds_the_three_first_categories_at_its_version() {
     ]
   );
   let economy = &categories[0];
-  assert_eq!((economy.cap, economy.gather_minutes), (30, Some(1440)));
+  assert_eq!(economy.gather_minutes, Some(1440));
   assert!(categories.iter().all(|c| c.state == Running::Running && c.provider.is_none()));
 }
 
@@ -66,27 +71,25 @@ fn a_store_opened_again_keeps_a_category_taken_away() {
 }
 
 #[test]
-fn the_cap_holds_a_category_s_part_and_the_oldest_unqueued_fill_a_freed_slot() {
+fn the_queue_has_no_cap_and_takes_every_unqueued_row_oldest_first() {
   let store = store();
   let it = store.category("it").unwrap();
-  for n in 0..7 {
+  for n in 0..40 {
     store
-      .keep_seen(&candidate(&format!("model-{n}"), ItemKind::Model), "it", None, false)
+      .keep_seen(&candidate(&format!("model-{n:02}"), ItemKind::Model), "it", None, false)
       .unwrap();
-    std::thread::sleep(std::time::Duration::from_millis(2));
   }
   let made = store.fill(&it).unwrap();
-  assert_eq!(made.len(), 5, "the cap is 5");
-  assert!(store.fill(&it).unwrap().is_empty(), "a full part takes nothing more");
-
-  // A slot freed by a try that ends takes the oldest that waits unqueued.
-  let (run, _) = store.start_try("it", &[made[0]]).unwrap().unwrap();
-  store.end_run(run, "closed", Some("answered"), None).unwrap();
-  store.file(made[0], &Default::default()).unwrap();
-  let next = store.fill(&it).unwrap();
-  assert_eq!(next.len(), 1);
-  assert_eq!(store.item(next[0]).unwrap().name, "model-5");
-  assert_eq!(store.item(next[0]).unwrap().shape, Shape::Manual);
+  assert_eq!(made.len(), 40, "every unqueued row is queued, however many");
+  assert!(store.fill(&it).unwrap().is_empty(), "nothing is left unqueued");
+  assert_eq!(store.item(made[0]).unwrap().name, "model-00");
+  assert_eq!(store.item(made[0]).unwrap().shape, Shape::Manual);
+  let waiting = store.queue(Some("it"), &[ItemState::Waiting], None, 100).unwrap().items;
+  assert_eq!(waiting.len(), 40, "every one waits");
+  assert_eq!(store.due_count("it", now_ms()).unwrap(), 40);
+  let state = store.daemon_state().unwrap();
+  let part = state.categories.iter().find(|c| c.category_name == "it").unwrap();
+  assert_eq!((part.waiting_count, part.running_count), (40, 0));
 }
 
 #[test]
@@ -148,7 +151,7 @@ fn an_ask_stands_first_and_a_front_move_goes_above_it() {
 }
 
 #[test]
-fn an_ask_of_a_key_still_waiting_is_a_conflict_and_never_counts_against_the_cap() {
+fn an_ask_of_a_key_still_waiting_is_a_conflict_and_stands_beside_the_scan_s_items() {
   let store = store();
   let first = store
     .ask("security", "example.org/a", "a", "https://example.org/a", Shape::Advisory)
@@ -163,7 +166,7 @@ fn an_ask_of_a_key_still_waiting_is_a_conflict_and_never_counts_against_the_cap(
   assert_eq!(
     store.fill(&store.category("security").unwrap()).unwrap().len(),
     3,
-    "the ask stands beside the cap"
+    "the ask stands beside the scan's items"
   );
   assert_eq!(store.item(first.id).unwrap().state, ItemState::Waiting);
 }
@@ -340,7 +343,6 @@ fn a_category_with_sources_is_not_taken_away_and_stopping_one_leaves_the_others(
       name: "health".into(),
       purpose: "p".into(),
       shape: CategoryShape::ManualOrInvestigation,
-      cap: None,
       cadence_minutes: None,
       gather_minutes: None,
       provider: None,
@@ -654,8 +656,9 @@ fn the_step_that_names_slots_takes_every_hold_of_a_seat_request_as_a_slot() {
     .execute_batch(&format!(
       "insert into research_holds (run_id, kind, value) values ({run}, 'seat', 'token-1');
        alter table pages drop column gone_at;
+       {UNDO_CAP}
        pragma user_version = {};",
-      schema_version() - 2
+      schema_version() - 3
     ))
     .unwrap();
   drop(conn);
@@ -669,4 +672,33 @@ fn the_step_that_names_slots_takes_every_hold_of_a_seat_request_as_a_slot() {
       ("slot".to_string(), "token-1".to_string())
     ]
   );
+}
+
+#[test]
+fn the_step_that_takes_the_cap_away_keeps_every_category_and_its_items() {
+  let dir = support::scratch().join("research");
+  let store = Store::open(&dir).unwrap();
+  let item = store.ask("it", "example.org/c", "c", "https://example.org/c", Shape::Manual).unwrap();
+  drop(store);
+  // The store as it stood one step before: every category holding a cap.
+  let conn = rusqlite::Connection::open(dir.join("research.db")).unwrap();
+  conn
+    .execute_batch(&format!("{UNDO_CAP} pragma user_version = {};", schema_version() - 1))
+    .unwrap();
+  drop(conn);
+
+  let store = Store::open(&dir).unwrap();
+  assert_eq!(store.version().unwrap(), schema_version());
+  assert_eq!(store.categories().unwrap().len(), 3);
+  assert_eq!(store.item(item.id).unwrap().state, ItemState::Waiting);
+  drop(store);
+  let conn = rusqlite::Connection::open(dir.join("research.db")).unwrap();
+  let columns: Vec<String> = conn
+    .prepare("select name from pragma_table_info('categories')")
+    .unwrap()
+    .query_map([], |r| r.get(0))
+    .unwrap()
+    .collect::<Result<_, _>>()
+    .unwrap();
+  assert!(!columns.contains(&"cap".to_string()), "{columns:?}");
 }

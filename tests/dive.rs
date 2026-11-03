@@ -1482,50 +1482,37 @@ async fn a_korean_side_failing_past_the_retries_is_still_asked_on_every_retry_wa
 }
 
 #[tokio::test]
-async fn an_ask_agency_cannot_carry_now_is_asked_again_at_once_and_not_counted() {
-  let ground = support::ground(|s| s.retry_minutes = 60).await;
-  give_owner_room(&ground.app).await;
-  let item = ground
-    .app
-    .store
-    .ask("it", "example.org/a", "A", "https://example.org/a", Shape::Investigation)
-    .unwrap();
-  ground.world.lock().unwrap().slot_answers.push_back(503);
-  // The refused ask opened run 1 and closed it; the second try is run 2.
-  file(&ground, 2, 9, format!("# An investigation\n\n## {}\n\nIt is.\n", answer_heading()));
+async fn a_place_agency_gives_no_slot_takes_no_item_and_the_next_pull_asks_again() {
+  for refused in [503, 422] {
+    let ground = support::ground(|s| s.retry_minutes = 60).await;
+    give_owner_room(&ground.app).await;
+    let item = ground
+      .app
+      .store
+      .ask("it", "example.org/a", "A", "https://example.org/a", Shape::Investigation)
+      .unwrap();
+    ground.world.lock().unwrap().slot_answers.push_back(refused);
+    file(&ground, 1, 9, format!("# An investigation\n\n## {}\n\nIt is.\n", answer_heading()));
 
-  settle(&ground).await;
-  let waiting = ground.app.store.item(item.id).unwrap();
-  assert_eq!((waiting.state, waiting.tries, waiting.retry_at), (ItemState::Waiting, 0, None));
-  let error = waiting.error.unwrap();
-  assert!(error.contains("503") && error.contains("not counted"), "{error}");
+    settle(&ground).await;
+    let waiting = ground.app.store.item(item.id).unwrap();
+    assert_eq!(
+      (waiting.state, waiting.tries, waiting.retry_at),
+      (ItemState::Waiting, 0, None),
+      "{refused}"
+    );
+    assert!(
+      ground.app.store.runs(Some(item.id), None, None, 10).unwrap().items.is_empty(),
+      "no try opened"
+    );
 
-  settle(&ground).await;
-  let reported = ground.app.store.item(item.id).unwrap();
-  assert_eq!((reported.state, reported.tries), (ItemState::Reported, 1));
-  let runs = ground.app.store.runs(Some(item.id), None, None, 10).unwrap().items;
-  let states: Vec<&str> = runs.iter().map(|r| r.state.as_str()).collect();
-  assert_eq!(states, ["closed", "refused"]);
-  assert_eq!(runs[1].run_id, None);
-}
-
-#[tokio::test]
-async fn an_ask_agency_refuses_for_what_it_asks_is_counted_and_waits() {
-  let ground = support::ground(|s| s.retry_minutes = 60).await;
-  let item = ground
-    .app
-    .store
-    .ask("it", "example.org/a", "A", "https://example.org/a", Shape::Investigation)
-    .unwrap();
-  ground.world.lock().unwrap().slot_answers.push_back(422);
-
-  settle(&ground).await;
-  let waiting = ground.app.store.item(item.id).unwrap();
-  assert_eq!((waiting.state, waiting.tries), (ItemState::Waiting, 1));
-  assert!(waiting.retry_at.unwrap() > now_ms() + 50 * 60_000, "it waits retry_minutes");
-  assert!(waiting.error.unwrap().contains("422"));
-  settle(&ground).await;
-  assert_eq!(ground.run_slots().len(), 1, "nothing is asked before its wait ends");
+    settle(&ground).await;
+    let reported = ground.app.store.item(item.id).unwrap();
+    assert_eq!((reported.state, reported.tries), (ItemState::Reported, 1), "{refused}");
+    let runs = ground.app.store.runs(Some(item.id), None, None, 10).unwrap().items;
+    let states: Vec<&str> = runs.iter().map(|r| r.state.as_str()).collect();
+    assert_eq!(states, ["closed"]);
+  }
 }
 
 #[tokio::test]
@@ -2029,8 +2016,12 @@ async fn a_restarted_daemon_cuts_the_runs_it_left_open_and_takes_up_its_tries() 
   assert_eq!((cut.state, cut.outcome.as_deref()), (ResearchRunState::Closed, Some("cut")));
   assert_eq!(
     ground.world.lock().unwrap().owners_released,
-    [format!("research:{research}"), format!("research:{asked_by_room}")],
-    "everything each run held is given back by its owner"
+    [
+      "research:places".to_string(),
+      format!("research:{research}"),
+      format!("research:{asked_by_room}")
+    ],
+    "every place, and everything each run held, is given back by its owner"
   );
   assert!(ground.asked_path("agency", "PATCH", "/slot-requests/slot-left").is_empty());
   assert!(store.holds(research).unwrap().is_empty(), "nothing of the run is kept held");
@@ -2178,6 +2169,8 @@ async fn a_finishing_item_whose_document_is_gone_waits_for_a_try_of_its_own() {
   settle(&ground).await;
   assert_eq!(ground.app.store.item(item.id).unwrap().state, ItemState::Finishing);
   ground.world.lock().unwrap().gone_documents.insert(501);
+  // Its category stopped, so no place takes it again before it is looked at.
+  ground.app.store.set_running(Some("it"), Running::Stopped).unwrap();
 
   let started = tick(&ground.app).await;
   for handle in started {
@@ -2485,9 +2478,9 @@ async fn a_review_cut_by_a_restart_asks_again_under_a_fresh_key_and_gets_a_slot(
     let world = ground.world.lock().unwrap();
     assert_eq!(
       world.owners_released,
-      ["research:1", "research:1"],
-      "the review's ask gives back what its run held before it, and the restart gives back its slot by the \
-       run's owner"
+      ["research:1", "research:places", "research:1"],
+      "the review's ask gives back what its run held before it, and the restart gives back every place and \
+       the review's slot by their owners"
     );
     let review = world.slot_keys["research:1:review:1"].0.clone();
     assert_eq!(world.given_back[&review].1, "owner");
@@ -2906,7 +2899,9 @@ async fn a_restart_ends_a_notice_s_session_then_gives_back_its_slot() {
   let order: Vec<String> = ground
     .asked("agency")
     .into_iter()
-    .filter(|a| a.path == "/sessions/worker@run:7" || a.path.starts_with("/slot-requests?"))
+    .filter(|a| {
+      a.path == "/sessions/worker@run:7" || a.path.starts_with("/slot-requests?owner=research%3Anotice")
+    })
     .map(|a| format!("{} {}", a.method, a.path))
     .collect();
   assert_eq!(

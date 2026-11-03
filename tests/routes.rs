@@ -49,14 +49,13 @@ async fn categories_are_listed_added_with_the_owner_s_room_changed_and_taken_awa
     name: "health".into(),
     purpose: "Medical news.".into(),
     shape: CategoryShape::ManualOrInvestigation,
-    cap: Some(2),
-    cadence_minutes: None,
+    cadence_minutes: Some(30),
     gather_minutes: None,
     provider: Some("claude-code".into()),
     model: None,
   };
   let made = client.add_category(&new).await.unwrap();
-  assert_eq!((made.cap, made.provider.as_deref()), (2, Some("claude-code")));
+  assert_eq!((made.cadence_minutes, made.provider.as_deref()), (30, Some("claude-code")));
   let recipients = client.recipients("health").await.unwrap().items;
   assert_eq!(recipients.len(), 1);
   assert_eq!((recipients[0].room_id, recipients[0].origin.as_str()), (Some(7), "owner"));
@@ -72,13 +71,13 @@ async fn categories_are_listed_added_with_the_owner_s_room_changed_and_taken_awa
       "health",
       &CategoryChange {
         provider: Some(String::new()),
-        cap: Some(4),
+        cadence_minutes: Some(45),
         ..CategoryChange::default()
       },
     )
     .await
     .unwrap();
-  assert_eq!((changed.cap, changed.provider), (4, None));
+  assert_eq!((changed.cadence_minutes, changed.provider), (45, None));
   client.remove_category("health").await.unwrap();
   assert!(client.category("health").await.unwrap_err().starts_with("404 not-found"));
 }

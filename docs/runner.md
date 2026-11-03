@@ -63,11 +63,14 @@ run is this unit's.
 1. **The ask:** `POST /research-runs` with the key, the question and, where they are known, who asked, the
    options, the room the result is for, and the provider and model the run is to go out on. A key that is no
    research key, an empty question or a provider named without its model is refused 400. The daemon's deep
-   dive asks its runs here too, each with the arbiter demand its try was granted where its road is watched
-   (`docs/design.md`, 「The engine a run needs」); such a run's slot and sessions stand on that demand.
+   dive asks its runs of the same runner, each handed the slot its place was let in on and, where its road
+   is watched, the arbiter demand that place was granted (`docs/design.md`, 「A node pulls」 and 「The
+   engine a run needs」); such a run asks no slot of its own, and its slot and sessions stand on that
+   demand.
 2. **The composition:** the settings read, the system prompt and the request composed; a search with no web
    listing is refused 503.
-3. **The slot:** agency's `POST /slot-requests` with `requestKey` and `owner` `research:<run>`, `role` the role
+3. **The slot:** a deep dive's run takes the slot it was handed, let in already, as its own hold, and goes
+   on to its session at once; any other run asks agency's `POST /slot-requests` with `requestKey` and `owner` `research:<run>`, `role` the role
    of the run's line, `source` the line, and `provider` and `model` where the ask names a model: the road the
    slot is let in on in place of its role's order. An ask naming both names them; an ask naming a model alone
    names that model on the provider the role's order holds it under — the first member of the order naming
@@ -82,7 +85,7 @@ run is this unit's.
    answered 503 with agency's sentence; one agency refuses for what it asks, a role it does not hold among
    them, or a slot answered with no token, is answered 502. Either way nothing is left standing.
 4. **The answer at once:** 202 with the run's id, its key, its state (`waiting` while its slot waits for its
-   place, `running` once let in) and the road its slot stands on as it is answered — the one the ask named,
+   place, `running` once let in, as a deep dive's run is from its start) and the road its slot stands on as it is answered — the one the ask named,
    else the one it was let in on where it is let in at once — empty while a slot whose ask named none waits:
    the run's road stands on the run once its slot is let in.
 5. **The admission:** a slot still waiting is asked for its place again every half second (`PATCH` naming no
@@ -513,7 +516,8 @@ daemon finishes, held first to the shape the deep dive asked for.
 ## A restart
 
 - **A run is this unit's process's own.** A daemon that starts closes every run its store holds open as `cut`
-  before its routes stand, and gives back everything the run held of agency by its owner: one
+  before its routes stand, and gives back everything the run held of agency by its owner, and every place
+  the daemon had asked by the places' owner, `research:places` (`docs/design.md`, 「A node pulls」): one
   `DELETE /slot-requests?owner=research:<run>` gives back each slot the run, its branches and its review
   asked, waiting or let in, and ends each session agency bound one of them to; each session the run held that
   agency did not end is then ended once its turn is over. Its room is told what it had written, as a cut run's

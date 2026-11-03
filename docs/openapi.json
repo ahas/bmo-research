@@ -200,10 +200,6 @@
             "format": "int64",
             "type": "integer"
           },
-          "cap": {
-            "format": "int64",
-            "type": "integer"
-          },
           "createdAt": {
             "format": "int64",
             "type": "integer"
@@ -253,7 +249,6 @@
           "name",
           "purpose",
           "shape",
-          "cap",
           "cadenceMinutes",
           "gatherMinutes",
           "provider",
@@ -268,13 +263,6 @@
         "description": "A change of a category; a field left out keeps what it holds, and an empty road gives the settings' back.",
         "properties": {
           "cadenceMinutes": {
-            "format": "int64",
-            "type": [
-              "integer",
-              "null"
-            ]
-          },
-          "cap": {
             "format": "int64",
             "type": [
               "integer",
@@ -321,10 +309,6 @@
       "CategoryState": {
         "description": "One category's state and its part of the queue.",
         "properties": {
-          "cap": {
-            "format": "int64",
-            "type": "integer"
-          },
           "categoryName": {
             "type": "string"
           },
@@ -334,6 +318,7 @@
             "type": "integer"
           },
           "runningCount": {
+            "description": "its items carried by a try whose run holds a place",
             "format": "int64",
             "type": "integer"
           },
@@ -346,6 +331,7 @@
             "type": "integer"
           },
           "waitingCount": {
+            "description": "its items in the queue for a place",
             "format": "int64",
             "type": "integer"
           }
@@ -356,13 +342,12 @@
           "waitingCount",
           "runningCount",
           "finishingCount",
-          "stuckCount",
-          "cap"
+          "stuckCount"
         ],
         "type": "object"
       },
       "DaemonState": {
-        "description": "The daemon's state: stopped where every category is stopped, each category's, and the runs that wait for\ntheir engine.",
+        "description": "The daemon's state: stopped where every category is stopped, each category's, and the places that wait\nfor their engine.",
         "properties": {
           "categories": {
             "items": {
@@ -524,10 +509,14 @@
         "type": "object"
       },
       "Hold": {
-        "description": "A run asked that waits for its engine now (`docs/api.md`, 「The engine」).",
+        "description": "A place asked that waits for its engine now (`docs/api.md`, 「The engine」).",
         "properties": {
-          "categoryName": {
-            "type": "string"
+          "categoryNames": {
+            "description": "the running categories on the place's road, whose tries it may take",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           },
           "cause": {
             "description": "the master's reason the card waits (`starting`, `in-use`, `held` or `start-failed`); null where it gave\nnone",
@@ -551,21 +540,20 @@
               "null"
             ]
           },
+          "place": {
+            "description": "the request key of the place that waits",
+            "type": "string"
+          },
           "reason": {
             "$ref": "#/components/schemas/HoldReason"
           },
           "registration": {
-            "description": "the registration the try's road goes out on",
+            "description": "the registration the place's road goes out on",
             "type": "string"
           },
           "reported": {
             "description": "whether the owner's room was told the engine has not come",
             "type": "boolean"
-          },
-          "runId": {
-            "description": "the try that waits",
-            "format": "int64",
-            "type": "integer"
           },
           "serviceName": {
             "description": "the arbiter service whose card it waits for",
@@ -579,8 +567,8 @@
         },
         "required": [
           "reason",
-          "runId",
-          "categoryName",
+          "place",
+          "categoryNames",
           "registration",
           "serviceName",
           "demandId",
@@ -592,7 +580,7 @@
         "type": "object"
       },
       "HoldReason": {
-        "description": "Why a run asked does not go out now: it waits for the arbiter to grant its engine's card.",
+        "description": "Why a place asked is not let in now: it waits for the arbiter to grant its engine's card.",
         "enum": [
           "waiting-card"
         ],
@@ -875,13 +863,6 @@
         "description": "A category asked to be registered.",
         "properties": {
           "cadenceMinutes": {
-            "format": "int64",
-            "type": [
-              "integer",
-              "null"
-            ]
-          },
-          "cap": {
             "format": "int64",
             "type": [
               "integer",
@@ -2386,7 +2367,7 @@
             "$ref": "#/components/responses/Failed"
           }
         },
-        "summary": "Change a category's purpose, cap, cadence, gathering or road.",
+        "summary": "Change a category's purpose, cadence, gathering or road.",
         "tags": [
           "categories"
         ],

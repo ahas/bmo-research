@@ -265,14 +265,13 @@ async fn command(verb: Verb) -> Result<(), String> {
       println!("{}", state.state.as_str());
       for c in state.categories {
         println!(
-          "  {:<12} {:<8} waiting {} running {} finishing {} stuck {} cap {}",
+          "  {:<12} {:<8} waiting {} running {} finishing {} stuck {}",
           c.category_name,
           c.state.as_str(),
           c.waiting_count,
           c.running_count,
           c.finishing_count,
-          c.stuck_count,
-          c.cap
+          c.stuck_count
         );
       }
       for hold in state.holds {
@@ -288,14 +287,7 @@ async fn command(verb: Verb) -> Result<(), String> {
         return print_json(&page);
       }
       for c in page.items {
-        println!(
-          "{:<12} {:<24} cap {:<3} {} — {}",
-          c.name,
-          c.shape.as_str(),
-          c.cap,
-          c.state.as_str(),
-          c.purpose
-        );
+        println!("{:<12} {:<24} {} — {}", c.name, c.shape.as_str(), c.state.as_str(), c.purpose);
       }
       Ok(())
     }

@@ -124,7 +124,7 @@ pub const OPERATIONS: &[Operation] = &[
     path: "/categories/{categoryName}",
     id: "patchCategory",
     tag: "categories",
-    summary: "Change a category's purpose, cap, cadence, gathering or road.",
+    summary: "Change a category's purpose, cadence, gathering or road.",
     params: &[CATEGORY],
     body: Some("CategoryChange"),
     answer: (200, Some("Category")),

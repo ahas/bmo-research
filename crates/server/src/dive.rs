@@ -1,6 +1,6 @@
 //! The deep dive and its notices (`docs/api.md`, 「The deep dive」, 「The page」 and 「The notices」): the next
-//! run picked among the running categories, its engine's card waited for where its road is watched, asked of
-//! the runner, read until it closes, its result read and its items filed, its page finished with its Korean
+//! try on a place's road picked among the running categories, asked of the runner on the place's slot and
+//! card, read until it closes, its result read and its items filed, its page finished with its Korean
 //! side and its narrations, then reviewed once and each of the review's fixes applied to the part it names
 //! alone, and every recipient told once the page is whole; what a page still lacks asked again on every retry
 //! wait until it is had, each part alone; a try asked again continuing from what the run before it wrote, or
@@ -24,9 +24,10 @@ use crate::document::{self, Drawn};
 use crate::engine;
 use crate::page::{self, Side, Sound};
 use crate::peers::{Peers, Synthesis};
+use crate::pull::{self, Road};
 use crate::reading::{self, Exposure};
 use crate::review::{self, Answer, Part, Shown};
-use crate::runner::{self, Filing, PageAsk, Refused};
+use crate::runner::{self, Filing, Handed, PageAsk, Refused};
 use crate::store::{Filed, Review, Store, now_ms};
 use crate::translation::{self, English, Rendering};
 use crate::words::{self, fill};
@@ -152,13 +153,14 @@ fn source(app: &App, run_id: i64) -> Result<Source, String> {
 }
 
 /// The daemon's loop: the tries it left running taken up, every filed page drawn as this binary draws it, the
-/// owner's room given to every category holding no recipient, then a scan and a start of what may run every
-/// `tick_seconds`.
+/// owner's room given to every category holding no recipient, the pull woken by what changes it, then a scan
+/// and a pull every `tick_seconds`.
 pub async fn daemon(app: Arc<App>) {
   take_up(&app);
   let drawing = app.clone();
   tokio::spawn(async move { redraw_filed(&drawing).await });
   give_owner_room(&app).await;
+  tokio::spawn(pull::wakes(app.clone()));
   loop {
     let _ = tick(&app).await;
     tokio::time::sleep(Duration::from_secs(app.settings.tick_seconds.max(1))).await;
@@ -182,7 +184,7 @@ pub fn take_up(app: &Arc<App>) {
       }
       Some(run_id) => {
         let app = app.clone();
-        tokio::spawn(async move { carry(app, run.id, Some(run_id)).await });
+        tokio::spawn(async move { carry(app, run.id, Some(run_id), None).await });
       }
     }
   }
@@ -206,9 +208,9 @@ pub async fn give_owner_room(app: &App) {
 
 /// One pass of the loop: the demands left behind given back, a scan, a repair filed for every stuck item
 /// holding none, every page whose pending part's retry is due asked again — a deep dive's and a room's
-/// document's alike — then as many tries started as
-/// `concurrency` leaves room for, a try waiting for its card among them. Answers the tasks started, each
-/// carried to its end on a task of its own.
+/// document's alike — then a pull, which asks a place for each try due that the search line's role has room
+/// for (`docs/design.md`, 「A node pulls」). Answers the tasks started, each carried to its end on a task of
+/// its own: a place's carries the try it takes.
 pub async fn tick(app: &Arc<App>) -> Vec<JoinHandle<()>> {
   engine::give_back_left(app).await;
   if let Err(why) = crate::scan::scan(app).await {
@@ -224,32 +226,19 @@ pub async fn tick(app: &Arc<App>) -> Vec<JoinHandle<()>> {
     let app = app.clone();
     started.push(tokio::spawn(async move { runner::finish_told(&app, &row).await }));
   }
-  loop {
-    let running = app.store.running_count().unwrap_or(i64::MAX);
-    if running >= app.settings.concurrency.max(1) {
-      break;
-    }
-    let Some((category, items)) = next(app) else {
-      break;
-    };
-    let ids: Vec<i64> = items.iter().map(|i| i.id).collect();
-    let Ok(Some((run, _))) = app.store.start_try(&category.name, &ids) else {
-      break;
-    };
-    let app = app.clone();
-    started.push(tokio::spawn(async move { carry(app, run, None).await }));
-  }
+  started.extend(pull::pull(app).await);
   started
 }
 
-/// The next try to ask: in each running category, its next waiting item whose retry is due, or a brief's whole
-/// gathering once it is due; among them, the category whose last try was asked longest ago, one never tried
-/// first, so the categories take turns and an item's priority orders its own category alone.
-fn next(app: &App) -> Option<(Category, Vec<Item>)> {
+/// The next try a place on `road` takes: in each running category on that road, its next waiting item whose
+/// retry is due, or a brief's whole gathering once it is due; among them, the category whose last try was
+/// asked longest ago, one never tried first, so the categories take turns and an item's priority orders its
+/// own category alone.
+pub fn next(app: &App, road: &Road) -> Option<(Category, Vec<Item>)> {
   let now = now_ms();
   let mut best: Option<(Option<i64>, Category, Vec<Item>)> = None;
   for category in app.store.categories().ok()? {
-    if category.state == Running::Stopped {
+    if category.state == Running::Stopped || self::road(app, &category) != *road {
       continue;
     }
     let last = app.store.last_try_at(&category.name).ok()?;
@@ -257,7 +246,7 @@ fn next(app: &App) -> Option<(Category, Vec<Item>)> {
       if !gathering_due(app, &category, now)? {
         continue;
       }
-      app.store.waiting(&category.name, now, category.cap.max(1)).ok()?
+      app.store.waiting(&category.name, now, -1).ok()?
     } else {
       app.store.waiting(&category.name, now, 1).ok()?
     };
@@ -278,7 +267,7 @@ fn next(app: &App) -> Option<(Category, Vec<Item>)> {
 /// Whether a brief's gathering is due: its `gather_minutes` passed since the last of its tries that filed its
 /// document was asked, or none has, so a try interrupted or failed since leaves it due; and no item of it still
 /// waiting on a retry still to come, so a failed try's items are gathered whole.
-fn gathering_due(app: &App, category: &Category, now: i64) -> Option<bool> {
+pub fn gathering_due(app: &App, category: &Category, now: i64) -> Option<bool> {
   let gather = category.gather_minutes.unwrap_or(1440).max(1) * 60_000;
   let filed = app.store.last_filed_at(&category.name).ok()?;
   let ahead = app.store.retry_ahead(&category.name, now).ok()?;
@@ -348,27 +337,38 @@ fn question(app: &App, items: &[Item]) -> String {
   }
 }
 
-/// One try carried to its end, and the demand it held given back where it ended before its run did.
-pub async fn carry(app: Arc<App>, run: i64, asked: Option<i64>) {
-  carried(app.clone(), run, asked).await;
+/// One try carried to its end, the demand it held given back where it ended before its run did, and the pull
+/// woken, a run of its having ended.
+pub async fn carry(app: Arc<App>, run: i64, asked: Option<i64>, handed: Option<Handed>) {
+  carried(app.clone(), run, asked, handed).await;
   engine::give_back_try(&app, run).await;
+  app.places.wake();
 }
 
-/// One try carried to its end: its engine's card waited for and the try asked where it was not, read until
-/// its run closes, filed and told. A try whose category is stopped before its card is granted, or that is
-/// interrupted, goes back uncounted; one that fails on its content is counted.
-async fn carried(app: Arc<App>, run: i64, asked: Option<i64>) {
+/// One try carried to its end: asked of the runner on the slot and the card its place was handed, where it
+/// was not asked before, read until its run closes, filed and told. A try that is interrupted goes back
+/// uncounted; one that fails on its content is counted. A try that asks no run gives its place's slot back.
+async fn carried(app: Arc<App>, run: i64, asked: Option<i64>, handed: Option<Handed>) {
+  let token = handed.as_ref().map(|handed| handed.slot.token.clone());
+  let unrun = |why: &'static str| {
+    let (app, token) = (app.clone(), token.clone());
+    async move {
+      if let Some(token) = token {
+        runner::give_back_unrun(&app, &token, why).await;
+      }
+    }
+  };
   let Ok(row) = app.store.run(run) else {
-    return;
+    return unrun("the try could not be read").await;
   };
   let items: Vec<Item> = row.item_ids.iter().filter_map(|id| app.store.item(*id).ok()).collect();
   let Some(lead) = items.first().cloned() else {
     let _ = app.store.end_run(run, "failed", None, Some("the try carries no item"));
-    return;
+    return unrun("the try carries no item").await;
   };
   let Ok(category) = app.store.category(&row.category_name) else {
     let _ = app.store.end_run(run, "failed", None, Some("the try's category no longer stands"));
-    return;
+    return unrun("the try's category no longer stands").await;
   };
   let earlier = app.store.earlier_research_run(lead.id, run).ok().flatten();
   // A run before this try that filed its document for the same question is taken up rather than asked again.
@@ -383,23 +383,12 @@ async fn carried(app: Arc<App>, run: i64, asked: Option<i64>) {
     Some(id) => {
       if asked.is_none() {
         let _ = app.store.keep_run_id(run, id);
+        unrun("the try took up the document a run before it filed").await;
       }
       id
     }
     None => {
       let (provider, model) = road(&app, &category);
-      let demand = match engine::watched(&app, &provider, &model) {
-        Some(watched) => match engine::card(&app, run, &category.name, &lead, &watched).await {
-          Some(id) => Some(id),
-          None => {
-            let why =
-              "the category was stopped before the run's card was granted, so the try is not counted";
-            let _ = app.store.requeue(run, "failed", None, why, app.settings.retries);
-            return;
-          }
-        },
-        None => None,
-      };
       let ask = ResearchRunAsk {
         key: app.settings.road.key.clone(),
         query: question(&app, &items),
@@ -414,7 +403,7 @@ async fn carried(app: Arc<App>, run: i64, asked: Option<i64>) {
         origin: origin_of(&app, &lead, LANGUAGES[1]),
         continues: earlier,
       });
-      match runner::launch(app.clone(), ask, filing, demand).await {
+      match runner::launch(app.clone(), ask, filing, handed).await {
         Ok(launched) => {
           let _ = app.store.keep_run_id(run, launched.run_id);
           launched.run_id
@@ -457,6 +446,8 @@ async fn carried(app: Arc<App>, run: i64, asked: Option<i64>) {
   };
   let content = source.drawn.body.clone();
   let _ = app.store.end_run(run, "closed", outcome.as_deref(), None);
+  // The try no longer holds its place: the pull may ask another.
+  app.places.wake();
   let mut filed = Filed {
     document_id,
     title: source.title.clone(),

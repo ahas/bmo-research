@@ -1054,11 +1054,7 @@ async fn a_run_naming_a_model_alone_asks_its_slot_on_the_provider_its_role_s_ord
     .await
     .unwrap();
   assert_eq!((asked.provider.as_str(), asked.model.as_str()), ("deepseek", "deepseek-flash"));
-  assert_eq!(
-    ground.asked_path("agency", "GET", "/roles/seeker").len(),
-    1,
-    "the role's order is read"
-  );
+  assert_eq!(ground.asked_path("agency", "GET", "/roles/seeker").len(), 1, "the role's order is read");
   let slot = &ground.run_slots()[0];
   assert_eq!(
     (slot["provider"].as_str(), slot["model"].as_str()),

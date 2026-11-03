@@ -655,6 +655,32 @@ pub enum Refused {
   Failed(String),
 }
 
+impl Refused {
+  /// The refusal's sentence.
+  pub fn why(&self) -> &str {
+    match self {
+      Refused::Ask(why) | Refused::Unavailable(why) | Refused::Upstream(why) | Refused::Failed(why) => why,
+    }
+  }
+}
+
+/// What a deep dive's run is handed (`docs/design.md`, 「A node pulls」): the slot its place was let in on,
+/// and the arbiter demand that place was granted where its road is watched.
+#[derive(Debug, Clone)]
+pub struct Handed {
+  pub slot: Slot,
+  pub demand: Option<i64>,
+}
+
+/// A place's slot given back cancelled, its work never run on it, with why.
+pub async fn give_back_unrun(app: &App, token: &str, why: &str) {
+  let outcome: String = why.chars().take(300).collect();
+  let change = json!({ "state": "finished", "cancel": true, "outcome": outcome });
+  if let Err(fault) = app.peers.move_slot(token, &change).await {
+    eprintln!("bmo-research: the place's slot {token} was not given back: {fault}");
+  }
+}
+
 /// Why an ask is refused before anything is looked up.
 pub fn ask_fault(ask: &ResearchRunAsk) -> Option<String> {
   if !KEYS.contains(&ask.key.as_str()) {
@@ -836,16 +862,32 @@ pub fn admission(demand: Option<i64>) -> Value {
   }
 }
 
-/// One research sent out (`docs/runner.md`, 「One run, step by step」): composed, its slot asked, and the
-/// rest carried on in the background; answered at once with the road it names so far. A run asked for a
-/// room queues its end for it; a deep dive's tells nothing. A run handed the arbiter demand its try was
-/// granted stands on it: its slot and its sessions stand on it.
+/// One research sent out (`docs/runner.md`, 「One run, step by step」): composed, its slot asked — or the
+/// slot it was handed taken as its own — and the rest carried on in the background; answered at once with
+/// the road it names so far. A run asked for a room queues its end for it; a deep dive's tells nothing. A run
+/// handed its place's slot and demand stands on them: its sessions stand on the demand. A handed slot the run
+/// is refused before it takes is given back.
 pub async fn launch(
   app: Arc<App>,
   ask: ResearchRunAsk,
   filing: Filing,
-  demand: Option<i64>,
+  handed: Option<Handed>,
 ) -> Result<ResearchRun, Refused> {
+  let token = handed.as_ref().map(|handed| handed.slot.token.clone());
+  let launched = sent_out(app.clone(), ask, filing, handed).await;
+  if let (Err(refused), Some(token)) = (&launched, token) {
+    give_back_unrun(&app, &token, &format!("the run was not sent out: {}", refused.why())).await;
+  }
+  launched
+}
+
+async fn sent_out(
+  app: Arc<App>,
+  ask: ResearchRunAsk,
+  filing: Filing,
+  handed: Option<Handed>,
+) -> Result<ResearchRun, Refused> {
+  let demand = handed.as_ref().and_then(|handed| handed.demand);
   let tells = filing == Filing::Room;
   if let Some(why) = ask_fault(&ask) {
     return Err(Refused::Ask(why));
@@ -905,16 +947,26 @@ pub async fn launch(
     let _ = app.store.close_research_run(run, "failed", Some(&why), None);
     if lost { Refused::Unavailable(why) } else { Refused::Upstream(why) }
   };
-  let role = app.settings.runner.role(line).to_owned();
-  let named = match named_road(&app, &role, &ask).await {
-    Ok(named) => named,
-    Err(fault) => return Err(refuse(format!("agency's role {role} was not read: {fault}"), fault.lost)),
-  };
-  let road = named.as_ref().map(|(provider, model)| (provider.as_str(), model.as_str()));
-  let asked = slot_ask(&format!("research:{run}"), run, &role, line, road);
-  let slot = match take_slot(&app, run, &asked).await {
-    Ok(slot) => slot,
-    Err(fault) => return Err(refuse(format!("agency gave the run no slot: {fault}"), fault.lost)),
+  let slot = match handed {
+    Some(handed) => {
+      let _ = app.store.hold(run, SLOT, &handed.slot.token);
+      handed.slot
+    }
+    None => {
+      let role = app.settings.runner.role(line).to_owned();
+      let named = match named_road(&app, &role, &ask).await {
+        Ok(named) => named,
+        Err(fault) => {
+          return Err(refuse(format!("agency's role {role} was not read: {fault}"), fault.lost));
+        }
+      };
+      let road = named.as_ref().map(|(provider, model)| (provider.as_str(), model.as_str()));
+      let asked = slot_ask(&format!("research:{run}"), run, &role, line, road);
+      match take_slot(&app, run, &asked).await {
+        Ok(slot) => slot,
+        Err(fault) => return Err(refuse(format!("agency gave the run no slot: {fault}"), fault.lost)),
+      }
+    }
   };
   let state = if slot.admitted() { ResearchRunState::Running } else { ResearchRunState::Waiting };
   let launched = ResearchRun {
@@ -1769,8 +1821,12 @@ pub async fn sweep(app: &Arc<App>) -> usize {
   for row in &open {
     owned.entry(row.id).or_default().extend(app.store.holds(row.id).unwrap_or_default());
   }
+  // Every place the daemon had asked, waiting or let in, is given back by the places' owner
+  // (`docs/design.md`, 「A node pulls」): a run that held one is closed below.
+  let places = release_owner(&app.peers, crate::pull::OWNER).await;
   for (run, held) in owned {
-    let ended = release_owner(&app.peers, &format!("research:{run}")).await;
+    let mut ended = release_owner(&app.peers, &format!("research:{run}")).await;
+    ended.extend(places.iter().cloned());
     for (kind, value) in held {
       if kind == SESSION && !ended.contains(&value) {
         let app = app.clone();

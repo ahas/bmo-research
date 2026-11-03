@@ -14,10 +14,6 @@
       "minimum": 1,
       "type": "integer"
     },
-    "cap": {
-      "minimum": 1,
-      "type": "integer"
-    },
     "gatherMinutes": {
       "minimum": 1,
       "type": "integer"

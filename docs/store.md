@@ -14,7 +14,6 @@ milliseconds; lists are JSON arrays.
 | `name` | The category's name; the primary key |
 | `purpose` | Its purpose, a line |
 | `shape` | `manual-or-investigation`, `advisory` or `brief` |
-| `cap` | How many items the scan keeps waiting or running for it |
 | `cadence_minutes` | How often its sources are read where a source names no cadence |
 | `gather_minutes` | How often a brief category's items are gathered, or null |
 | `provider`, `model` | Its road, or null for the settings' |
@@ -40,7 +39,7 @@ milliseconds; lists are JSON arrays.
 | `read_at` | When it was last read, or null |
 | `scan_count` | Readings made, failed or not |
 | `last_yield` | Candidates the last reading that succeeded turned up past the filter, or null |
-| `last_taken` | Of those, the ones it kept as new seen rows, `unqueued`, or null |
+| `last_taken` | Of those, the ones it kept as new seen rows, or null |
 | `created_at`, `changed_at` | When it was registered and last changed |
 
 ## `seen`
@@ -55,7 +54,7 @@ Every candidate judged, once, by its key.
 | `kind` | The item kind its source turns up |
 | `published_at` | When it appeared, where the source says |
 | `source_id` | The source it came from |
-| `state` | `unqueued`, waiting for a slot; `queued`, an item stands for it; `archived`, the archive already holds it |
+| `state` | `unqueued`, kept and not yet queued, which the scan's pass queues before it ends; `queued`, an item stands for it; `archived`, the archive already holds it |
 | `item_id` | The item made of it, or null |
 | `found_at` | When it was read |
 
@@ -279,9 +278,9 @@ what a stopped daemon left (`docs/api.md`, 「The engine」).
 | Column | Holds |
 |---|---|
 | `id` | The demand's id, as the master gave it |
-| `try_id` | The try it was asked for, or null for a branch's |
-| `run_id` | The research run it stands for: the try's once it is asked, or the run a branch was opened from |
-| `within` | The demand it was asked within, a branch's run's, or null for a try's |
+| `try_id` | The try that holds it, once the place it was asked for has taken one; null for a place that has taken none yet and for a branch's |
+| `run_id` | The research run it stands for: the try's once it is asked, or the run a branch was opened from; null for a place's |
+| `within` | The demand it was asked within, a branch's run's, or null for a place's and a try's |
 | `service` | The arbiter service it asks a card of |
 | `asked_at` | When it was asked |
 

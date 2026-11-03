@@ -1,19 +1,20 @@
-//! The engine a run needs (`docs/api.md`, 「The engine」): a try of a watched road asks the arbiter's master
-//! for one card of its engine's service and waits for the grant with no clock of its own, holds it for the
-//! run and gives it back as the try ends; a branch of such a run asks its own within the run's; what the
-//! daemon left behind given back; the holds the state answers; the owner's room told once where a card does
-//! not come; and why a failed try was the arbiter's, where it was.
+//! The engine a run needs (`docs/api.md`, 「The engine」): a place on a watched road asks the arbiter's
+//! master for one card of its engine's service and waits for the grant with no clock of its own, and the try
+//! it takes holds the card for its run and gives it back as the try ends; a branch of such a run asks its own
+//! within the run's; what the daemon left behind given back; the holds the state answers; the owner's room
+//! told once where a card does not come; and why a failed try was the arbiter's, where it was.
 
 use std::collections::BTreeMap;
 use std::sync::Mutex;
 use std::time::Duration;
 
-use bmo_research_client::{Hold, HoldReason, Item, Running};
+use bmo_research_client::{Hold, HoldReason};
 use serde_json::{Value, json};
 
 use crate::App;
 use crate::config::Watched;
 use crate::peers::Demand;
+use crate::pull::{self, Road};
 use crate::store::now_ms;
 use crate::words::{self, fill};
 
@@ -24,10 +25,10 @@ const HOLD_OPEN_MS: u64 = 25_000;
 /// `Retry-After` says.
 const LOOK_AGAIN: Duration = Duration::from_secs(1);
 
-/// A try waiting for its card.
+/// A place waiting for its card.
 #[derive(Debug, Clone)]
 struct Waiting {
-  category: String,
+  road: Road,
   registration: String,
   service: String,
   demand: Option<i64>,
@@ -37,17 +38,17 @@ struct Waiting {
   reported: bool,
 }
 
-/// What the engine watch keeps between its readings: each try waiting for its card, by the try, and the last
-/// failure to reach the master, said once while it stays the same.
+/// What the engine watch keeps between its readings: each place waiting for its card, by its request key,
+/// and the last failure to reach the master, said once while it stays the same.
 #[derive(Default)]
 pub struct Waits {
-  waiting: Mutex<BTreeMap<i64, Waiting>>,
+  waiting: Mutex<BTreeMap<String, Waiting>>,
   failure: Mutex<Option<String>>,
 }
 
 impl Waits {
-  fn change(&self, try_id: i64, change: impl FnOnce(&mut Waiting)) {
-    if let Some(waiting) = self.waiting.lock().unwrap().get_mut(&try_id) {
+  fn change(&self, place: &str, change: impl FnOnce(&mut Waiting)) {
+    if let Some(waiting) = self.waiting.lock().unwrap().get_mut(place) {
       change(waiting);
     }
   }
@@ -71,20 +72,15 @@ pub fn watched(app: &App, provider: &str, model: &str) -> Option<Watched> {
   app.settings.engine.model(provider, model).cloned()
 }
 
-/// Whether the category no longer runs.
-fn stopped(app: &App, category: &str) -> bool {
-  app.store.category(category).is_ok_and(|c| c.state == Running::Stopped)
-}
-
-/// A try's card, asked of the master and waited on until it is granted, however long that takes: the
-/// demand's id, kept in the store, or none where the try's category was stopped first, its demand then
-/// given back.
-pub async fn card(app: &App, try_id: i64, category: &str, lead: &Item, model: &Watched) -> Option<i64> {
+/// A place's card, asked of the master and waited on until it is granted, however long that takes: the
+/// demand's id, kept in the store, or none where the place's road had no try due any longer first, its
+/// demand then given back.
+pub async fn card(app: &App, place: &str, road: &Road, model: &Watched) -> Option<i64> {
   let since = now_ms();
   app.waits.waiting.lock().unwrap().insert(
-    try_id,
+    place.to_owned(),
     Waiting {
-      category: category.to_owned(),
+      road: road.clone(),
       registration: model.registration.clone(),
       service: model.service.clone(),
       demand: None,
@@ -97,12 +93,12 @@ pub async fn card(app: &App, try_id: i64, category: &str, lead: &Item, model: &W
   let ask = json!({
     "serviceName": model.service,
     "count": 1,
-    "workKey": format!("research:run:{try_id}"),
-    "ref": format!("research run {try_id}: {}", lead.name),
+    "workKey": format!("research:place:{place}"),
+    "ref": format!("research place {place}"),
   });
   let mut held: Option<i64> = None;
   let granted = loop {
-    if stopped(app, category) {
+    if !pull::wanted(app, road) {
       if let Some(id) = held {
         give_back(app, id).await;
       }
@@ -129,26 +125,26 @@ pub async fn card(app: &App, try_id: i64, category: &str, lead: &Item, model: &W
     };
     app.waits.reached();
     if held != Some(demand.id) {
-      let _ = app.store.keep_demand(demand.id, Some(try_id), None, None, &model.service);
+      let _ = app.store.keep_demand(demand.id, None, None, None, &model.service);
       held = Some(demand.id);
     }
     if demand.granted() {
       break Some(demand.id);
     }
-    waits(app, try_id, &demand).await;
+    waits(app, place, &demand).await;
     tokio::time::sleep(LOOK_AGAIN).await;
   };
-  app.waits.waiting.lock().unwrap().remove(&try_id);
+  app.waits.waiting.lock().unwrap().remove(place);
   granted
 }
 
-/// A waiting try's hold set from its demand's answer, and the owner's room told once where the card has not
-/// come past `restore_wait_minutes`.
-async fn waits(app: &App, try_id: i64, demand: &Demand) {
+/// A waiting place's hold set from its demand's answer, and the owner's room told once where the card has
+/// not come past `restore_wait_minutes`.
+async fn waits(app: &App, place: &str, demand: &Demand) {
   let reason = demand.reason.clone().unwrap_or_default();
   let due = app.settings.restore_wait_minutes.max(0) * 60_000;
   let mut told = None;
-  app.waits.change(try_id, |waiting| {
+  app.waits.change(place, |waiting| {
     waiting.demand = Some(demand.id);
     waiting.cause = reason.code.clone();
     waiting.cause_text = reason.text.clone();
@@ -215,7 +211,8 @@ pub async fn give_back_all(app: &App) -> usize {
   held.len()
 }
 
-/// Every demand left behind given back: a try's whose try has ended, a branch's whose run has closed.
+/// Every demand left behind given back: a try's whose try has ended, a branch's whose run has closed. A
+/// place's that has taken no try is its place's to give back.
 pub async fn give_back_left(app: &App) {
   for id in app.store.demands_left().unwrap_or_default() {
     give_back(app, id).await;
@@ -308,15 +305,23 @@ pub async fn branch_card(
   }
 }
 
-/// The tries waiting for their card now, in the order they were asked.
+/// The places waiting for their card now, in the order they were asked, each with the running categories on
+/// its road.
 pub fn holds(app: &App) -> Vec<Hold> {
-  let waiting = app.waits.waiting.lock().unwrap();
-  let mut holds: Vec<Hold> = waiting
+  let waiting: Vec<(String, Waiting)> = app
+    .waits
+    .waiting
+    .lock()
+    .unwrap()
     .iter()
-    .map(|(try_id, waiting)| Hold {
+    .map(|(place, waiting)| (place.clone(), waiting.clone()))
+    .collect();
+  let mut holds: Vec<Hold> = waiting
+    .into_iter()
+    .map(|(place, waiting)| Hold {
       reason: HoldReason::WaitingCard,
-      run_id: *try_id,
-      category_name: waiting.category.clone(),
+      category_names: pull::categories_on(app, &waiting.road),
+      place,
       registration: waiting.registration.clone(),
       service_name: waiting.service.clone(),
       demand_id: waiting.demand,
@@ -326,6 +331,6 @@ pub fn holds(app: &App) -> Vec<Hold> {
       reported: waiting.reported,
     })
     .collect();
-  holds.sort_by_key(|hold| (hold.since, hold.run_id));
+  holds.sort_by(|a, b| (a.since, &a.place).cmp(&(b.since, &b.place)));
   holds
 }

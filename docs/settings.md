@@ -12,15 +12,14 @@ the daemon does not know is refused, naming it. A path may open with `~/`, the h
 | `listen` | `127.0.0.1:3238` | The loopback address the routes are answered on |
 | `token_file` | `research.token` | The file under the data root's `env/` holding the bearer token every route takes; written at the first start where it does not stand, mode 0600 |
 | `store` | `research` | The folder under the data root the store `research.db` stands in |
-| `tick_seconds` | 30 | How often the loop looks for a source due, a slot free and an item to run |
-| `concurrency` | 4 | How many runs the daemon asks for at once, across every category; how many run is how many cards the arbiter grants them (`docs/design.md`, 「The engine a run needs」) |
+| `tick_seconds` | 30 | How often the loop reads the sources due, asks again what a page lacks and finds the items whose retry wait has ended; a pace, never a bound. How many deep dives run is no setting: it is the search line's role's cap, read from agency (`docs/design.md`, 「A node pulls」) |
 | `retries` | 3 | How many times a failed try is tried again before the item is `stuck` and the helper is asked to fix the cause; a stuck item is still tried on every retry wait, and an interrupted try is not counted (`docs/api.md`, 「The deep dive」) |
 | `retry_minutes` | 5 | How long a failed try, or what a page still lacks, waits before it is tried again; what a page lacks is asked on every such wait until it is had, and an interrupted try waits for none |
 | `restore_wait_minutes` | 20 | How long a run's demand for its engine waits before the owner's private room is told, once, that the engine has not come back; the demand goes on waiting |
 | `poll_seconds` | 30 | How long the daemon waits between two readings of a run under way |
 | `user_agent` | `bmo-research` | The `User-Agent` the daemon reads the sources with |
 
-What differs by category — its shape, its cap, its cadence, its road and its recipients — is no setting but
+What differs by category — its shape, its cadence, its road and its recipients — is no setting but
 the category's registration (`docs/api.md`, 「categories」), kept in the store.
 
 ## The road: `[road]`
@@ -51,7 +50,7 @@ card answers is the master's; no setting names a node.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `address` | empty | The arbiter's master, which grants the demands; empty asks no demand, and every run goes out as soon as a slot frees |
+| `address` | empty | The arbiter's master, which grants the demands; empty asks no demand, and every place asks its slot at once |
 | `token` | empty | The file under the data root's `env/` whose text is the master's bearer token; empty where the master takes none |
 | `provider` | `registered` | The provider whose models the watch names |
 | `models` | `flash-next` served by `lab-arena` | Each watched model, a table of `registration`, its name in agency's registry, and `service`, the arbiter service its engine is; an empty list watches nothing |

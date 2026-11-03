@@ -1,10 +1,10 @@
 //! The engine a run needs against stand-in agency, artifact, receiver, tool host and arbiter servers
-//! (`docs/api.md`, 「The engine」): a try asks its card before its slot, its slot and sessions stand on the
-//! grant and the demand is given back at its end; a try waiting for its card asks no slot and the state
-//! says why; what a stopped daemon left held is given back; a branch asks its own card within its run's; a
-//! try failing after its card was taken, or after the master stopped holding its demand, waits again
-//! uncounted; a card that does not come is told to the owner's room once; a stopped category takes its
-//! waiting try's demand back; and no master named asks no demand.
+//! (`docs/api.md`, 「The engine」): a place asks its card before its slot, its slot and its try's sessions
+//! stand on the grant and the demand is given back at the try's end; a place waiting for its card asks no
+//! slot, takes no item and the state says why; what a stopped daemon left held is given back; a branch asks
+//! its own card within its run's; a try failing after its card was taken, or after the master stopped
+//! holding its demand, waits again uncounted; a card that does not come is told to the owner's room once; a
+//! stopped category takes its waiting place's demand back; and no master named asks no demand.
 
 use crate::support;
 
@@ -89,7 +89,7 @@ fn restore_notices(ground: &Ground) -> Vec<Value> {
 }
 
 #[tokio::test]
-async fn a_try_asks_its_card_first_stands_on_the_grant_and_gives_it_back_at_its_end() {
+async fn a_place_asks_its_card_first_and_its_try_stands_on_the_grant_and_gives_it_back_at_its_end() {
   let ground = support::ground(|_| {}).await;
   ground.world.lock().unwrap().slot_waits = 1;
   let item = ask(&ground, "a");
@@ -97,15 +97,12 @@ async fn a_try_asks_its_card_first_stands_on_the_grant_and_gives_it_back_at_its_
   settle(&ground).await;
 
   let asked = demands_asked(&ground);
-  assert_eq!(asked.len(), 1, "one demand for the try");
+  assert_eq!(asked.len(), 1, "one demand for the place");
   assert_eq!(
-    (
-      asked[0]["serviceName"].as_str(),
-      asked[0]["count"].as_i64(),
-      asked[0]["workKey"].as_str()
-    ),
-    (Some("lab-arena"), Some(1), Some("research:run:1"))
+    (asked[0]["serviceName"].as_str(), asked[0]["count"].as_i64()),
+    (Some("lab-arena"), Some(1))
   );
+  assert!(asked[0]["workKey"].as_str().is_some_and(|key| key.starts_with("research:place:")));
   assert!(asked[0].get("within").is_none_or(Value::is_null));
   let demand = 4001;
   let all = ground.world.lock().unwrap().asked.clone();
@@ -145,7 +142,7 @@ async fn a_try_asks_its_card_first_stands_on_the_grant_and_gives_it_back_at_its_
 }
 
 #[tokio::test]
-async fn a_try_waiting_for_its_card_asks_no_slot_and_the_state_says_why() {
+async fn a_place_waiting_for_its_card_asks_no_slot_takes_no_item_and_the_state_says_why() {
   let ground = support::ground(|_| {}).await;
   ground.world.lock().unwrap().cards_busy = true;
   let item = ask(&ground, "a");
@@ -159,9 +156,15 @@ async fn a_try_waiting_for_its_card_asks_no_slot_and_the_state_says_why() {
   assert_eq!(state.holds.len(), 1);
   let hold = &state.holds[0];
   assert_eq!(
-    (hold.reason, hold.run_id, hold.category_name.as_str(), hold.registration.as_str()),
-    (HoldReason::WaitingCard, 1, "it", "flash-next")
+    (hold.reason, hold.category_names.clone(), hold.registration.as_str()),
+    (
+      HoldReason::WaitingCard,
+      ["economy", "it", "security"].map(String::from).to_vec(),
+      "flash-next"
+    ),
+    "every running category on the place's road"
   );
+  assert!(!hold.place.is_empty());
   assert_eq!(
     (hold.service_name.as_str(), hold.demand_id, hold.cause.as_deref(), hold.reported),
     ("lab-arena", Some(4001), Some("in-use"), false)
@@ -172,8 +175,13 @@ async fn a_try_waiting_for_its_card_asks_no_slot_and_the_state_says_why() {
     hold.line()
   );
   let it = state.categories.iter().find(|c| c.category_name == "it").unwrap();
-  assert_eq!(it.running_count, 1, "a try waiting for its card counts as running");
-  assert_eq!(ground.app.store.item(item).unwrap().state, ItemState::Running);
+  assert_eq!(
+    (it.waiting_count, it.running_count),
+    (1, 0),
+    "a place waiting for its card holds no item"
+  );
+  assert_eq!(ground.app.store.item(item).unwrap().state, ItemState::Waiting);
+  assert_eq!(ground.app.store.running_count().unwrap(), 0);
 
   ground.world.lock().unwrap().grant_cards();
   for handle in carried {
@@ -400,7 +408,7 @@ async fn a_card_that_does_not_come_is_told_to_the_owner_s_room_once() {
 }
 
 #[tokio::test]
-async fn a_stopped_category_gives_back_the_card_its_waiting_try_asked() {
+async fn a_stopped_category_gives_back_the_card_its_waiting_place_asked() {
   let ground = support::ground(|_| {}).await;
   ground.world.lock().unwrap().cards_busy = true;
   let item = ask(&ground, "a");

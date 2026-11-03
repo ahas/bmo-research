@@ -83,6 +83,12 @@ pub struct World {
   pub repositories_missing: BTreeSet<String>,
   /// How many admission asks a slot waits through before it is let in.
   pub slot_waits: u32,
+  /// The cap each role answers as its `maxConcurrent`.
+  pub role_cap: i64,
+  /// While set, the line lets a slot in only while fewer of its role's slots than its cap are let in.
+  pub lining: bool,
+  /// The slots let in, by token, with their role.
+  pub slots_let_in: BTreeMap<String, String>,
   /// How long the next admission ask waits before it is answered, in milliseconds.
   pub admission_wait_ms: u64,
   /// The research runs whose turns end failed, having written nothing.
@@ -96,6 +102,8 @@ pub struct World {
   pub next_job_item: i64,
   /// While set, every research turn waits.
   pub holding: bool,
+  /// The research runs whose turns wait while they are named here.
+  pub held_runs: BTreeSet<i64>,
   /// How long a branch's turn takes, in milliseconds.
   pub branch_wait_ms: u64,
   /// How many ends of a session are answered busy before one is answered.
@@ -190,6 +198,7 @@ pub type Shared = Arc<Mutex<World>>;
 pub fn world() -> Shared {
   Arc::new(Mutex::new(World {
     owner_room: 7,
+    role_cap: 1,
     next_document: 900,
     next_demand: 4000,
     next_job_item: 600,
@@ -276,6 +285,23 @@ pub fn checkout_of(repository: &str) -> String {
   format!("/checkouts/{repository}")
 }
 
+impl World {
+  /// Whether the line has room to let a slot of the role in: always, unless the line is held to the cap.
+  fn room(&self, role: &str) -> bool {
+    let held = self
+      .slots_let_in
+      .iter()
+      .filter(|(token, of)| of.as_str() == role && !self.slots_finished.contains(*token))
+      .count() as i64;
+    !self.lining || held < self.role_cap
+  }
+
+  /// The slots let in and not given back, now.
+  pub fn slots_held(&self) -> usize {
+    self.slots_let_in.keys().filter(|token| !self.slots_finished.contains(*token)).count()
+  }
+}
+
 /// A slot request's answer: its token, its role, its state, and the road it is let in on — the one its ask
 /// fixed, else its role's order's first — empty while it waits unless its ask fixed one.
 fn slot_of(token: &str, role: &str, state: &str, fixed: &Option<(String, String)>) -> Value {
@@ -345,7 +371,10 @@ async fn agency_slot(State(w): State<Shared>, method: Method, uri: Uri, body: By
   world
     .slot_owners
     .insert(token.clone(), asked["owner"].as_str().unwrap_or_default().to_string());
-  let state = if world.slot_waits == 0 { "active" } else { "waiting" };
+  let state = if world.slot_waits == 0 && world.room(&role) { "active" } else { "waiting" };
+  if state == "active" {
+    world.slots_let_in.insert(token.clone(), role.clone());
+  }
   (StatusCode::CREATED, axum::Json(slot_of(&token, &role, state, &fixed))).into_response()
 }
 
@@ -403,14 +432,24 @@ async fn agency_slot_move(
       )
       .into_response()
     }
-    None => axum::Json(json!({
-      "request": slot_of(&token, "", "active", &fixed),
-      "state": "active",
-      "endedBy": null,
-      "outcome": null,
-      "demand": null,
-    }))
-    .into_response(),
+    None => {
+      let role = world.slot_roles.get(&token).cloned().unwrap_or_default();
+      if !world.slots_let_in.contains_key(&token) && !world.room(&role) {
+        return axum::Json(
+          json!({"request": null, "state": "waiting", "endedBy": null, "outcome": null, "demand": null}),
+        )
+        .into_response();
+      }
+      world.slots_let_in.insert(token.clone(), role);
+      axum::Json(json!({
+        "request": slot_of(&token, "", "active", &fixed),
+        "state": "active",
+        "endedBy": null,
+        "outcome": null,
+        "demand": null,
+      }))
+      .into_response()
+    }
   }
 }
 
@@ -577,7 +616,9 @@ async fn agency_role(
     )
       .into_response();
   }
-  axum::Json(json!({"name": name, "order": role_order(), "provider": "registered"})).into_response()
+  let cap = w.lock().unwrap().role_cap;
+  axum::Json(json!({"name": name, "order": role_order(), "provider": "registered", "maxConcurrent": cap}))
+    .into_response()
 }
 
 async fn agency_repository(
@@ -652,7 +693,7 @@ async fn research_turn(w: &Shared, name: &str) -> Response {
   let review = name.ends_with("-review");
   while {
     let world = w.lock().unwrap();
-    world.holding || (review && world.review_holding)
+    world.holding || world.held_runs.contains(&run) || (review && world.review_holding)
   } {
     tokio::time::sleep(std::time::Duration::from_millis(10)).await;
   }
@@ -1478,7 +1519,6 @@ pub async fn ground(change: impl FnOnce(&mut Settings)) -> Ground {
   settings.data_root = root.clone();
   settings.artifact.address = artifact;
   settings.engine.address = arbiter;
-  settings.concurrency = 1;
   settings.tool_host.socket = socket.to_string_lossy().into_owned();
   settings.poll_seconds = 0;
   change(&mut settings);

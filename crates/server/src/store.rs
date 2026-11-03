@@ -41,7 +41,8 @@ use crate::translation::Rendering;
 /// page's review asks; the fifteenth takes a run's closing time away and the research settings' minutes
 /// with it; the sixteenth keeps what a page holds and lacks by its document, for a deep dive's page and a
 /// room's document alike, each filed page taking what the item its run was asked for kept; the seventeenth
-/// names every hold of a slot request `slot`.
+/// names every hold of a slot request `slot`; the eighteenth keeps when a page's document was found gone; the
+/// nineteenth takes each category's cap away, the queue holding none.
 const MIGRATIONS: &[&str] = &[
   "
   create table categories (
@@ -236,6 +237,9 @@ const MIGRATIONS: &[&str] = &[
   "
   alter table pages add column gone_at integer;
 ",
+  "
+  alter table categories drop column cap;
+",
 ];
 
 /// A page's one review (`docs/store.md`, `page_reviews`): what it wrote, the indices of its fixes applied or
@@ -277,7 +281,8 @@ pub fn now_ms() -> i64 {
     .unwrap_or(0)
 }
 
-const CATEGORY_COLUMNS: &str = "name, purpose, shape, cap, cadence_minutes, gather_minutes, provider, model, state, state_at, created_at";
+const CATEGORY_COLUMNS: &str =
+  "name, purpose, shape, cadence_minutes, gather_minutes, provider, model, state, state_at, created_at";
 
 const ITEM_COLUMNS: &str =
   "id, category, key, name, maker, address, kind, shape, source_id, asked, priority,
@@ -519,13 +524,12 @@ impl Store {
       _ => None,
     };
     let n = self.lock().execute(
-      "insert or ignore into categories (name, purpose, shape, cap, cadence_minutes, gather_minutes, provider,
-         model, created_at) values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+      "insert or ignore into categories (name, purpose, shape, cadence_minutes, gather_minutes, provider, model,
+         created_at) values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
       params![
         new.name,
         new.purpose,
         new.shape.as_str(),
-        new.cap.unwrap_or(5),
         new.cadence_minutes.unwrap_or(60),
         gather,
         new.provider.clone().filter(|p| !p.is_empty()),
@@ -544,9 +548,6 @@ impl Store {
     if let Some(purpose) = &change.purpose {
       category.purpose = purpose.clone();
     }
-    if let Some(cap) = change.cap {
-      category.cap = cap;
-    }
     if let Some(cadence) = change.cadence_minutes {
       category.cadence_minutes = cadence;
     }
@@ -560,12 +561,11 @@ impl Store {
       category.model = Some(model.clone()).filter(|m| !m.is_empty());
     }
     self.lock().execute(
-      "update categories set purpose = ?2, cap = ?3, cadence_minutes = ?4, gather_minutes = ?5, provider = ?6,
-         model = ?7 where name = ?1",
+      "update categories set purpose = ?2, cadence_minutes = ?3, gather_minutes = ?4, provider = ?5, model = ?6
+         where name = ?1",
       params![
         name,
         category.purpose,
-        category.cap,
         category.cadence_minutes,
         category.gather_minutes,
         category.provider,
@@ -629,7 +629,6 @@ impl Store {
         running_count: count(&c.name, "running")?,
         finishing_count: count(&c.name, "finishing")?,
         stuck_count: count(&c.name, "stuck")?,
-        cap: c.cap,
       });
     }
     let stopped = !categories.is_empty() && categories.iter().all(|c| c.state == Running::Stopped);
@@ -894,19 +893,12 @@ impl Store {
       .map_err(|e| e.to_string())
   }
 
-  /// A category's free slots filled from its unqueued seen rows, oldest found first; answers the items made.
+  /// Every unqueued seen row of a category queued, oldest found first, the queue holding no cap; answers the
+  /// items made.
   pub fn fill(&self, category: &Category) -> Result<Vec<i64>, String> {
     let mut conn = self.lock();
     let tx = conn.transaction().map_err(|e| e.to_string())?;
-    let active: i64 = tx
-      .query_row(
-        "select count(*) from queue where category = ?1 and asked = 0 and state in ('waiting', 'running')",
-        params![category.name],
-        |r| r.get(0),
-      )
-      .map_err(|e| e.to_string())?;
-    let free = (category.cap - active).max(0);
-    let made = take_unqueued(&tx, category, free).map_err(|e| e.to_string())?;
+    let made = take_unqueued(&tx, category).map_err(|e| e.to_string())?;
     tx.commit().map_err(|e| e.to_string())?;
     Ok(made)
   }
@@ -1076,7 +1068,8 @@ impl Store {
     Ok(page(named.into_iter().skip(start).collect(), limit))
   }
 
-  /// A category's waiting and stuck items whose retry is due, in its order, at most `limit`.
+  /// A category's waiting and stuck items whose retry is due, in its order, at most `limit`; a limit below 0
+  /// holds every one.
   pub fn waiting(&self, category: &str, now: i64, limit: i64) -> Result<Vec<Item>, String> {
     let conn = self.lock();
     let mut stmt = conn
@@ -1126,6 +1119,20 @@ impl Store {
       .map_err(|e| e.to_string())
   }
 
+  /// How many of a category's waiting and stuck items have their retry due.
+  pub fn due_count(&self, category: &str, now: i64) -> Result<i64, String> {
+    self
+      .lock()
+      .query_row(
+        "select count(*) from queue where category = ?1 and state in ('waiting', 'stuck')
+           and (retry_at is null or retry_at <= ?2)",
+        params![category, now],
+        |r| r.get(0),
+      )
+      .map_err(|e| e.to_string())
+  }
+
+  /// How many tries are running: each one a place took, its run holding the place's slot.
   pub fn running_count(&self) -> Result<i64, String> {
     self
       .lock()
@@ -2343,6 +2350,15 @@ impl Store {
     Ok(())
   }
 
+  /// The try a place's demand is held by, once the place has taken one.
+  pub fn demand_tried(&self, id: i64, try_id: i64) -> Result<(), String> {
+    self
+      .lock()
+      .execute("update demands set try_id = ?2 where id = ?1", params![id, try_id])
+      .map_err(|e| e.to_string())?;
+    Ok(())
+  }
+
   /// The research run a try's demand stands for, once the try is asked of the runner.
   pub fn demand_ran(&self, id: i64, run_id: i64) -> Result<(), String> {
     self
@@ -2398,7 +2414,7 @@ impl Store {
            left join runs r on r.id = d.try_id
            left join research_runs rr on rr.id = d.run_id
          where (d.try_id is not null and (r.id is null or r.state != 'running'))
-            or (d.try_id is null and (rr.id is null or rr.state = 'closed'))
+            or (d.try_id is null and d.run_id is not null and (rr.id is null or rr.state = 'closed'))
          order by d.asked_at, d.id",
       )
       .map_err(|e| e.to_string())?;
@@ -2477,18 +2493,15 @@ fn read_research_run(r: &rusqlite::Row<'_>) -> rusqlite::Result<ResearchRunRow> 
 }
 
 /// Up to `free` of a category's unqueued seen rows made waiting items, oldest found first.
-fn take_unqueued(tx: &Transaction<'_>, category: &Category, free: i64) -> rusqlite::Result<Vec<i64>> {
-  if free <= 0 {
-    return Ok(Vec::new());
-  }
+fn take_unqueued(tx: &Transaction<'_>, category: &Category) -> rusqlite::Result<Vec<i64>> {
   type Row = (String, String, Option<String>, Option<String>, String, Option<i64>, i64);
   let rows: Vec<Row> = {
     let mut stmt = tx.prepare(
       "select key, name, maker, address, kind, source_id, found_at from seen
-       where category = ?1 and state = 'unqueued' order by found_at, rowid limit ?2",
+       where category = ?1 and state = 'unqueued' order by found_at, rowid",
     )?;
     stmt
-      .query_map(params![category.name, free], |r| {
+      .query_map(params![category.name], |r| {
         Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?))
       })?
       .collect::<Result<Vec<_>, _>>()?
@@ -2554,19 +2567,18 @@ fn ids_json(ids: &[i64]) -> String {
 
 fn read_category(r: &rusqlite::Row<'_>) -> rusqlite::Result<Category> {
   let shape: String = r.get(2)?;
-  let state: String = r.get(8)?;
+  let state: String = r.get(7)?;
   Ok(Category {
     name: r.get(0)?,
     purpose: r.get(1)?,
     shape: CategoryShape::parse(&shape).unwrap_or(CategoryShape::ManualOrInvestigation),
-    cap: r.get(3)?,
-    cadence_minutes: r.get(4)?,
-    gather_minutes: r.get(5)?,
-    provider: r.get(6)?,
-    model: r.get(7)?,
+    cadence_minutes: r.get(3)?,
+    gather_minutes: r.get(4)?,
+    provider: r.get(5)?,
+    model: r.get(6)?,
     state: Running::parse(&state).unwrap_or(Running::Running),
-    state_at: r.get(9)?,
-    created_at: r.get(10)?,
+    state_at: r.get(8)?,
+    created_at: r.get(9)?,
   })
 }
 

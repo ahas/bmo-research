@@ -13,9 +13,10 @@ research feature; agency supplies it slots and sessions and nothing more.
   what it claims on the lab's own hardware and reports in a fixed shape (the rulebook
   `prompts/rules/research.md`: the investigation, the manual and the verification). The daemon does the
   first two shapes by itself, continuously, and the third on the owner's word.
-- **Continuous, capped and cheap.** The queue has a cap; whenever a slot frees, the daemon fills it from
-  what its sources turned up, unconditionally, and goes on until the owner stops it. The runs go out on
-  kakia, the lab's own model, which costs nothing.
+- **Continuous, uncapped and cheap.** Everything its sources turn up waits in the queue, which has no cap;
+  the lab's nodes pull from it, so as many deep dives run as the search line's role has places, and the
+  daemon goes on until the owner stops it. The runs go out on kakia, the lab's own model, which costs
+  nothing.
 - **Semi-automatic.** A deep dive that finds a thing the maker's own documents show usable in the lab is
   reported to the owner first, as a notice the chat agent delivers. On his word the chat agent raises the
   verification — the maker's figures re-measured on our cards under a bench lock, by a job that follows the
@@ -45,8 +46,8 @@ research feature; agency supplies it slots and sessions and nothing more.
   - the job service, for one item alone: the repair of an item stuck past its retries, filed for the helper
     (「Nothing is given up」).
   Any other job is the chat agent's to file.
-- **Every per-deployment choice is a setting or a registration,** never code: the sources, the cap, the
-  cadence, the model's road, the report rooms, the token files (`docs/settings.md`).
+- **Every per-deployment choice is a setting or a registration,** never code: the sources, the cadence,
+  the model's road, the report rooms, the token files (`docs/settings.md`).
 - **The daemon decides nothing a person should and files nothing an agent should.** It never approves a
   verification, never raises a queue item for what a report calls for, never registers a service with the arbiter, and never spends a
   paid road unless a setting names one. It notifies: every report, every `fit` item and every item stuck is
@@ -58,7 +59,7 @@ research feature; agency supplies it slots and sessions and nothing more.
 ## The loop
 
 ```
-sources ──scan──▶ candidates ──new?──▶ queue (cap) ──slot free──▶ deep dive ──▶ report ──▶ notice to the room's agent
+sources ──scan──▶ candidates ──new?──▶ queue ──a place let in──▶ deep dive ──▶ report ──▶ notice to the room's agent
                                                                                                   │
                                                      the owner's word ◀── the chat agent says it ◀┘
                                                               │
@@ -75,11 +76,12 @@ sources ──scan──▶ candidates ──new?──▶ queue (cap) ──slo
 3. **The queue.** The queue is the researcher's own, a table of its store that says what is researched
    next; it is no part of the job service's queue, which holds work for the workers and which the research
    unit never writes. New candidates wait in the queue by the order they were found; one the owner asked for
-   by name stands first. Each category's part of the queue holds at most its `cap` items waiting or running; a scan that finds more
-   keeps them as seen but unqueued, and the next scan that finds the queue short takes the oldest
-   unqueued first. The queue never idles while something is unqueued.
-4. **The deep dive.** As many runs at once as the arbiter grants engines for, up to `concurrency`
-   (「The engine a run needs」): the item becomes a research run on kakia's road at the exhaustive depth, asked as a manual where the thing is a model, an engine, a
+   by name stands first. The queue has no cap, whole or per category: every new candidate the scan keeps is
+   queued in the same pass, `waiting`, however many already wait.
+4. **The deep dive.** A node pulls (「A node pulls」): the daemon asks agency for places of the search line's
+   role, and only once a place is let in takes the next item from the queue and starts its run on that
+   place, so as many deep dives run as the role's cap lets in and the arbiter grants cards for. The item
+   becomes a research run on kakia's road at the exhaustive depth, asked as a manual where the thing is a model, an engine, a
    dataset or a tool, and as an investigation where it is a claim or an event. The run's question is the
    item's name, its maker's address and where it came from — the source that found it, the owner's ask, or
    the earlier research a follow-up continues — with the shape named, so the runner's research rulebook
@@ -103,12 +105,44 @@ sources ──scan──▶ candidates ──new?──▶ queue (cap) ──slo
    the arbiter is the job's last step, on the owner's word in the item. The daemon takes no part in it
    beyond its own runs waiting while the bench holds the engine they need (「The engine a run needs」).
 
+## A node pulls
+
+- **The queue is a line the nodes take from.** An item stands `waiting` until a place of the search line's
+  role is let in for it; only then is it taken and its try started on that place, and it stands `running`
+  only while its run holds the place. While no place is let in, nothing is taken, however many items wait,
+  so the daemon's tries running are never more than the role's cap.
+- **A place is a slot of the search line's role asked before any item is taken.** It is asked under a
+  request key of its own and the daemon's places' owner, on the road of the categories it may take from,
+  and names no item.
+- **The daemon asks one place for each try it may start.** On each road the running categories go out on,
+  it asks as many places as that road has tries due — each waiting or stuck item whose retry is due, and a
+  brief's whole gathering once it is due — less the places already waiting on that road, and never more,
+  across every road, than the role's cap less the places it holds or waits for. The cap is agency's, read
+  from the role as each pull is made; nothing of this unit sets it.
+- **A place on a watched road asks its card first** (「The engine a run needs」), then its slot standing on
+  that card, and waits in agency's line however long the line takes.
+- **A place let in takes the next try on its road:** of the running categories on that road with a try
+  due, the one whose turn it is (「Categories」), its next item or its gathering; the try's run starts on
+  the place's slot and card and asks none of its own. A place let in when its road has nothing left to take
+  gives its slot and its card back.
+- **A place whose road has no try due any longer gives itself back** while it waits: every category on the
+  road stopped, or the items it was asked for dismissed or taken by the places before it.
+- **The pull wakes on an event, never on a clock:** a place let in, an item arriving in the queue (a scan
+  that queued items, an ask, an item asked again or moved to the front, a category resumed) and a try's run
+  ending. An item whose retry wait has ended is found by the scan's pass, which pulls as it ends; the scan
+  keeps its cadence, which paces the reading of the sources and bounds nothing.
+- **A room's research asks its own slot** when it is asked and waits in agency's line beside the daemon's
+  places (`docs/runner.md`, 「One run, step by step」); the daemon counts no room's run among its places.
+- **A restart gives every place back:** the daemon releases everything its places' owner holds of agency
+  as it starts, and every demand its store holds (「The engine a run needs」), so each item stands `waiting`
+  or as its try left it (「Nothing is given up」).
+
 ## Categories
 
 Research is done by category: each source belongs to one, and the category says why the daemon reads
-it, what a deep dive of its items produces, where the report goes and how much of the queue it may
-hold. A category is a registration (`docs/settings.md`): its name, its purpose in a line, its report
-shape, its cap, its cadence, its road, and its report rooms. Three stand at the start:
+it, what a deep dive of its items produces and where the report goes. A category is a registration
+(`docs/settings.md`): its name, its purpose in a line, its report shape, its cadence, its road, and its
+report rooms. Three stand at the start:
 
 | Category | Purpose | What a deep dive produces | What follows |
 |---|---|---|---|
@@ -126,12 +160,13 @@ shape, its cap, its cadence, its road, and its report rooms. Three stand at the 
   past what the exposure judgement needs. A reported item says which hosts and repositories it touches.
 - **The economy category keeps facts.** Each brief's figures (an index, a rate, a price, a release) are
   written to the store with their source and date, so a later system reads a series, not documents.
-- **Each category has its own cap, cadence, road and rooms,** and a category can be stopped alone. The
-  owner's private room is every category's first room.
-- **The categories take turns at `concurrency`.** Of the running categories with a try due, the next try
-  goes to the one whose last try was asked longest ago, one never tried first; an item's priority orders its
-  own category's part of the queue and never another's. So one category's flood, or a string of asks in it,
-  never starves another (`docs/api.md`, 「queue」).
+- **Each category has its own cadence, road and rooms,** and a category can be stopped alone; a stopped
+  category's items stay in the queue and no place takes them. The owner's private room is every category's
+  first room.
+- **The categories take turns at each place let in.** Of the running categories on the place's road with a
+  try due, the place goes to the one whose last try was asked longest ago, one never tried first; an item's
+  priority orders its own category's part of the queue and never another's. So one category's flood, or a
+  string of asks in it, never starves another (`docs/api.md`, 「queue」).
 - **A category the owner adds later** needs a shape: one of the three above, or a new template under
   `prompts/` with its rulebook under `prompts/rules/`, named in `prompts/runner.toml`.
 
@@ -197,18 +232,18 @@ A source is a registration: a category, a kind, an address and, where the kind t
   arbiter service `lab-arena`, `flash-next-coder` on `lab-arena-coder`. Every such card can hold either, and
   which one stands on it is the arbiter's grant (bmo-lab-arena `docs/engines.md`). The daemon's runs go out
   on `flash-next`; their branches, and the verification job's co-workers, on `flash-next-coder`.
-- **A run asks for its engine before it starts.** For a category whose road is one of the engine watch's
-  registrations (`docs/settings.md`, `[engine]`), where the watch names a master, the daemon asks the
-  arbiter's master for one card of that registration's service, as the run's own, with the run as the work
-  it continues, and starts the run once a card is granted. The wait has no clock of the daemon's, and
-  neither has the run (`docs/runner.md`, 「Nothing of a run is clocked」). A category stopped while its run waits
-  takes the demand back and its items wait again, the try uncounted. The run's slot and sessions are asked with the demand's id, so agency asks none
-  of its own for them and places them on the granted card. The demand is held for the whole run and given
-  back when the run ends; the daemon gives back, at its start, every demand its store holds for a run no
-  longer under way.
-- **`concurrency` is how many deep dives the daemon asks for at once,** four to start with; how many run
-  is how many cards the arbiter's one rule gives them. Each run's demand is an ordinary one, standing in the
-  line in the order it was asked like every other caller's.
+- **A place asks for its engine before its slot.** On a road that is one of the engine watch's
+  registrations (`docs/settings.md`, `[engine]`), where the watch names a master, a place (「A node pulls」)
+  asks the arbiter's master for one card of that registration's service, and asks its slot once a card is
+  granted. The wait has no clock of the daemon's, and neither has the run (`docs/runner.md`, 「Nothing of a
+  run is clocked」). A place whose road has no try due any longer gives the demand back, and no item was
+  taken for it. The slot is let in standing on the demand's id, and so are the run's sessions, so agency
+  asks no card of its own for them and places them on the granted card. The try the place takes holds the
+  demand as its run's for the whole run, and gives it back when the run ends; the daemon gives back, at its
+  start, every demand its store holds.
+- **The search line's role's cap is how many places the daemon asks at once;** how many run is how many
+  of them agency's line lets in and the arbiter's one rule gives cards. Each place's demand is an ordinary
+  one, standing in the line in the order it was asked like every other caller's.
 - **Nothing takes a run's engine from it but a bench or a claim.** A run holds its card until it ends; a
   demand for the other engine waits until then, however long the run takes. A bench or a claim stops the
   engine as the arbiter's lower tiers do; the run's turn in hand is cut, and its next turn waits for its
@@ -222,11 +257,11 @@ A source is a registration: a category, a kind, an address and, where the kind t
   fails after its demand's card was taken by a bench or a claim, or after the master stopped holding it, is
   the eviction's: its item waits again at once with the try uncounted. The words of the refusal are not
   read; the demand's answer is the evidence. A try's retries stand as they are.
-- **The owner hears of an engine that stays away:** a run's demand still waiting after
+- **The owner hears of an engine that stays away:** a place's demand still waiting after
   `restore_wait_minutes` is told to the owner's private room once; the demand goes on waiting.
-- **Why nothing runs is shown:** the state route answers each hold — the demand and its reason (the
-  engine starting, every card in use, a bench or a claim) — and the categories it holds, so the queue tool
-  and the console can say it.
+- **Why nothing runs is shown:** the state route answers each hold — the place's demand and its reason
+  (the engine starting, every card in use, a bench or a claim) — and the categories on its road, so the
+  queue tool and the console can say it.
 - **The verification is kakia's worker with its co-workers.** The notice for a `fit` item names that
   worker, and the chat agent files the item for it; its co-workers run on `flash-next-coder`, and its
   bench runs on the cards the arbiter grants it (「The bench lock」).
@@ -238,8 +273,8 @@ A source is a registration: a category, a kind, an address and, where the kind t
 - **Nothing is parked on a clock while what it waits for is away.** A try that ends because something it
   needs could not be reached or was taken away — agency down or restarted under the run, the run's slot or
   session no longer held, the arbiter's card taken or the master restarted, this unit's own restart — is
-  interrupted: uncounted, and asked again on the next pass, where it waits for its card or its slot however
-  long that takes. The evidence is the source of the failure — a call that did not reach its unit, a status
+  interrupted: uncounted, its items back in the queue `waiting` as they stood, where the next place let in
+  takes them up, however long that takes. The evidence is the source of the failure — a call that did not reach its unit, a status
   a unit answered, a demand's answer, the slot's finish — never the words of an error (`docs/api.md`, 「The
   deep dive」; `docs/runner.md`, 「A cut run」).
 - **A try that fails on its own content waits a short while,** `retry_minutes`, and is counted.
@@ -361,8 +396,7 @@ take; so its own area stays the research and the measurement, however many categ
 
 ## Settings and store
 
-- **Settings** (`docs/settings.md`): the listen address, the data folder, the cadence, the cap, the
-  concurrency, the model road, the retry and restore waits, the engine watch, the roles the runner's runs
+- **Settings** (`docs/settings.md`): the listen address, the data folder, the cadence, the model road, the retry and restore waits, the engine watch, the roles the runner's runs
   hold and their capabilities, the research settings' defaults, and the addresses and token files of agency,
   the tool host's control socket, the artifact service, the receiver and the arbiter's master, whose picture shows
   every node's card. Every address and token file is read from the files the other units already keep,
@@ -393,5 +427,5 @@ search run is shown `research/rulebook`, the reader of the rulebooks its record 
    at 2, the skill's bench steps on tickets, the n3–n6 rule in the daemon, the restore wait.
 3. **The runner is this unit's** (`docs/runner.md`): agency supplies slots and role sessions alone.
 4. **The engine a run needs:** each run asks the arbiter's master for its engine and holds it for the run,
-   the engine watch in place of the bench watch, concurrency as many as the arbiter grants, and a bench on
+   the engine watch in place of the bench watch, as many runs as the arbiter grants, and a bench on
    as many cards as it is granted.

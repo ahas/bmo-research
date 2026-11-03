@@ -79,10 +79,10 @@ links to.
    keeps the candidate as seen in the state `archived`. An archive that cannot be asked leaves the candidate
    unseen, so the next reading judges it again.
 4. **Otherwise the candidate is kept as seen,** `unqueued`, the moment it is judged.
-5. **A slot that frees** — fewer than its category's `cap` items `waiting` or `running` that the scan took
-   in — is filled from that category's `unqueued` seen rows, oldest found first, each becoming a `waiting`
-   item of the shape its category takes, and in a `manual-or-investigation` category the shape its item
-   kind takes (`docs/api.md`, 「The questions」). The queue never idles while a seen row waits.
+5. **Every `unqueued` seen row is queued** in the same pass, its category's oldest found first, each becoming
+   a `waiting` item of the shape its category takes, and in a `manual-or-investigation` category the shape
+   its item kind takes (`docs/api.md`, 「The questions」). The queue has no cap, so no seen row waits outside
+   it; a pass that queued an item pulls (`docs/design.md`, 「A node pulls」).
 
 ## What a reading leaves on its source
 
@@ -90,8 +90,8 @@ Every reading, whether it succeeds or fails, sets the source's `readAt` to its t
 `scanCount`; before the first reading `readAt` is null and the count 0.
 
 - **A reading that succeeds** sets `lastYield`, how many candidates it turned up that the filter let
-  through, and `lastTaken`, how many of those it kept as seen `unqueued`: new to the seen rows and not held
-  by the archive, so each waits for a slot in the queue. Both are null before a reading first succeeds.
+  through, and `lastTaken`, how many of those it kept as seen: new to the seen rows and not held by the
+  archive, so each is queued. Both are null before a reading first succeeds.
 - **A reading that fails** leaves `lastYield` and `lastTaken` as the last reading that succeeded set them.
 
 ## Failures

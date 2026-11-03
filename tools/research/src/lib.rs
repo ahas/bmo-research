@@ -346,9 +346,7 @@ async fn categories(client: &ResearchClient, arguments: &Value, is_owner: bool) 
       let lines: Vec<String> = page
         .items
         .iter()
-        .map(|c| {
-          format!("{} ({}, cap {}, {}): {}", c.name, c.shape.as_str(), c.cap, c.state.as_str(), c.purpose)
-        })
+        .map(|c| format!("{} ({}, {}): {}", c.name, c.shape.as_str(), c.state.as_str(), c.purpose))
         .collect();
       Ok(lines.join("\n"))
     }
@@ -361,7 +359,6 @@ async fn categories(client: &ResearchClient, arguments: &Value, is_owner: bool) 
           name: need_text(arguments, "name")?,
           purpose: need_text(arguments, "purpose")?,
           shape,
-          cap: arguments["cap"].as_i64(),
           cadence_minutes: arguments["cadenceMinutes"].as_i64(),
           gather_minutes: arguments["gatherMinutes"].as_i64(),
           provider: text(arguments, "provider"),
@@ -375,7 +372,6 @@ async fn categories(client: &ResearchClient, arguments: &Value, is_owner: bool) 
       let name = need_text(arguments, "name")?;
       let change = CategoryChange {
         purpose: text(arguments, "purpose"),
-        cap: arguments["cap"].as_i64(),
         cadence_minutes: arguments["cadenceMinutes"].as_i64(),
         gather_minutes: arguments["gatherMinutes"].as_i64(),
         provider: arguments["provider"].as_str().map(String::from),
@@ -383,8 +379,8 @@ async fn categories(client: &ResearchClient, arguments: &Value, is_owner: bool) 
       };
       let category = client.change_category(&name, &change).await?;
       Ok(format!(
-        "Category {} changed: cap {}, every {} minutes.",
-        category.name, category.cap, category.cadence_minutes
+        "Category {} changed: every {} minutes.",
+        category.name, category.cadence_minutes
       ))
     }
     "remove" => {

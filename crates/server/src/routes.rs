@@ -155,6 +155,7 @@ async fn patch_state(State(app): Shared, bytes: Bytes) -> Response {
   if let Err(refusal) = app.store.set_running(change.category_name.as_deref(), change.state) {
     return refused(refusal);
   }
+  app.places.wake();
   get_state(State(app)).await
 }
 
@@ -184,7 +185,7 @@ async fn create_category(State(app): Shared, bytes: Bytes) -> Response {
   if new.purpose.trim().is_empty() {
     return bad("a category needs a purpose");
   }
-  if [new.cap, new.cadence_minutes, new.gather_minutes].into_iter().flatten().any(|n| n < 1) {
+  if [new.cadence_minutes, new.gather_minutes].into_iter().flatten().any(|n| n < 1) {
     return bad("a category's numbers are 1 or more");
   }
   if new.gather_minutes.is_some() && new.shape != CategoryShape::Brief {
@@ -207,11 +208,7 @@ async fn patch_category(State(app): Shared, Path(name): Path<String>, bytes: Byt
     Ok(c) => c,
     Err(r) => return bad(r),
   };
-  if [change.cap, change.cadence_minutes, change.gather_minutes]
-    .into_iter()
-    .flatten()
-    .any(|n| n < 1)
-  {
+  if [change.cadence_minutes, change.gather_minutes].into_iter().flatten().any(|n| n < 1) {
     return bad("a category's numbers are 1 or more");
   }
   if change.gather_minutes.is_some()
@@ -220,7 +217,9 @@ async fn patch_category(State(app): Shared, Path(name): Path<String>, bytes: Byt
   {
     return bad("only a brief category gathers");
   }
-  answered(app.store.change_category(&name, &change), StatusCode::OK)
+  let changed = app.store.change_category(&name, &change);
+  app.places.wake();
+  answered(changed, StatusCode::OK)
 }
 
 async fn delete_category(State(app): Shared, Path(name): Path<String>) -> Response {
@@ -444,10 +443,9 @@ async fn create_ask(State(app): Shared, bytes: Bytes) -> Response {
     because: ask.because.as_deref().map(str::trim).filter(|b| !b.is_empty()).map(str::to_owned),
     parent,
   };
-  answered(
-    app.store.ask_from(&category.name, &address_key(address), name, address, shape, &asked),
-    StatusCode::CREATED,
-  )
+  let made = app.store.ask_from(&category.name, &address_key(address), name, address, shape, &asked);
+  app.places.wake();
+  answered(made, StatusCode::CREATED)
 }
 
 async fn get_item(State(app): Shared, Path(id): Path<String>) -> Response {
@@ -462,7 +460,7 @@ async fn patch_item(State(app): Shared, Path(id): Path<String>, bytes: Bytes) ->
     (Ok(i), Ok(c)) => (i, c),
     (Err(r), _) | (_, Err(r)) => return bad(r),
   };
-  match (change.state, change.front) {
+  let answer = match (change.state, change.front) {
     (Some(ItemState::Dismissed), None) => answered(app.store.dismiss(id), StatusCode::OK),
     (Some(ItemState::Taken), None) => match change.job_item_id {
       Some(job) => answered(app.store.take(id, job), StatusCode::OK),
@@ -477,7 +475,9 @@ async fn patch_item(State(app): Shared, Path(id): Path<String>, bytes: Bytes) ->
     },
     (None, Some(true)) => answered(app.store.front(id), StatusCode::OK),
     _ => bad("a change names a state, dismissed, taken or waiting, or front"),
-  }
+  };
+  app.places.wake();
+  answer
 }
 
 // runs

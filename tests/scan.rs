@@ -1,7 +1,7 @@
 //! The scan against stand-in sources and a stand-in archive (`docs/sources.md`): each kind asked as it
-//! states, the filter and the archive applied, each category's part filled to its cap, a source read no more
-//! often than its cadence, a failing source counted, what each reading leaves on its source, and a listing
-//! page read through a stand-in explorer.
+//! states, the filter and the archive applied, every candidate kept queued at once with no cap, a source
+//! read no more often than its cadence, a failing source counted, what each reading leaves on its source,
+//! and a listing page read through a stand-in explorer.
 
 use crate::support;
 
@@ -109,29 +109,22 @@ async fn a_scan_reads_every_kind_and_queues_what_is_new() {
 }
 
 #[tokio::test]
-async fn a_scan_fills_no_more_than_the_cap_and_keeps_the_rest_seen() {
+async fn a_scan_queues_every_candidate_it_keeps_with_no_cap() {
   let ground = support::ground(|_| {}).await;
   let store = &ground.app.store;
   let mut hub = source("it", "huggingface-trending", format!("{}/api/models", ground.sources), None);
   hub.limit = Some(10);
-  store.add_source(&hub, hub.address.as_deref().unwrap(), 10).unwrap();
-  let category = store.category("it").unwrap();
-  store
-    .change_category(
-      "it",
-      &bmo_research_client::CategoryChange {
-        cap: Some(2),
-        ..Default::default()
-      },
-    )
-    .unwrap();
+  let id = store.add_source(&hub, hub.address.as_deref().unwrap(), 10).unwrap().id;
   scan(&ground.app).await.unwrap();
-  assert_eq!(store.queue(Some("it"), &[], None, 50).unwrap().items.len(), 2);
+  let items = store.queue(Some("it"), &[], None, 50).unwrap().items;
+  let kept = store.source(id).unwrap().last_taken.unwrap();
+  assert!(kept > 2, "the reading kept more than a handful: {kept}");
+  assert_eq!(items.len() as i64, kept, "every candidate kept is queued");
+  assert!(items.iter().all(|item| item.state == ItemState::Waiting));
   assert_eq!(
     store.seen_state("huggingface.co/other-lab/tiny-vision-2b").unwrap().as_deref(),
-    Some("unqueued")
+    Some("queued")
   );
-  assert_eq!(category.cap, 5);
 }
 
 #[tokio::test]

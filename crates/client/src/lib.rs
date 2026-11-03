@@ -60,16 +60,17 @@ impl Running {
 pub struct CategoryState {
   pub category_name: String,
   pub state: Running,
+  /// its items in the queue for a place
   pub waiting_count: i64,
+  /// its items carried by a try whose run holds a place
   pub running_count: i64,
   /// its items whose page is finished before they are told
   pub finishing_count: i64,
   /// its items stuck past their retries, still asked on every retry wait
   pub stuck_count: i64,
-  pub cap: i64,
 }
 
-/// Why a run asked does not go out now: it waits for the arbiter to grant its engine's card.
+/// Why a place asked is not let in now: it waits for the arbiter to grant its engine's card.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "kebab-case")]
 pub enum HoldReason {
@@ -84,15 +85,16 @@ impl HoldReason {
   }
 }
 
-/// A run asked that waits for its engine now (`docs/api.md`, 「The engine」).
+/// A place asked that waits for its engine now (`docs/api.md`, 「The engine」).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Hold {
   pub reason: HoldReason,
-  /// the try that waits
-  pub run_id: i64,
-  pub category_name: String,
-  /// the registration the try's road goes out on
+  /// the request key of the place that waits
+  pub place: String,
+  /// the running categories on the place's road, whose tries it may take
+  pub category_names: Vec<String>,
+  /// the registration the place's road goes out on
   pub registration: String,
   /// the arbiter service whose card it waits for
   pub service_name: String,
@@ -110,7 +112,8 @@ pub struct Hold {
 }
 
 impl Hold {
-  /// The hold in one English line: which try waits for which service's card, and why where the master said.
+  /// The hold in one English line: which place waits for which service's card, for which categories, and why
+  /// where the master said.
   pub fn line(&self) -> String {
     let why = match (&self.cause_text, &self.cause) {
       (Some(text), _) if !text.trim().is_empty() => format!(": {}", text.trim()),
@@ -119,14 +122,16 @@ impl Hold {
     };
     let told = if self.reported { "; the owner's room was told it has not come" } else { "" };
     format!(
-      "run {} of {} waits for a {} card for {}{why}{told}",
-      self.run_id, self.category_name, self.service_name, self.registration
+      "a place for {} waits for a {} card for {}{why}{told}",
+      self.category_names.join(", "),
+      self.service_name,
+      self.registration
     )
   }
 }
 
-/// The daemon's state: stopped where every category is stopped, each category's, and the runs that wait for
-/// their engine.
+/// The daemon's state: stopped where every category is stopped, each category's, and the places that wait
+/// for their engine.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct DaemonState {
@@ -178,7 +183,6 @@ pub struct Category {
   pub name: String,
   pub purpose: String,
   pub shape: CategoryShape,
-  pub cap: i64,
   pub cadence_minutes: i64,
   /// for a `brief` category, how often its items are gathered into one run
   pub gather_minutes: Option<i64>,
@@ -198,8 +202,6 @@ pub struct NewCategory {
   pub purpose: String,
   pub shape: CategoryShape,
   #[serde(default, skip_serializing_if = "Option::is_none")]
-  pub cap: Option<i64>,
-  #[serde(default, skip_serializing_if = "Option::is_none")]
   pub cadence_minutes: Option<i64>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub gather_minutes: Option<i64>,
@@ -215,8 +217,6 @@ pub struct NewCategory {
 pub struct CategoryChange {
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub purpose: Option<String>,
-  #[serde(default, skip_serializing_if = "Option::is_none")]
-  pub cap: Option<i64>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub cadence_minutes: Option<i64>,
   #[serde(default, skip_serializing_if = "Option::is_none")]

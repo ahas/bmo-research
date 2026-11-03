@@ -1,5 +1,5 @@
-//! The research unit's daemon: its settings, its store, the source readers and the scan, the deep dive and
-//! its notices, the engine a run needs, the readings of a filed document and its Korean rendering, the research
+//! The research unit's daemon: its settings, its store, the source readers and the scan, the places the nodes
+//! pull the queue by, the deep dive and its notices, the engine a run needs, the readings of a filed document and its Korean rendering, the research
 //! runner with its branches, its documents and the tool host it reads, the routes and the OpenAPI document
 //! (`docs/api.md`).
 
@@ -13,6 +13,7 @@ pub mod engine;
 pub mod openapi;
 pub mod page;
 pub mod peers;
+pub mod pull;
 pub mod reading;
 pub mod review;
 pub mod routes;
@@ -33,8 +34,10 @@ pub struct App {
   /// The client the sources are read with, under the settings' `User-Agent`.
   pub http: reqwest::Client,
   pub token: String,
-  /// The tries waiting for their engine's card.
+  /// The places waiting for their engine's card.
   pub waits: engine::Waits,
+  /// The places asked and not yet holding a try, and what wakes the pull.
+  pub places: pull::Places,
   /// The pages being finished now.
   pub pages: dive::Pages,
   /// The last failure to file a stuck item's repair.
@@ -55,6 +58,7 @@ impl App {
       http,
       token,
       waits: engine::Waits::default(),
+      places: pull::Places::default(),
       pages: dive::Pages::default(),
       repairs: dive::Repairs::default(),
     })

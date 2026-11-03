@@ -67,21 +67,23 @@ the one to read.
 
 - **The state** answers `state` (`stopped` where every category is stopped, `running` otherwise),
   `changedAt` (the latest change of any category's state, null where none was changed) and `categories`,
-  each `categoryName`, `state`, `waitingCount`, `runningCount`, `finishingCount` (its items whose page is
-  finished before they are told), `stuckCount` (its items stuck, 「The repair」) and `cap`, and `holds`, the
-  runs asked that
-  wait for their engine now (「The engine」), each `reason` (`waiting-card`), `runId` (the try), its
-  `categoryName`, `registration`, `serviceName` (the arbiter service whose card it waits for), `demandId`
+  each `categoryName`, `state`, `waitingCount` (its items `waiting`, in the queue for a place),
+  `runningCount` (its items `running`, carried by a try whose run holds a place), `finishingCount` (its
+  items whose page is finished before they are told) and `stuckCount` (its items stuck, 「The repair」), and
+  `holds`, the places asked that wait for their engine now (「The engine」), each `reason`
+  (`waiting-card`), `place` (the place's request key), `categoryNames` (the running categories on the
+  place's road), `registration`, `serviceName` (the arbiter service whose card it waits for), `demandId`
   (null until the master has answered the ask), `cause` and `causeText` (the master's reason the card
   waits — `starting`, `in-use`, `held` or `start-failed` — and its sentence, null where it gave none),
   `since` (when the demand was asked) and `reported` (whether the owner's room was told the engine has not
-  come); empty where nothing waits.
-- **A run waiting for its card counts as running** against `concurrency`; its category's sources are read
-  and its part of the queue fills as ever.
-- **A stopped category starts no run** and its sources are not read; a run under way is waited on to its
-  end and reported as any other, and a run still waiting for its card gives its demand back and its items
-  go back as they stood, the try uncounted. `running` starts it again. A category's state outlives a restart; a
-  category starts running. A `categoryName` no category holds is 404 `not-found`.
+  come); empty where nothing waits. The queue has no cap, and none is answered.
+- **A place waiting for its card or its slot holds no item:** the items it may take stand `waiting` and
+  are counted so, and its category's sources are read and its part of the queue grows as ever.
+- **A stopped category starts no run** and its sources are not read; no place takes its items, which stay
+  `waiting`, and a place waiting on a road with no running category's try due gives itself back. A run
+  under way is waited on to its end and reported as any other. `running` starts it again, its items pulled
+  at once. A category's state outlives a restart; a category starts running. A `categoryName` no category
+  holds is 404 `not-found`.
 
 ### categories
 
@@ -90,10 +92,10 @@ the one to read.
 | GET | `/categories` | The categories by name. |
 | POST | `/categories` | Register a category; 201 with the category, its first recipient the owner's private room. |
 | GET | `/categories/{categoryName}` | One category. |
-| PATCH | `/categories/{categoryName}` | Change `purpose`, `cap`, `cadenceMinutes`, `gatherMinutes`, `provider` or `model`. |
+| PATCH | `/categories/{categoryName}` | Change `purpose`, `cadenceMinutes`, `gatherMinutes`, `provider` or `model`. |
 | DELETE | `/categories/{categoryName}` | Take a category away with its recipients; 204. |
 
-- **A category** (`docs/design.md`, 「Categories」) is `name`, `purpose` (a line), `shape`, `cap`,
+- **A category** (`docs/design.md`, 「Categories」) is `name`, `purpose` (a line), `shape`,
   `cadenceMinutes` (how often its sources are read where a source names no cadence of its own),
   `gatherMinutes` (for a `brief` category, how often its items are gathered into one run; null for the
   others), `provider` and `model` (its road, null where the settings' `road` stands), `state`
@@ -102,11 +104,11 @@ the one to read.
   each item as a manual or an investigation by its kind; `advisory`, each item as a security advisory
   judged against the stack (「stack」); `brief`, every waiting item of the category gathered into one brief
   once `gatherMinutes` have passed since the last.
-- **Three stand from the store's first start:** `it` (`manual-or-investigation`, cap 5), `security`
-  (`advisory`, cap 3) and `economy` (`brief`, cap 30, gathered every 1440 minutes), each read every 60
+- **Three stand from the store's first start:** `it` (`manual-or-investigation`), `security`
+  (`advisory`) and `economy` (`brief`, gathered every 1440 minutes), each read every 60
   minutes, on the settings' road, with no source. A category taken away is not brought back.
 - **A new category** names `name` (a lower-case letter, then lower-case letters, digits and `-`, at most 32),
-  `purpose` and `shape`, and may name `cap` (5 where it names none), `cadenceMinutes` (60), `gatherMinutes`
+  `purpose` and `shape`, and may name `cadenceMinutes` (60), `gatherMinutes`
   (1440 for a `brief` category, refused for another), `provider` and `model`. A name taken is 409
   `conflict`; a shape outside the three, or a number below 1, is 400 `bad-request`.
 - **A change** leaves out what it keeps; an empty `provider` or `model` gives the settings' road back.
@@ -138,7 +140,7 @@ the one to read.
 - **What its readings left** (`docs/sources.md`, 「What a reading leaves on its source」): `readAt` is the
   last reading's time, null before the first; `scanCount` counts every reading, failed or not;
   `lastYield` is how many candidates the last reading that succeeded turned up past the filter, and
-  `lastTaken` how many of them it kept as new, each waiting for a slot in the queue, both null before a
+  `lastTaken` how many of them it kept as new, each queued, both null before a
   reading first succeeds; `failureCount` counts the readings that failed since the last that did not, and
   `lastError` is the last reading's failure sentence, null when the last reading succeeded.
 
@@ -190,14 +192,15 @@ the one to read.
   `foundAt` from oldest, then `id`. Between categories, the categories take turns: of those running with a
   try due (an item whose retry is due, or a brief's gathering that is due, 「The deep dive」), the next try
   goes to the one whose last try was asked longest ago, one never tried first, and the try it starts makes
-  it the latest. `priority` orders a category's own items and never crosses into another's turn, so no
-  category's flood, nor its asks, starves another of `concurrency`. `GET /queue` answers the running items,
+  it the latest. A place let in (「The deep dive」) takes the next try of the categories on its road in
+  this order. `priority` orders a category's own items and never crosses into another's turn, so no
+  category's flood, nor its asks, starves another of the places. `GET /queue` answers the running items,
   then the waiting and stuck ones in their category's order, then the rest newest first; `after` continues
   past the named item's place in it.
-- **The cap.** A category's part of the queue holds at most its `cap` items `waiting` or `running` that the
-  scan took in, a stuck item not among them; an ask is never refused for the cap. A slot that frees is
-  filled from the category's seen
-  candidates no item stands for, oldest first (`docs/sources.md`, 「From a candidate to an item」).
+- **No cap.** The queue holds every item the scan takes in and every ask, however many, whole and per
+  category: a seen candidate no item stands for is queued `waiting` in the pass that keeps it, oldest first
+  (`docs/sources.md`, 「From a candidate to an item」). An item is `waiting` until a place takes it and
+  `running` only while its try's run holds that place (「The deep dive」).
 - **An ask** names `name` and `address`, and may name `categoryName` (`it` where it names none) and `shape`
   (`manual` or `investigation`, for a `manual-or-investigation` category alone; `manual` where it names
   none); it is queued at once with `asked` true and a `priority` of 1, above every item a scan took in (0).
@@ -237,7 +240,8 @@ the one to read.
   asked for; a brief's first item), `itemIds` (every item it carries: one, or a brief's whole gathering),
   `try` (counted from 1), `runId` (the research run, null where the ask was refused), `state`
   (`running`, `closed`, `refused`, `cut` or `failed`), `outcome` (the research run's, as it closed),
-  `error`, `startedAt` and `endedAt`.
+  `error`, `startedAt` and `endedAt`. A try is opened only once a place is let in for it (「The deep
+  dive」), so a `running` try is one whose run holds or is about to take its place's slot.
 
 ### recipients
 
@@ -363,12 +367,29 @@ the one to read.
 
 ## The deep dive
 
-- **`concurrency` tries at once at most,** across the running categories, each waiting for its engine first
-  where its road is watched (「The engine」). A try asks the runner
+- **A node pulls** (`docs/design.md`, 「A node pulls」). Each pull counts the tries due on each road the
+  running categories go out on — each waiting or stuck item whose retry is due, a brief's gathering once it
+  is due — and asks one place for each that no place already waiting covers, never more across every road
+  than the cap agency's `GET /roles/{role}` answers for the search line's role (`maxConcurrent`) less the
+  places the daemon holds or waits for; a role that cannot be read asks none, said in the log once while
+  the failure stays the same. A place is a slot asked with `requestKey` `research:place:<key>`, a key drawn
+  for it, `owner` `research:places`, `role` the search line's role, `source` the line, and the road's
+  `provider` and `model` (「Calls this unit makes」), its card asked first where the road is watched
+  (「The engine」), then asked for its place however long the line takes. Once it is let in it takes the
+  next try on its road in the queue's order (「queue」) and opens the try with it; one let in with nothing
+  left to take is given back, cancelled, with its card. One that waits while its road has no try due gives
+  itself back the same way. A place agency gives no slot — agency not reached, failing on its side, or
+  refusing what was asked — takes no item and opens no try, its card given back; it is said in the log once
+  while the failure stays the same, and the next pull asks again. A pull is made on an event: a place let in, a scan's pass, an ask, an item asked
+  again or moved to the front, a category resumed, and a try's run ending.
+- **A try runs on its place.** It asks the runner
   (「research runs」, `docs/runner.md`) for a research run at the settings' `road.key`, on the category's
   provider and model (the settings' `road` where it names none), with the question its shape takes (「The
-  questions」) and no room, keeps the run's id on its items and its run row, and reads the run's row every
-  `poll_seconds` until its `state` is `closed`. A run the deep dive asks tells no room itself.
+  questions」), no room and the place's slot and demand, which the run stands on and asks none of its own
+  for (`docs/runner.md`, 「One run, step by step」), keeps the run's id on its items and its run row, and
+  reads the run's row every `poll_seconds` until its `state` is `closed`. A run the deep dive asks tells no
+  room itself. A try that asks no run — one that takes up a document an earlier run filed — gives its
+  place's slot back, cancelled, as it starts.
 - **The run is held to its shape:** the try hands the runner the section headings its item's shape holds
   (`prompts/document.toml`, `[sections]`), and the runner files the result as a page only where it is whole:
   its head lines, its body opening with the answer, the opening section saying what the subject is where
@@ -382,8 +403,8 @@ the one to read.
   「One run, step by step」), a run that closed `cut` (this unit's restart, or agency failing or no longer
   holding the run's slot or session, `docs/runner.md`, 「A cut run」), or a try of a watched road whose card
   was taken or no longer stands (「The engine」). It is not counted toward `retries`, and its items go back
-  as they stood — `waiting`, or `stuck` — with no retry wait (`retryAt` null), so the next pass of the loop
-  asks them again; a watched road's try waits there for its card however long that takes. Its error stays
+  as they stood — `waiting`, or `stuck` — with no retry wait (`retryAt` null), and a pull is made, so the
+  next place let in takes them again, however long that takes. Its error stays
   on the items and on its try's row, saying what went away and that the try is not counted.
 - **A failed try** is one that ended on its own content: the runner refusing the ask 400, 500 or 502 (an ask
   of the wrong shape, the runner's own failure, agency refusing what was asked), or a closed run with no
@@ -391,15 +412,17 @@ the one to read.
   that wrote nothing while its slot stood. It counts toward `retries`: its items wait again with `retryAt`
   `retry_minutes` ahead. A failed try that takes the lead's tries past `retries` puts its items `stuck`
   (「The repair」), and every recipient of the category is told so once.
-- **A brief** gathers every waiting or stuck item of its category whose retry is due, at most its `cap`,
-  into one run, once its category's `gatherMinutes` have passed since the last of its tries that filed its
+- **A brief** gathers every waiting or stuck item of its category whose retry is due into one run, once its category's `gatherMinutes` have passed since the last of its tries that filed its
   document was asked (at once where none has). A try of it that was interrupted or failed has filed nothing,
-  so the gathering stays due: an interrupted one is asked again on the next pass, as any interrupted try
-  is, and a failed one once its retry wait ends, the gathering waiting while any item of it still waits on a
+  so the gathering stays due: an interrupted one is taken again by the next place let in, as any
+  interrupted try is, and a failed one once its retry wait ends, the gathering waiting while any item of it still waits on a
   retry so the items are not split.
 - **A daemon that starts** closes every research run it left open as `cut` (`docs/runner.md`, 「A
-  restart」), then takes up every try it left `running`: one with a run id is read again, and ends as a
-  cut run's try, interrupted; one without puts its items back as they stood, uncounted. A page it left
+  restart」) and gives back everything `research:places` holds of agency, every place it had asked, let in
+  or waiting, then takes up every try it left `running`: one with a run id is read again, and ends as a
+  cut run's try, interrupted; one without puts its items back as they stood, uncounted. Each item cut so
+  stands `waiting` again, or `stuck` where its tries already passed `retries`, for the places its first
+  pull asks. A page it left
   `finishing`, or with a part pending, is asked again on its retry wait as any pending page is (「The page」).
 - **A filed document's page is finished before it is told** (「The page」): its items are filed `finishing`
   first, the page read from the run's result as the ledger keeps it (`written`, drawn as the runner drew
@@ -439,12 +462,12 @@ the one to read.
 
 - **What is watched** is the settings' `[engine]` (`docs/settings.md`): the arbiter master's address, the
   provider, and each registration on it with the arbiter service its engine is. A master address left
-  empty watches nothing: no demand is asked and every try goes out as soon as a slot frees.
-- **A try of a watched road asks its card first:** the master's `POST /demands` with `serviceName` the
-  service its road's registration maps to, `count` 1, `workKey` `research:run:<runId>` and `ref` naming
-  the try and its item, kept in the store (`docs/store.md`, `demands`). The try is asked of the runner
-  only once the demand is `granted`, read with `GET /demands/{demandId}` and its answer held open; it waits
-  however long that takes, the hold in `GET /state` saying why. A demand the master no longer holds is
+  empty watches nothing: no demand is asked and every place asks its slot at once.
+- **A place on a watched road asks its card first:** the master's `POST /demands` with `serviceName` the
+  service its road's registration maps to, `count` 1, `workKey` `research:place:<key>` and `ref` naming the
+  place, kept in the store (`docs/store.md`, `demands`). Its slot is asked only once the demand is
+  `granted`, read with `GET /demands/{demandId}` and its answer held open; it waits however long that
+  takes, the hold in `GET /state` saying why. The try the place takes keeps the demand as its own. A demand the master no longer holds is
   asked again; a master that cannot be reached is asked again on the next pass, and said in the log once
   while the failure stays the same.
 - **The demand is held for the whole run** and handed to it: the run's slot and its sessions stand on it,
@@ -453,15 +476,16 @@ the one to read.
   as the try ends where it ends sooner, however it ends; a pass of the loop gives back any demand whose try
   has ended or whose branch's run has closed. A daemon that starts gives back every
   demand its store holds, since no run it asked is still under way.
-- **A try whose category is stopped** while it waits for its card gives its demand back, ends `failed`
-  with its `error` saying so, and its items go back as they stood with the try not counted.
+- **A place whose road has no try due** while it waits for its card gives its demand back and asks no
+  slot; no item was taken for it.
 - **A failed try of a watched road is interrupted** where its demand, read as the try fails, names a
   claimant or a lower tier that took its card (`taken`), no longer stands granted, is no longer held by the
   master (404, as after the master's restart), or cannot be read because the master cannot be reached.
   Such a try ends in its state with its `error` saying which, and its items go back as they stood at once,
   the try not counted (「The deep dive」). The words of the failure are not read.
-- **An engine that does not come:** a try still waiting for its card `restore_wait_minutes` after its demand
-  was asked is told to the owner's private room once (「The notices」, `restore`); it goes on waiting.
+- **An engine that does not come:** a place still waiting for its card `restore_wait_minutes` after its
+  demand was asked is told to the owner's private room once (「The notices」, `restore`); it goes on
+  waiting.
 
 ### The questions
 
@@ -741,7 +765,7 @@ search runner applies it, and the run writes its document in English, the questi
   share link and the plan's place. Workers read English, which the page's switch shows them. The
   category's recipients are told the whole; a repository no stack row names a worker for is heard by them
   alone.
-- **An engine that does not come** is told to the owner's private room alone, once per waiting try, with
+- **An engine that does not come** is told to the owner's private room alone, once per waiting place, with
   `restore`, the registration, its service and the minutes waited set in, under the kind
   `research-restore:<registration>`.
 - **A recipient that refuses** is said in the log and kept as a report row in the state `refused`; the
@@ -807,31 +831,33 @@ of these units, and reads each one's address and token from that unit's own file
 `env/`, named by the settings (`docs/settings.md`, 「Peers」).
 
 - **agency:** `POST /slot-requests` with `requestKey`, `owner`, `role` and `source`, and `provider` and
-  `model` together where the slot's road is named — a run's where its ask names a model, a branch's and a
-  review's the run's road — a run's, a branch's or a review's slot, answered with its `token` and `state` and,
+  `model` together where the slot's road is named — a run's where its ask names a model, a place's its
+  road's, a branch's and a review's the run's road — a run's, a place's, a branch's or a review's slot,
+  answered with its `token` and `state` and,
   once let in, the `provider`, `model` and `effort` it goes out on, or 422 once its key was spent; a notice's
   slot names `path` and `placeKey` beside them (「The notices」). `PATCH /slot-requests/{token}` naming no state
   (its place asked for, answered with the request's `state`: asked again while it is `waiting` or `reserved`,
   let in with `request` once it is `active`, and never asked again once it is `released` or `cancelled`, its
   `endedBy` and `outcome` saying who gave it back and why) or `finished` with `outcome`, and `cancel` where it
   never ran, a finish answered `held` false where agency gave the slot back first; this unit binds no slot
-  itself (`docs/runner.md`, 「The slots' children」); an admission of a slot whose run or branch holds a card
-  names `demandId`, that card's demand id, the slot standing on it with no card of its own asked. `POST
+  itself (`docs/runner.md`, 「The slots' children」); an admission of a slot whose place, run or branch holds
+  a card names `demandId`, that card's demand id, the slot standing on it with no card of its own asked. `POST
   /sessions` with `scope` `role` and `slot`, the token of the active slot the session runs on, and beside them
   `line`, `systemPrompt`, `labels` and `toolsAllowed` for a run's, a branch's or a review's, and `demandId`
   where its run or branch holds a card; never a role, a provider, a model, a folder or `boundMs`, the session
   running as the slot's role on its road at its path, and agency binding the slot to it where the slot is
   bound to no session yet. Answered with the session's `id`, `<role>@run:<n>`, or 422 `slot-not-active` or
   `contradicts-slot`, or 503 `line-not-carried`. `DELETE /slot-requests?owner=`, at the daemon's start, for
-  the owner of each run it closes and of each run or notice its store still holds something under
-  (`research:<run>`, `research:notice:<itemId>`), answered with the counts given back and `sessionsEnded`, the
+  the daemon's places, `research:places`, and for the owner of each run it closes and of each run or notice
+  its store still holds something under (`research:<run>`, `research:notice:<itemId>`), answered with the counts given back and `sessionsEnded`, the
   sessions agency ended (`docs/runner.md`, 「A restart」). `POST /sessions/{id}/turns` with `prompt` and the
   turn's own parts (`resume`, `name`, `title`, `chat`, `hearsWords`, `variables`), its road, effort and folder
   the session's, answered once the turn ends with its `answer`, or 409 `session-busy` while an earlier turn of
   the session still runs: `GET /sessions/{id}` is then read every two seconds until its `run` is null, and the
   turn sent again (`docs/runner.md`, 「A turn's send」). `DELETE /sessions/{id}`, the session ended, answered
   409 while its turn runs. `GET /roles`, the roles a branch role is checked against; `GET /roles/{roleName}`,
-  the order a run naming a model alone reads its provider off; `GET /repositories/{repositoryName}`, the
+  the order a run naming a model alone reads its provider off, and the `maxConcurrent` a pull reads the
+  search line's role's cap from; `GET /repositories/{repositoryName}`, the
   checkout a notice to an agent runs at. No call of the slot and session routes carries a clock of this
   unit's, a turn's send among them: each is waited on until agency answers, however long a card it waits on
   takes and however long the turn writes. `POST /translation-runs` with `purpose`, `language`, `text`, `note`
