@@ -44,6 +44,8 @@ struct Waiting {
 pub struct Waits {
   waiting: Mutex<BTreeMap<String, Waiting>>,
   failure: Mutex<Option<String>>,
+  /// The runs a turn of which ended with its card taken: the evidence stands if its demand is granted again.
+  taken: Mutex<std::collections::BTreeSet<i64>>,
 }
 
 impl Waits {
@@ -90,12 +92,16 @@ pub async fn card(app: &App, place: &str, road: &Road, model: &Watched) -> Optio
       reported: false,
     },
   );
-  let ask = json!({
+  let mut ask = json!({
     "serviceName": model.service,
     "count": 1,
     "workKey": format!("research:place:{place}"),
     "ref": format!("research place {place}"),
   });
+  ask
+    .as_object_mut()
+    .expect("a demand is an object")
+    .extend(app.settings.engine.demand_terms());
   let mut held: Option<i64> = None;
   let granted = loop {
     if !pull::wanted(app, road) {
@@ -223,6 +229,9 @@ pub async fn give_back_left(app: &App) {
 /// its card or no longer stands granted, the master no longer holds it, or the master cannot be reached. A
 /// try holding no demand never is.
 pub async fn evicted(app: &App, try_id: i64) -> Option<String> {
+  if app.waits.taken.lock().unwrap().remove(&try_id) {
+    return Some("the engine's card was taken".into());
+  }
   let Ok(Some(id)) = app.store.try_demand(try_id) else {
     return None;
   };
@@ -232,6 +241,11 @@ pub async fn evicted(app: &App, try_id: i64) -> Option<String> {
     Ok(None) => Some(format!("the arbiter no longer holds the run's demand {id}")),
     Err(why) => Some(format!("the arbiter could not be asked for the run's demand: {why}")),
   }
+}
+
+/// The fact that a turn of the run ended with its card taken, kept for the try's end.
+pub fn card_taken(app: &App, run: i64) {
+  app.waits.taken.lock().unwrap().insert(run);
 }
 
 /// Why a branch got no card.
@@ -259,13 +273,17 @@ pub async fn branch_card(
   let Ok(Some(within)) = app.store.run_demand(run_id) else {
     return Ok(None);
   };
-  let ask: Value = json!({
+  let mut ask: Value = json!({
     "serviceName": model.service,
     "count": 1,
     "within": within,
     "workKey": format!("research:{run_id}:branch:{index}"),
     "ref": format!("research {run_id} branch {index}"),
   });
+  ask
+    .as_object_mut()
+    .expect("a demand is an object")
+    .extend(app.settings.engine.demand_terms());
   let mut held: Option<i64> = None;
   loop {
     if !crate::runner::runs(app, run_id) {

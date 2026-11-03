@@ -114,6 +114,12 @@ pub struct Engine {
   pub token: String,
   pub provider: String,
   pub models: Vec<Watched>,
+  /// The key every demand of this unit's work is asked under; empty names none.
+  pub pool: String,
+  /// The most cards of each engine that pool uses at once.
+  pub cards: u32,
+  /// The rank every demand of this unit's work is asked at; none takes the master's default.
+  pub rank: Option<u32>,
 }
 
 impl Default for Engine {
@@ -126,6 +132,9 @@ impl Default for Engine {
         registration: "flash-next".into(),
         service: "lab-arena".into(),
       }],
+      pool: "research".into(),
+      cards: 1,
+      rank: None,
     }
   }
 }
@@ -145,6 +154,27 @@ impl Engine {
       return None;
     }
     self.models.iter().find(|w| w.registration == model)
+  }
+
+  /// What a demand asked of the master carries of this unit's rank and pool.
+  pub fn demand_terms(&self) -> serde_json::Map<String, serde_json::Value> {
+    self.terms("rank", "pool")
+  }
+
+  /// What an ask of agency carries of this unit's rank and pool, for a demand agency asks for it.
+  pub fn agency_terms(&self) -> serde_json::Map<String, serde_json::Value> {
+    self.terms("cardRank", "cardPool")
+  }
+
+  fn terms(&self, rank: &str, pool: &str) -> serde_json::Map<String, serde_json::Value> {
+    let mut terms = serde_json::Map::new();
+    if let Some(value) = self.rank {
+      terms.insert(rank.to_owned(), value.into());
+    }
+    if !self.pool.trim().is_empty() {
+      terms.insert(pool.to_owned(), serde_json::json!({ "key": self.pool, "cards": self.cards }));
+    }
+    terms
   }
 }
 

@@ -67,8 +67,27 @@ fn places(ground: &Ground) -> Vec<Value> {
 }
 
 #[tokio::test]
-async fn two_places_run_two_items_the_third_waits_and_a_slot_given_back_pulls_it() {
+async fn a_watched_road_asks_no_more_places_than_its_pool_may_use() {
   let ground = support::ground(|_| {}).await;
+  {
+    let mut world = ground.world.lock().unwrap();
+    world.role_cap = 4;
+    world.lining = true;
+    world.held_runs.extend([1, 2]);
+  }
+  file_all(&ground, 1..=2);
+  for name in ["a", "b"] {
+    ask(&ground, "it", name, Shape::Investigation);
+  }
+  let started = tick(&ground.app).await;
+  assert_eq!(started.len(), 1, "one card of the engine, one place, whatever the role's cap");
+  assert_eq!(tick(&ground.app).await.len(), 0, "the place out counts until its try ends");
+  ground.world.lock().unwrap().held_runs.clear();
+}
+
+#[tokio::test]
+async fn two_places_run_two_items_the_third_waits_and_a_slot_given_back_pulls_it() {
+  let ground = support::ground(|s| s.engine.cards = 2).await;
   {
     let mut world = ground.world.lock().unwrap();
     world.role_cap = 2;

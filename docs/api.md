@@ -463,6 +463,8 @@ the one to read.
 - **What is watched** is the settings' `[engine]` (`docs/settings.md`): the arbiter master's address, the
   provider, and each registration on it with the arbiter service its engine is. A master address left
   empty watches nothing: no demand is asked and every place asks its slot at once.
+- **Every demand this unit's work asks stands in the engine watch's pool, at its rank:** `pool` and `rank` on the
+  master's `POST /demands`, `cardPool` and `cardRank` on agency's slot admissions and session starts.
 - **A place on a watched road asks its card first:** the master's `POST /demands` with `serviceName` the
   service its road's registration maps to, `count` 1, `workKey` `research:place:<key>` and `ref` naming the
   place, kept in the store (`docs/store.md`, `demands`). Its slot is asked only once the demand is
@@ -907,7 +909,7 @@ of these units, and reads each one's address and token from that unit's own file
   slice by slice, each slice waited on until the tool host answers it (`docs/sources.md`, 「A page」). No
   call of the control socket carries a clock of this unit's.
 - **the arbiter:** at the engine watch's master address, with its token where one is named (「The engine」):
-  `POST /demands` with `serviceName`, `count` 1, `workKey`, `ref` and, for a branch, `within`, answered with
+  `POST /demands` with `serviceName`, `count` 1, `workKey`, `ref`, the watch's `pool` and `rank` and, for a branch, `within`, answered with
   the demand (`id`, `state`, `taken`, `reason`); `GET /demands/{demandId}?waitMs=<ms>`, read until it is
   `granted`, a 404 asked again; `DELETE /demands/{demandId}`, given back, a 404 counted as given back. The
   bench lock of a verification is the job's; the daemon asks no ticket.

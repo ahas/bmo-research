@@ -589,8 +589,12 @@ pub async fn start_session(app: &App, run: i64, start: &Start<'_>) -> Result<Str
     "labels": { "research": start.record },
     "toolsAllowed": start.capabilities,
   });
-  if let Some(demand) = start.demand {
-    body["demandId"] = json!(demand);
+  match start.demand {
+    Some(demand) => body["demandId"] = json!(demand),
+    None => body
+      .as_object_mut()
+      .expect("a start is an object")
+      .extend(app.settings.engine.agency_terms()),
   }
   let session = app.peers.start_session(&body).await?;
   let _ = app.store.hold(run, SESSION, &session);
@@ -617,6 +621,9 @@ pub fn turn_body(prompt: &str, turn: &Turn<'_>) -> Value {
     "variables": {},
   })
 }
+
+// The ending of a turn agency stopped because the demand it stood on lost its card.
+const CARD_TAKEN: &str = "card-taken";
 
 // The lines a block opens a result's head with.
 const HEAD_LINES: [&str; 2] = ["ANSWERED:", "TITLE:"];
@@ -855,10 +862,29 @@ struct Road {
 
 /// The change that asks a waiting slot for its place, naming no state, standing on the demand its run or
 /// branch holds where it holds one, so agency asks no card of the slot's own.
-pub fn admission(demand: Option<i64>) -> Value {
+pub fn admission(demand: Option<i64>, terms: serde_json::Map<String, Value>) -> Value {
   match demand {
     Some(demand) => json!({ "demandId": demand }),
-    None => json!({}),
+    None => Value::Object(terms),
+  }
+}
+
+/// A turn sent into a session and answered once it ends, sent again for as long as it ends with its card taken:
+/// what such a turn wrote is unfinished, and agency holds the next until its demand is granted again
+/// (`docs/runner.md`, 「A turn's send」).
+pub async fn sent_turn(app: &App, run: i64, session: &str, body: &Value) -> Result<Value, Fault> {
+  loop {
+    let answered = app.peers.send_turn(session, body).await?;
+    if answered["ending"].as_str() != Some(CARD_TAKEN) {
+      return Ok(answered);
+    }
+    note(
+      app,
+      run,
+      "turn",
+      "The turn's card was taken: it is asked again once its card is granted again.",
+    );
+    crate::engine::card_taken(app, run);
   }
 }
 
@@ -1049,7 +1075,11 @@ async fn admitted(app: &App, going: &Going) -> Result<Slot, String> {
       return Err(why);
     }
     tokio::time::sleep(LOOK_EVERY).await;
-    match app.peers.move_slot(&slot.token, &admission(going.demand)).await {
+    match app
+      .peers
+      .move_slot(&slot.token, &admission(going.demand, app.settings.engine.agency_terms()))
+      .await
+    {
       Ok(said) => slot = slot.admission(&said),
       Err(fault) => {
         return Err(going.met(fault, "the run's slot could not be let in"));
@@ -1162,9 +1192,7 @@ async fn turn(app: &App, going: &Going, session: &str, name: &str, prompt: &str)
       chat: going.ask.room_id.unwrap_or(0),
     },
   );
-  let answered = app
-    .peers
-    .send_turn(session, &body)
+  let answered = sent_turn(app, going.run, session, &body)
     .await
     .map_err(|fault| going.met(fault, &format!("the turn {name} did not come back")))?;
   let text = written(&answered);
@@ -1369,7 +1397,10 @@ pub async fn review(app: &App, run: i64, prompt: &str) -> Result<String, String>
         return Err(slot.given_back("the review's slot request"));
       }
       tokio::time::sleep(LOOK_EVERY).await;
-      let said = app.peers.move_slot(&slot.token, &admission(None)).await;
+      let said = app
+        .peers
+        .move_slot(&slot.token, &admission(None, app.settings.engine.agency_terms()))
+        .await;
       match said {
         Ok(said) => slot = slot.admission(&said),
         Err(fault) => return Err(format!("the review's slot could not be let in: {fault}")),
@@ -1397,7 +1428,7 @@ pub async fn review(app: &App, run: i64, prompt: &str) -> Result<String, String>
         chat: 0,
       },
     );
-    let turned = app.peers.send_turn(started, &body).await;
+    let turned = sent_turn(app, run, started, &body).await;
     let _ = app.store.keep_research_turn(run, &name, None);
     let turned = turned.map_err(|fault| format!("the turn {name} did not come back: {fault}"))?;
     let text = written(&turned);

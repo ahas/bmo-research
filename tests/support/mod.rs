@@ -111,6 +111,8 @@ pub struct World {
   /// How many sends of a turn are answered busy, the session in a turn an earlier send lost, before one is
   /// carried.
   pub busy_turns: u32,
+  /// How many sends of a turn end `card-taken`, having written what is unfinished.
+  pub taken_turns: u32,
   /// How many reads of a session's state name a run going in it before one names none.
   pub turn_running_reads: u32,
   /// Whether the tool host lists no web tool.
@@ -746,6 +748,14 @@ async fn agency_turn(State(w): State<Shared>, method: Method, uri: Uri, body: By
         axum::Json(json!({"code": "session-busy", "error": "the session is in a turn"})),
       )
         .into_response();
+    }
+    if world.taken_turns > 0 {
+      world.taken_turns -= 1;
+      return axum::Json(json!({
+        "outcome": "stopped", "ending": "card-taken", "answer": "an unfinished sentence",
+        "reason": "the card was taken by a demand of a better rank",
+      }))
+      .into_response();
     }
   }
   research_turn(&w, asked["name"].as_str().unwrap_or_default()).await

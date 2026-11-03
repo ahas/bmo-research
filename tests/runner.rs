@@ -307,7 +307,7 @@ async fn a_slot_s_admission_answered_past_half_a_minute_still_lets_its_run_in() 
   let admissions = ground
     .asked_path("agency", "PATCH", "/slot-requests/slot-1")
     .into_iter()
-    .filter(|a| a.body == json!({}))
+    .filter(|a| a.body == json!({ "cardPool": { "key": "research", "cards": 1 } }))
     .count();
   assert_eq!(admissions, 2, "the slow admission waited on, then the one that let the slot in");
 }
@@ -640,7 +640,7 @@ async fn a_run_s_slot_given_back_while_it_waits_is_asked_no_more_and_the_run_is_
   let admissions = ground
     .asked_path("agency", "PATCH", "/slot-requests/slot-1")
     .into_iter()
-    .filter(|a| a.body == json!({}))
+    .filter(|a| a.body == json!({ "cardPool": { "key": "research", "cards": 1 } }))
     .count();
   assert_eq!(admissions, 1, "a request given back is asked for no more");
   assert!(ground.asked_path("agency", "POST", "/sessions").is_empty(), "no session is started");
@@ -675,7 +675,10 @@ async fn a_run_s_waiting_slot_is_asked_for_its_place_until_let_in_and_answered()
   let admissions: Vec<usize> = asked_agency
     .iter()
     .enumerate()
-    .filter(|(_, a)| a.path == "/slot-requests/slot-1" && a.body == json!({}))
+    .filter(|(_, a)| {
+      a.path == "/slot-requests/slot-1"
+        && a.body == json!({ "cardPool": { "key": "research", "cards": 1 } })
+    })
     .map(|(at, _)| at)
     .collect();
   assert!(admissions.len() >= 3, "asked for its place until let in: {admissions:?}");
@@ -1115,4 +1118,41 @@ async fn a_request_key_is_never_asked_again_once_its_slot_was_given_back() {
   distinct.sort();
   distinct.dedup();
   assert_eq!(distinct.len(), keys.len(), "every slot goes under a key of its own: {keys:?}");
+}
+
+#[tokio::test]
+async fn a_turn_whose_card_was_taken_is_sent_again_and_what_it_wrote_is_not_its_answer() {
+  let (ground, _base, client) = served().await;
+  ground.world.lock().unwrap().taken_turns = 2;
+  let asked = client
+    .ask_research(&ResearchRunAsk {
+      key: "search:basic".into(),
+      query: "Which engine serves Thing-7B fastest?".into(),
+      ..ResearchRunAsk::default()
+    })
+    .await
+    .unwrap();
+  let run = closed(&ground, asked.run_id).await;
+  assert_eq!(run.outcome.as_deref(), Some("answered"), "{:?}", run.error);
+  let sends = ground.turns_named(&format!("research-{}", asked.run_id));
+  assert!(sends.len() >= 3, "the turn stopped twice was sent a third time: {}", sends.len());
+  let said = ground.app.store.research_log(asked.run_id).unwrap();
+  assert!(said.iter().any(|line| line.text.contains("card was taken")), "{said:?}");
+}
+
+#[tokio::test]
+async fn a_session_with_no_demand_of_its_own_names_the_pool_to_agency() {
+  let (ground, _base, client) = served().await;
+  let asked = client
+    .ask_research(&ResearchRunAsk {
+      key: "search:basic".into(),
+      query: "Which engine serves Thing-7B fastest?".into(),
+      ..ResearchRunAsk::default()
+    })
+    .await
+    .unwrap();
+  closed(&ground, asked.run_id).await;
+  let started = sessions(&ground);
+  assert_eq!(started[0]["cardPool"], json!({ "key": "research", "cards": 1 }));
+  assert!(started[0].get("cardRank").is_none(), "no rank is named while the setting names none");
 }

@@ -241,22 +241,29 @@ A source is a registration: a category, a kind, an address and, where the kind t
   asks no card of its own for them and places them on the granted card. The try the place takes holds the
   demand as its run's for the whole run, and gives it back when the run ends; the daemon gives back, at its
   start, every demand its store holds.
-- **The search line's role's cap is how many places the daemon asks at once;** how many run is how many
-  of them agency's line lets in and the arbiter's one rule gives cards. Each place's demand is an ordinary
-  one, standing in the line in the order it was asked like every other caller's.
-- **Nothing takes a run's engine from it but a bench or a claim.** A run holds its card until it ends; a
-  demand for the other engine waits until then, however long the run takes. A bench or a claim stops the
-  engine as the arbiter's lower tiers do; the run's turn in hand is cut, and its next turn waits for its
-  card to be granted again.
+- **This unit uses at most one card of each engine,** the engine watch's `cards` (`docs/settings.md`), whoever
+  in it asks: the daemon's places, a room's research, a review, a branch. Every demand it asks, directly or through
+  agency's slots and sessions, stands in the watch's `pool`, and the arbiter's master holds that pool to its limit
+  (the arbiter's `docs/placement.md`, 「A pool」). A demand beyond it waits in the master's line with the limit as
+  its reason, holding nothing.
+- **The search line's role's cap is how many places the daemon asks at once,** and on a watched road never more
+  than the watch's `cards`; how many run is how many of them agency's line lets in and the arbiter's one rule
+  gives cards.
+- **A run's engine can be taken from it.** A bench or a claim stops the engine as the arbiter's lower tiers do; the
+  run's turn in hand is cut, and its next turn waits for its card to be granted again. A demand of a better rank
+  takes the card, stopping the engine only where it wants the other one: agency stops the turn in hand, its round is
+  asked again as soon as its card is granted again, and the run goes on with nothing else of it lost
+  (`docs/runner.md`, 「A turn's send」).
 - **A run's branch is asked within the run's demand.** A branch goes to any other card the arbiter can
   open for the Coder engine; only where every other card is in use is the run's own card lent to it, the
   run's engine standing down until the branch is finished, however long it takes, and coming back after
   two engine loads (bmo-lab-arena `docs/engines.md`, 「The self-swap」). The search task prompt states this
   as a rule (`prompts/search/task.md`).
 - **A try the arbiter cut is retried, not counted against its tries.** A try of a watched road that
-  fails after its demand's card was taken by a bench or a claim, or after the master stopped holding it, is
-  the eviction's: its item waits again at once with the try uncounted. The words of the refusal are not
-  read; the demand's answer is the evidence. A try's retries stand as they are.
+  fails after its demand's card was taken, whether or not the demand has been granted again by the time the try
+  ends, or after the master stopped holding it, is the eviction's: its item waits again at once with the try
+  uncounted. The words of the refusal are not read; the evidence is the demand's answer and a turn that ended
+  `card-taken`. A try's retries stand as they are.
 - **The owner hears of an engine that stays away:** a place's demand still waiting after
   `restore_wait_minutes` is told to the owner's private room once; the demand goes on waiting.
 - **Why nothing runs is shown:** the state route answers each hold — the place's demand and its reason

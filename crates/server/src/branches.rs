@@ -147,7 +147,11 @@ pub async fn open(app: Arc<App>, ask: BranchAsk) -> Result<BranchEnd, Refusal> {
       return Err(Refusal::Refused(NO_LONGER_RUNNING.into()));
     }
     tokio::time::sleep(runner::LOOK_EVERY).await;
-    match app.peers.move_slot(&slot.token, &runner::admission(held.demand)).await {
+    match app
+      .peers
+      .move_slot(&slot.token, &runner::admission(held.demand, app.settings.engine.agency_terms()))
+      .await
+    {
       Ok(said) => slot = slot.admission(&said),
       Err(fault) => {
         held.give_back("failed").await;
@@ -223,6 +227,6 @@ async fn let_in(
       chat: row.room_id.unwrap_or(0),
     },
   );
-  let turn = app.peers.send_turn(&session, &body).await.map_err(|fault| fault.why)?;
+  let turn = runner::sent_turn(app, row.id, &session, &body).await.map_err(|fault| fault.why)?;
   Ok(runner::written(&turn))
 }

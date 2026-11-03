@@ -30,6 +30,8 @@ pub type Road = (String, String);
 #[derive(Default)]
 pub struct Places {
   waiting: Mutex<BTreeMap<Road, i64>>,
+  /// The places out on each road, from their ask to their try's end.
+  out: Mutex<BTreeMap<Road, i64>>,
   wake: Notify,
   failure: Mutex<Option<String>>,
 }
@@ -119,10 +121,16 @@ pub async fn pull(app: &Arc<App>) -> Vec<JoinHandle<()>> {
   let mut waiting = app.places.waiting.lock().unwrap_or_else(|e| e.into_inner());
   let running = app.store.running_count().unwrap_or(i64::MAX);
   let mut held = running.saturating_add(waiting.values().sum::<i64>());
+  let mut out = app.places.out.lock().unwrap_or_else(|e| e.into_inner());
   for (road, tries) in due(app) {
+    // a watched road's places stay within the cards its engine's pool may use
+    let watched = app.settings.engine.model(&road.0, &road.1).is_some();
+    let limit = if watched { i64::from(app.settings.engine.cards) } else { cap };
     let asked = waiting.entry(road.clone()).or_default();
-    while held < cap && *asked < tries {
+    let on_road = out.entry(road.clone()).or_default();
+    while held < cap && *asked < tries && *on_road < limit {
       *asked += 1;
+      *on_road += 1;
       held += 1;
       let (app, road) = (app.clone(), road.clone());
       started.push(tokio::spawn(async move { place(app, road).await }));
@@ -142,18 +150,32 @@ pub async fn wakes(app: Arc<App>) {
 /// One place to its end: its card and its slot had, the next try on its road taken and carried on them, or
 /// both given back where its road has nothing left to take.
 async fn place(app: Arc<App>, road: Road) {
-  let handed = acquired(&app, &road).await;
+  carry_place(&app, &road).await;
+  let mut out = app.places.out.lock().unwrap_or_else(|e| e.into_inner());
+  if let Some(count) = out.get_mut(&road) {
+    *count -= 1;
+    if *count <= 0 {
+      out.remove(&road);
+    }
+  }
+  drop(out);
+  app.places.wake();
+}
+
+// A place's card and slot had, and its try carried on them to its end.
+async fn carry_place(app: &Arc<App>, road: &Road) {
+  let handed = acquired(app, road).await;
   let taken = {
     let mut waiting = app.places.waiting.lock().unwrap_or_else(|e| e.into_inner());
     let taken = handed.as_ref().and_then(|_| {
-      let (category, items) = dive::next(&app, &road)?;
+      let (category, items) = dive::next(app, road)?;
       let ids: Vec<i64> = items.iter().map(|item| item.id).collect();
       app.store.start_try(&category.name, &ids).ok().flatten().map(|(run, _)| run)
     });
-    if let Some(count) = waiting.get_mut(&road) {
+    if let Some(count) = waiting.get_mut(road) {
       *count -= 1;
       if *count <= 0 {
-        waiting.remove(&road);
+        waiting.remove(road);
       }
     }
     taken
@@ -166,13 +188,13 @@ async fn place(app: Arc<App>, road: Road) {
       if let Some(demand) = handed.demand {
         let _ = app.store.demand_tried(demand, run);
       }
-      dive::carry(app, run, None, Some(handed)).await;
+      dive::carry(app.clone(), run, None, Some(handed)).await;
     }
     None => {
-      runner::give_back_unrun(&app, &handed.slot.token, "the place was let in with no try left to take")
+      runner::give_back_unrun(app, &handed.slot.token, "the place was let in with no try left to take")
         .await;
       if let Some(demand) = handed.demand {
-        engine::give_back(&app, demand).await;
+        engine::give_back(app, demand).await;
       }
     }
   }
@@ -243,7 +265,11 @@ async fn admitted(app: &App, road: &Road, key: &str, demand: Option<i64>) -> Res
       return Err(None);
     }
     tokio::time::sleep(runner::LOOK_EVERY).await;
-    match app.peers.move_slot(&slot.token, &runner::admission(demand)).await {
+    match app
+      .peers
+      .move_slot(&slot.token, &runner::admission(demand, app.settings.engine.agency_terms()))
+      .await
+    {
       Ok(said) => slot = slot.admission(&said),
       Err(fault) => {
         runner::give_back_unrun(app, &slot.token, "the place's slot could not be let in").await;

@@ -167,6 +167,10 @@ run is this unit's.
 
 - **A turn is waited on until agency answers it,** however long the card its model needs takes to be granted
   — a voice, a bench or another run holding it — and however long the turn then writes.
+- **A turn whose card was taken** ends `card-taken` (agency's `docs/api.md`, 「sessions」). What it wrote is
+  unfinished and is not its answer: the same turn is sent again at once, whatever it wrote, and agency holds it until
+  the run's demand is granted again. The run keeps the fact, so a try that later fails is the eviction's
+  (`docs/design.md`, 「The engine a run needs」).
 - **A send answered 409 `session-busy`** finds its session still in a turn that an earlier send of this unit
   lost on the way, which agency carries to its end all the same. It waits for that turn's end: the session's
   state (`GET /sessions/{id}`) is read every two seconds until it names no run, and the turn is then sent

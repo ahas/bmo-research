@@ -104,6 +104,8 @@ async fn a_place_asks_its_card_first_and_its_try_stands_on_the_grant_and_gives_i
   );
   assert!(asked[0]["workKey"].as_str().is_some_and(|key| key.starts_with("research:place:")));
   assert!(asked[0].get("within").is_none_or(Value::is_null));
+  assert_eq!(asked[0]["pool"], serde_json::json!({ "key": "research", "cards": 1 }));
+  assert!(asked[0].get("rank").is_none(), "no rank is named while the setting names none");
   let demand = 4001;
   let all = ground.world.lock().unwrap().asked.clone();
   let first = |unit: &str, method: &str, path: &str| {
@@ -376,6 +378,37 @@ async fn a_try_failing_after_the_master_stopped_holding_its_demand_waits_again_u
   assert_eq!((waiting.state, waiting.tries, waiting.retry_at), (ItemState::Waiting, 0, None));
   let error = waiting.error.unwrap();
   assert!(error.contains("no longer holds") && error.contains("not counted"), "{error}");
+}
+
+#[tokio::test]
+async fn a_try_failing_after_its_card_was_taken_and_granted_again_waits_again_uncounted() {
+  let ground = support::ground(|s| s.retry_minutes = 60).await;
+  let item = ask(&ground, "a");
+  {
+    // One turn ends with its card taken; the demand stands granted again by the time the try fails.
+    let mut world = ground.world.lock().unwrap();
+    world.failing.insert(1);
+    world.taken_turns = 1;
+  }
+  for handle in tick(&ground.app).await {
+    handle.await.unwrap();
+  }
+  let waiting = ground.app.store.item(item).unwrap();
+  assert_eq!((waiting.state, waiting.tries, waiting.retry_at), (ItemState::Waiting, 0, None));
+  let error = waiting.error.unwrap();
+  assert!(error.contains("card was taken") && error.contains("not counted"), "{error}");
+}
+
+#[test]
+fn the_terms_name_only_what_the_settings_hold() {
+  let mut engine = research_server::config::Engine::default();
+  assert_eq!(
+    serde_json::Value::Object(engine.agency_terms()),
+    serde_json::json!({ "cardPool": { "key": "research", "cards": 1 } })
+  );
+  engine.rank = Some(2);
+  engine.pool = String::new();
+  assert_eq!(serde_json::Value::Object(engine.demand_terms()), serde_json::json!({ "rank": 2 }));
 }
 
 #[tokio::test]
