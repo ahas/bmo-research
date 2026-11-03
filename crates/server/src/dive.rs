@@ -1380,7 +1380,10 @@ pub async fn repair(app: &App) {
       Ok(job_item) => {
         app.repairs.filed();
         let ids: Vec<i64> = group.iter().map(|item| item.id).collect();
-        eprintln!("bmo-research: item {} is stuck; repair {job_item} was filed for the repair worker", ids[0]);
+        eprintln!(
+          "bmo-research: item {} is stuck; repair {job_item} was filed for the repair worker",
+          ids[0]
+        );
         let _ = app.store.keep_repair(&ids, job_item);
       }
       Err(why) => app.repairs.failed(why),
