@@ -167,7 +167,7 @@ the one to read.
   review's fixes not yet applied; empty where it lacks nothing), `pendingRetryAt` (when
   that is asked again, null where nothing is pending), `fit`, `touches` (the hosts and repositories an
   advisory names), `plan` (the heading of the document's plan section, as the document holds it),
-  `jobItemId` (the job item the chat agent filed for it), `repairItemId` (the job item filed for the helper
+  `jobItemId` (the job item the chat agent filed for it), `repairItemId` (the job item filed for the repair worker
   while it is stuck, 「The repair」; null where none was), `error` (why its latest try failed or was
   interrupted: that try's outcome, not how the item stands now; null while a try is under way and after one
   that filed its document, until that document is gone, which it then names; 「The page」), `errorAt` (when
@@ -184,7 +184,7 @@ the one to read.
   its run has filed its document and while its page is not yet whole, `pending` naming what it waits on and
   nobody told of it yet (「The page」); `reported` once its whole page is told to its category's
   recipients, or `fit` where the document asks the owner's word (「The fit」); `stuck` once its failed
-  tries pass `retries`, still asked again on every retry wait while the helper is asked to fix the cause
+  tries pass `retries`, still asked again on every retry wait while the repair worker is asked to fix the cause
   (「The repair」); `taken` once the chat agent filed the work it calls for; `dismissed` on the owner's
   word. No count of tries gives an item up: dismissal is the one way an item leaves the queue unreported. A
   dismissed item's key stays seen, so nothing turns it up again.
@@ -441,15 +441,15 @@ the one to read.
 - **A stuck item is still asked:** on every retry wait, as a waiting item is, its tries counted on. It
   leaves `stuck` once a try files its document, once it is asked again (「queue」, `state` `waiting`), or
   once the owner dismisses it.
-- **The helper is asked to fix the cause.** Each pass of the loop files, before it starts its tries, one
+- **The repair worker is asked to fix the cause.** Each pass of the loop files, before it starts its tries, one
   repair item in the job service for the stuck items of each research run that hold none — one for the
   items a stuck brief gathered, one for each item stuck with no run — and keeps the job item's number on
   each as `repairItemId`. The item is `POST /items` with the settings' `[job]` `queue`, `assignee` and
-  `labels` (`docs/settings.md`, 「Peers」): the helper as its worker, under a label the deployment's job
+  `labels` (`docs/settings.md`, 「Peers」): the settings' assignee as its worker, the research unit's own by default, under a label the deployment's job
   service opens unattended, so it needs no approval. Its title and brief are `prompts/repair.toml`'s, with
   the evidence set in: each item's number, name, address, category, shape, tries and last error; the
   research runs of its tries, each with its outcome and its error; and the last lines of its latest run's
-  log. The brief tells the helper to find the cause — the question template, a rulebook, the runner, the
+  log. The brief tells the worker to find the cause — the question template, a rulebook, the runner, the
   page's shape or the engine's road — fix it where it lies, then ask the item again with `PATCH
   /queue/{itemId}` naming `state` `waiting`, or `front` true, and to check first with `GET /queue/{itemId}`
   that it is still stuck, since its next retry may have filed it.
@@ -891,7 +891,7 @@ of these units, and reads each one's address and token from that unit's own file
 - **the job service:** at the address and with the token its own settings file under `env/` names
   (`docs/settings.md`, 「Peers」): `POST /items` with `title`, `brief`, `queueName`, `assigneeName` and
   `labels` — the settings' and `research-item`, the lead item's number — a stuck item's repair for the
-  helper (「The repair」), answered 201 with the item's `id`.
+  repair worker (「The repair」), answered 201 with the item's `id`.
 - **the receiver:** `GET /owner`, the owner's private room; `POST /instructions`, a report line, the notice
   that an engine has not come, or a research run's end (`room`, null where the run named none, `sort` `notice`,
   `kind` `research-ended:<run>`, `said`, `summary` and `events`).

@@ -28,7 +28,7 @@ use crate::translation::Rendering;
 /// `finishing`, and sets every page finished since the fourth that still lacks a part due on the retry
 /// wait; the ninth keeps where an item came from — a source, an ask with its words, or a follow-up with the
 /// document it follows from — an item standing before it a source's where no ask made it, and an ask's with
-/// no words otherwise; the tenth keeps the repair a stuck item's helper is asked for, stands every item the
+/// no words otherwise; the tenth keeps the repair a stuck item's worker is asked for, stands every item the
 /// store held given up `stuck` with its retry due and no repair yet, and names their notices `stuck`; the
 /// eleventh keeps the synthesis asked of the voice unit for each narration a page still lacks, and sets
 /// every filed page that plays a narration to be finished again at once by the item its try was asked for,

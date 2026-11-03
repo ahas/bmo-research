@@ -147,7 +147,7 @@ pub fn report() -> &'static ReportWords {
   &WORDS
 }
 
-/// The words of a stuck item's repair, filed for the helper (`docs/api.md`, 「The repair」).
+/// The words of a stuck item's repair, filed for the repair worker (`docs/api.md`, 「The repair」).
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RepairWords {

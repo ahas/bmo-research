@@ -315,7 +315,7 @@ impl Default for Job {
     Job {
       settings: "bmo-job.toml".into(),
       queue: "todo".into(),
-      assignee: "helper".into(),
+      assignee: "bmo-research".into(),
       labels: vec!["lane=repair".into()],
     }
   }

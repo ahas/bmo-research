@@ -3,8 +3,8 @@
 bmo-research is the platform's research unit: a daemon that keeps a queue of things to research, finds new
 ones on the sites the owner registers, deep-dives each one in the lab's own routine, files the report in the
 archive and tells the agents and rooms that should hear of it. It researches and measures, and notifies;
-it launches nothing, and the one job item it files is the repair of its own stuck research, for the
-helper: what a report calls for is the chat agent's to raise on the owner's word. It is the home of the
+it launches nothing, and the one job item it files is the repair of its own stuck research, for its
+own worker: what a report calls for is the chat agent's to raise on the owner's word. It is the home of the
 research feature; agency supplies it slots and sessions and nothing more.
 
 ## What it is for
@@ -43,7 +43,7 @@ research feature; agency supplies it slots and sessions and nothing more.
   - the receiver, to tell a room (`POST /instructions`) and to learn the owner's private room (`GET /owner`);
   - the arbiter's master, to ask for the engine each run needs and to read why it waits (「The engine a run
     needs」).
-  - the job service, for one item alone: the repair of an item stuck past its retries, filed for the helper
+  - the job service, for one item alone: the repair of an item stuck past its retries, filed for the repair worker
     (「Nothing is given up」).
   Any other job is the chat agent's to file.
 - **Every per-deployment choice is a setting or a registration,** never code: the sources, the cadence,
@@ -87,7 +87,7 @@ sources ──scan──▶ candidates ──new?──▶ queue ──a place l
    the earlier research a follow-up continues — with the shape named, so the runner's research rulebook
    applies. A try cut short by something it needs going away is asked again at once, uncounted; a try that
    fails on its own content is asked again after `retry_minutes`, and past its retries the item is stuck
-   and the helper is asked to fix the cause (「Nothing is given up」).
+   and the repair worker is asked to fix the cause (「Nothing is given up」).
 5. **The report.** The document the run filed is the report: it opens by saying what the thing is and
    what it is for, and under its title says where the research came from. The daemon tells every report
    room: the share link and one line saying what the thing is, naming the earlier document a follow-up
@@ -290,7 +290,7 @@ A source is a registration: a category, a kind, an address and, where the kind t
     researched from its start only where no run before it wrote anything, or where its question is no
     longer the one that result answers.
 - **No count of failures gives an item up.** Past its retries the item is `stuck`: still asked on every
-  retry wait, while the helper is handed the evidence — the item, its runs, their errors and the last lines
+  retry wait, while the repair worker is handed the evidence — the item, its runs, their errors and the last lines
   of their log — through a repair item in the job service, to fix the cause in the prompts, the rulebooks,
   the runner or the engine's road and then ask the item again (`docs/api.md`, 「The repair」). The owner's
   dismissal is the one way an item leaves the queue unreported.

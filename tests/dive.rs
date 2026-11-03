@@ -1,7 +1,7 @@
 //! The deep dive against stand-in agency, artifact, receiver, voice and tool host servers (`docs/api.md`, 「The
 //! deep dive」, 「The page」 and 「The notices」): the bodies each unit is asked with, an interrupted try asked
 //! again at once uncounted and a failed one counted and waited, an item stuck past its retries told once,
-//! handed to the helper and still asked until it is filed or dismissed, a result short of its shape asked again whole and never filed short, a final answer in two
+//! handed to the repair worker and still asked until it is filed or dismissed, a result short of its shape asked again whole and never filed short, a final answer in two
 //! text blocks filed whole, the one page with both languages and its switch, the narration's sounds, a
 //! missing one logged and asked again on every retry wait, a synthesis waited on however long with its
 //! reasons logged, and a long script cut to what the voice speaks, the pending Korean side drawn into the
@@ -1574,7 +1574,7 @@ async fn a_turn_that_wrote_nothing_is_cut_where_agency_no_longer_held_the_slot_a
 }
 
 #[tokio::test]
-async fn an_item_failing_past_its_retries_is_stuck_told_once_handed_to_the_helper_and_still_asked() {
+async fn an_item_failing_past_its_retries_is_stuck_told_once_handed_to_the_repair_worker_and_still_asked() {
   let ground = support::ground(|s| {
     s.retry_minutes = 0;
     s.retries = 3;
@@ -1604,7 +1604,7 @@ async fn an_item_failing_past_its_retries_is_stuck_told_once_handed_to_the_helpe
   let repair = &items[0];
   assert_eq!(
     (repair["queueName"].as_str(), repair["assigneeName"].as_str()),
-    (Some("todo"), Some("helper"))
+    (Some("todo"), Some("bmo-research"))
   );
   assert_eq!(repair["labels"]["lane"], "repair");
   assert_eq!(repair["labels"]["research-item"], item.id.to_string().as_str());

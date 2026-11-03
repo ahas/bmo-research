@@ -561,7 +561,7 @@ pub struct Item {
   pub plan: Option<String>,
   /// the job item the chat agent filed for it
   pub job_item_id: Option<i64>,
-  /// the job item filed for the helper while it is stuck, to fix the cause
+  /// the job item filed for the repair worker while it is stuck, to fix the cause
   pub repair_item_id: Option<i64>,
   /// why its latest try failed or was interrupted: that try's outcome, not how the item stands now
   pub error: Option<String>,

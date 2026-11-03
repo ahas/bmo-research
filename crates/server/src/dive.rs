@@ -5,7 +5,7 @@
 //! alone, and every recipient told once the page is whole; what a page still lacks asked again on every retry
 //! wait until it is had, each part alone; a try asked again continuing from what the run before it wrote, or
 //! taking up the document it filed; an interrupted try put back uncounted and asked again at once, a failed
-//! one counted and waited, and an item stuck past its retries handed to the helper to repair.
+//! one counted and waited, and an item stuck past its retries handed to the repair worker.
 
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
@@ -1380,7 +1380,7 @@ pub async fn repair(app: &App) {
       Ok(job_item) => {
         app.repairs.filed();
         let ids: Vec<i64> = group.iter().map(|item| item.id).collect();
-        eprintln!("bmo-research: item {} is stuck; repair {job_item} was filed for the helper", ids[0]);
+        eprintln!("bmo-research: item {} is stuck; repair {job_item} was filed for the repair worker", ids[0]);
         let _ = app.store.keep_repair(&ids, job_item);
       }
       Err(why) => app.repairs.failed(why),
