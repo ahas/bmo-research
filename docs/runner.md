@@ -379,10 +379,12 @@ daemon finishes, held first to the shape the deep dive asked for.
   capabilities and no `boundMs`, its system prompt the deep-dive rulebook's section on the review
   (`prompts/runner.toml`, `[review]`) and the rulebook against destroying the system. The slot waits for its
   place however long that takes, with no clock of this unit's, and agency binds it to the review's session as
-  it starts it (「The slots' children」); the one turn, named `research-<run>-review`, is waited on until it
-  ends (「A turn's send」); the session is then ended and the slot given back. Its slot and its session are held
-  under the run, so a restart gives them back. Agency asks the card its model needs for them, as for any slot
-  that names no demand.
+  it starts it (「The slots' children」); the one turn, named `research-<run>-review-<n>` on the same count,
+  is waited on until it ends (「A turn's send」); the session is then ended and the slot given back. The turn's
+  name is its own per ask as its slot's key is, since a stop stands over a turn's name until it is taken
+  back and a name used again would be refused by it: a review asked again never runs under a name an earlier
+  ask's stop still stands over. Its slot and its session are held under the run, so a restart gives them
+  back. Agency asks the card its model needs for them, as for any slot that names no demand.
 - **The turn is handed the finished page:** the review question, then the English side and the Korean side,
   each its title, its description and its body as the page holds them, then the English narration's script
   and the Korean narration's words as they were spoken.

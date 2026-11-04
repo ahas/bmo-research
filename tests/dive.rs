@@ -400,7 +400,10 @@ async fn a_result_with_no_narration_asks_its_session_for_one_before_it_is_filed(
   assert!(prompt.contains("## The narration"), "the rule is handed: {prompt}");
   let last = turns
     .iter()
-    .rposition(|a| a.path.ends_with("/turns") && a.body["name"] != "research-1-review")
+    .rposition(|a| {
+      a.path.ends_with("/turns")
+        && !a.body["name"].as_str().is_some_and(|name| name.starts_with("research-1-review"))
+    })
     .unwrap();
   assert_eq!(turns[last].body["name"], "research-1-narration", "it is the session's last turn");
   assert!(
@@ -2186,7 +2189,17 @@ async fn a_finishing_item_whose_document_is_gone_waits_for_a_try_of_its_own() {
 
 /// The review turns agency was sent for research run `run`.
 fn review_turns(ground: &Ground, run: i64) -> Vec<Value> {
-  ground.turns_named(&format!("research-{run}-review"))
+  let stem = format!("research-{run}-review");
+  ground
+    .asked("agency")
+    .into_iter()
+    .filter(|a| {
+      a.method == "POST"
+        && a.path.ends_with("/turns")
+        && a.body["name"].as_str().is_some_and(|name| name.starts_with(&stem))
+    })
+    .map(|a| a.body)
+    .collect()
 }
 
 /// The manual's reproduction plan's heading, as its section's heading says it.
@@ -2267,7 +2280,9 @@ async fn a_whole_page_is_reviewed_once_on_a_slot_of_its_own_and_its_report_told_
   assert_eq!((told.state, told.pending.clone()), (ItemState::Fit, Vec::<String>::new()));
   assert_eq!(orders(&ground).len(), 1, "told after the review");
   let asked = ground.world.lock().unwrap().asked.clone();
-  let reviewed = asked.iter().position(|a| a.body["name"] == "research-1-review");
+  let reviewed = asked
+    .iter()
+    .position(|a| a.body["name"].as_str().is_some_and(|name| name.starts_with("research-1-review")));
   let told = asked.iter().position(|a| a.unit == "receiver" && a.path == "/instructions");
   assert!(reviewed.is_some() && reviewed < told, "the review comes before the report");
   assert_eq!(ground.rewrites(501).len(), 1, "a page that passes is not drawn again");
@@ -2412,7 +2427,13 @@ async fn a_review_that_does_not_answer_holds_the_report_and_is_asked_again_on_th
   ground.world.lock().unwrap().review_failing = false;
   settle(&ground).await;
 
-  assert_eq!(review_turns(&ground, 1).len(), 2);
+  let turns = review_turns(&ground, 1);
+  assert_eq!(turns.len(), 2);
+  assert_eq!(turns[0]["name"], "research-1-review-1", "each ask runs under a name of its own");
+  assert_eq!(
+    turns[1]["name"], "research-1-review-2",
+    "a stop over an earlier name cannot refuse this one"
+  );
   assert_eq!(translations(&ground).len(), asked, "the Korean side is not asked again");
   assert_eq!(ground.app.store.item(item.id).unwrap().state, ItemState::Fit);
   assert_eq!(orders(&ground).len(), 1);

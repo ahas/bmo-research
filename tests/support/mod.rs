@@ -692,7 +692,7 @@ async fn research_turn(w: &Shared, name: &str) -> Response {
     return axum::Json(json!({"outcome": "answered", "answer": format!("notes of {name}")}))
       .into_response();
   }
-  let review = name.ends_with("-review");
+  let review = name.contains("-review");
   while {
     let world = w.lock().unwrap();
     world.holding || world.held_runs.contains(&run) || (review && world.review_holding)

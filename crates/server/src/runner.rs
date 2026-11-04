@@ -1379,7 +1379,8 @@ pub async fn review(app: &App, run: i64, prompt: &str) -> Result<String, String>
   let line = line_of(&row.key);
   let role = app.settings.runner.role(line);
   let system = review_instructions()?;
-  // A key is spent once its request is given back, so each ask goes under a count of its own.
+  // A key is spent once its request is given back, and a stop stands over a turn's name until it is taken
+  // back, so each ask goes under a count of its own: its slot's key and its turn's name alike.
   let ask = app
     .store
     .count_review_ask(run)
@@ -1418,7 +1419,7 @@ pub async fn review(app: &App, run: i64, prompt: &str) -> Result<String, String>
       .await
       .map_err(|fault| format!("agency started no session for the review: {fault}"))?;
     let started: &str = session.insert(started);
-    let name = format!("research-{run}-review");
+    let name = format!("research-{run}-review-{ask}");
     let title = format!("{line} research {run} review");
     let body = turn_body(
       prompt,
