@@ -10,7 +10,6 @@ to come from.
   disable any part of the system you run inside:
   - every unit's store, and the data root under `~/.local/share/bmo/data`, the workbenches and
     collected files in it;
-  - the deploy tree under `~/.local/share/bmo/deploy`;
   - every unit's own deploy tree under `~/.local/share/bmo-<unit>`, its `deploy` link and the
     releases beside it;
   - the repository's checkouts and worktrees, their git history and their branches;
