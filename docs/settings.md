@@ -127,6 +127,17 @@ Every peer's address and token are read from the files that peer already keeps u
 
 An env file is read as `KEY=value` lines, as the unit that keeps it writes it.
 
+## The stack: `[stack]`
+
+Where the platform's deploy records stand, read into the stack inventory beside the registered rows
+(`docs/api.md`, 「stack」). A record names a unit's component, its release version where the record names one
+and its commit otherwise, and when it went live; the oldest recorded component is the age floor every
+advisory is judged against (「The questions」).
+
+| Key | Default | Meaning |
+|---|---|---|
+| `roots` | empty | The folders holding the deploy records, each a deploy root with its `deployed.json` or a folder whose `bmo-*` children are deploy roots. Empty reads the folders beside the data root's own: a data root at `<share>/bmo/data` reads `<share>/bmo-*/deployed.json` |
+
 ## Example
 
 ```toml

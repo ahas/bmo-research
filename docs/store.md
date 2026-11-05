@@ -54,7 +54,7 @@ Every candidate judged, once, by its key.
 | `kind` | The item kind its source turns up |
 | `published_at` | When it appeared, where the source says |
 | `source_id` | The source it came from |
-| `state` | `unqueued`, kept and not yet queued, which the scan's pass queues before it ends; `queued`, an item stands for it; `archived`, the archive already holds it |
+| `state` | `unqueued`, kept and not yet queued, which the scan's pass queues before it ends; `queued`, an item stands for it; `archived`, the archive already holds it; `stale`, an advisory whose fixed builds predate the platform's age floor, never queued |
 | `item_id` | The item made of it, or null |
 | `found_at` | When it was read |
 

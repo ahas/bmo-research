@@ -10,6 +10,7 @@ use bmo_research_client::{
   CategoryShape, ItemState, NewCategory, NewSource, OriginKind, RecipientKind, Running, Shape,
 };
 use research_server::sources::{Candidate, ItemKind};
+use research_server::stack::AgeFloor;
 use research_server::store::{Asked, Filed, NewResearchRun, Refusal, Store, now_ms, schema_version};
 
 fn store() -> Store {
@@ -106,6 +107,45 @@ fn a_category_s_shape_sets_its_items_shape() {
     let made = store.fill(&store.category(category).unwrap()).unwrap();
     assert_eq!(store.item(made[0]).unwrap().shape, shape, "{category}");
   }
+}
+
+#[test]
+fn the_age_floor_keeps_an_older_advisory_from_the_queue_and_takes_a_newer_one() {
+  let store = store();
+  let floor = AgeFloor {
+    component: "Node.js".into(),
+    version: "22.20.0".into(),
+    at: 1_000,
+  };
+  let mut older = candidate("older", ItemKind::Entry);
+  older.published_at = Some(999);
+  let mut newer = candidate("newer", ItemKind::Entry);
+  newer.published_at = Some(1_001);
+  let undated = candidate("undated", ItemKind::Entry);
+  for one in [&older, &newer, &undated] {
+    store.keep_seen(one, "security", None, false).unwrap();
+  }
+
+  let (made, skipped) = store.fill_with(&store.category("security").unwrap(), Some(&floor)).unwrap();
+  assert_eq!(skipped, ["older"]);
+  assert_eq!(
+    store.seen_state(&older.key()).unwrap().as_deref(),
+    Some("stale"),
+    "an advisory older than the floor is never queued"
+  );
+  let named: Vec<String> = made.iter().map(|id| store.item(*id).unwrap().name).collect();
+  assert_eq!(named, ["newer", "undated"], "a newer or undated advisory is queued");
+  assert_eq!(store.fill_with(&store.category("security").unwrap(), Some(&floor)).unwrap().0.len(), 0);
+}
+
+#[test]
+fn without_a_floor_every_advisory_is_queued() {
+  let store = store();
+  let mut old = candidate("old", ItemKind::Entry);
+  old.published_at = Some(1);
+  store.keep_seen(&old, "security", None, false).unwrap();
+  let made = store.fill(&store.category("security").unwrap()).unwrap();
+  assert_eq!(made.len(), 1, "an empty or unknown inventory skips nothing");
 }
 
 #[test]

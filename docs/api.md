@@ -278,7 +278,9 @@ the one to read.
   (the host it runs on), `repository` (the repository that runs it, null where none), `worker` (the agent
   that keeps that repository, null where none) and `addedAt`. An empty component, or a row naming neither
   a place nor a repository, is 400 `bad-request`. The owner and the jobs keep it; the daemon reads it into
-  every advisory's question, and a touched repository's worker is told its part (「The notices」).
+  every advisory's question, together with the platform's deploy records (`docs/settings.md`, 「The stack」),
+  and a touched repository's worker is told its part (「The notices」). The oldest recorded component is the
+  age floor every advisory is judged against (「The questions」).
 
 ### facts
 
@@ -500,8 +502,13 @@ search runner applies it, and the run writes its document in English, the questi
   `{address}` and `{origin}` are set in. The manual's question names the headings and the label the fit is
   read by; both name the opening section saying what the subject is and what it is for.
 - `advisory.md`, an `advisory` category's (`security-advisory.md`): the item's `{name}`, `{address}` and
-  `{origin}`, and `{stack}`, the stack inventory a row a line. It asks for the exposure as a table naming
-  each component's repository.
+  `{origin}`, `{stack}`, the stack inventory a row a line, and `{floor}`, the age floor the run is judged
+  against. It asks for the exposure as a table naming each component's repository.
+- **The age floor** is the oldest recorded component, by the moment its build or version was recorded, and
+  the floor is read afresh on every pass: a deployment or a registration moves it. An advisory whose fixed
+  builds appeared before it never joins the queue; the run told the floor names it in its document, and an
+  inventory that is empty or records a component with no version gives no floor, so no advisory is skipped
+  on age.
 - **`{origin}`** is the item's origin in one English line, the words the page prints it in
   (`prompts/page.toml`): the source that found it by its kind and what it reads; the owner's ask, with
   the words it was made with quoted; or, for a follow-up, the document it follows from by its number and

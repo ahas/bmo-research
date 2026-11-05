@@ -313,23 +313,18 @@ fn question(app: &App, items: &[Item]) -> String {
       words::question(Shape::Brief, &[("items", &lines.join("\n"))])
     }
     Shape::Advisory => {
-      let stack: Vec<String> = app
-        .store
-        .stack()
-        .unwrap_or_default()
-        .into_iter()
-        .map(|row| {
-          let at: Vec<String> = [row.place, row.repository].into_iter().flatten().collect();
-          format!("- {} {} ({})", row.component, row.version.unwrap_or_default(), at.join(", "))
-        })
-        .collect();
+      let inventory = crate::stack::inventory(app);
+      let floor = crate::stack::age_floor(&inventory);
+      let block = crate::stack::block(&inventory);
+      let floor_text = crate::stack::floor_text(floor.as_ref());
       words::question(
         Shape::Advisory,
         &[
           ("name", &lead.name),
           ("address", &address),
           ("origin", &origin),
-          ("stack", &stack.join("\n")),
+          ("stack", &block),
+          ("floor", &floor_text),
         ],
       )
     }

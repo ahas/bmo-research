@@ -18,3 +18,7 @@ Keep these sections in the body, under these names exactly.
 Our platform's stack inventory:
 
 {stack}
+
+The platform's age floor, the oldest recorded component these runs are judged against:
+
+{floor}

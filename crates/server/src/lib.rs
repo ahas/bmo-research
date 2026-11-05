@@ -20,6 +20,7 @@ pub mod routes;
 pub mod runner;
 pub mod scan;
 pub mod sources;
+pub mod stack;
 pub mod store;
 pub mod structure;
 pub mod tool_host;

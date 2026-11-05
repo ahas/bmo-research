@@ -31,6 +31,16 @@
   source is such a writeup, the document says the flaw's mechanism was not read and judges exposure from
   the affected versions alone.
 
+## The age floor
+
+- **Every advisory is judged against the age floor the question names:** the oldest recorded component and the
+  version the platform records for it. An advisory whose fixed builds appeared before that floor cannot reach
+  any recorded build of it, so a run asked one anyway says in one line that it is out of scope and opens no
+  patch steps.
+- **The document names the floor it used,** the component and its version, in `Exposure of our platform`.
+- **No floor stands where the inventory is empty or records a component with no version.** An unrecorded
+  version is neither old nor new: nothing is skipped on age, and the document says the floor is unknown.
+
 ## The shape of the body
 
 - **The verdict is one short paragraph:** the exposure first, `노출` with the hosts or repositories

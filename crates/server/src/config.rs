@@ -33,6 +33,7 @@ pub struct Settings {
   pub artifact: Artifact,
   pub voice: Voice,
   pub job: Job,
+  pub stack: Stack,
   /// The data root, read from the environment as the settings are loaded; never a key of the file.
   #[serde(skip)]
   pub data_root: PathBuf,
@@ -61,6 +62,7 @@ impl Default for Settings {
       artifact: Artifact::default(),
       voice: Voice::default(),
       job: Job::default(),
+      stack: Stack::default(),
       data_root: data_root(),
     }
   }
@@ -349,6 +351,14 @@ impl Default for Job {
       labels: vec!["lane=repair".into()],
     }
   }
+}
+
+/// The platform's recorded stack: the folders its deploy records stand in. Empty reads the folders beside
+/// the data root's own, where each unit's deployment leaves its record.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Stack {
+  pub roots: Vec<String>,
 }
 
 /// `~` at the front of a path stands for the home directory.

@@ -156,8 +156,13 @@ report rooms. Three stand at the start:
 - **The security category reads advisories and fixes, never exploits.** Its sources are vendor advisories,
   CVE feeds and distribution security lists; its deep dive judges exposure from the platform's stack
   inventory — the distributions, runtimes, libraries and programs the platform runs, kept as a registration
-  the owner and the jobs maintain — and names the patch; writeups of how a flaw is exploited are not read
-  past what the exposure judgement needs. A reported item says which hosts and repositories it touches.
+  the owner and the jobs maintain and joined by every unit's deploy record — and names the patch; writeups
+  of how a flaw is exploited are not read past what the exposure judgement needs. A reported item says
+  which hosts and repositories it touches.
+- **The researcher owns the age floor.** The oldest recorded component, by the moment its build or version
+  was recorded, is read afresh on every pass and handed every advisory in its question; an advisory whose
+  fixed builds appeared before it never joins the queue. A version the inventory does not record is never
+  read as old or new: one unknown row leaves the floor unknown, and an unknown floor skips nothing.
 - **The economy category keeps facts.** Each brief's figures (an index, a rate, a price, a release) are
   written to the store with their source and date, so a later system reads a series, not documents.
 - **Each category has its own cadence, road and rooms,** and a category can be stopped alone; a stopped

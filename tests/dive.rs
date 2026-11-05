@@ -1709,6 +1709,10 @@ async fn an_advisory_tells_each_touched_repository_s_worker_its_part_and_the_rec
     query.contains("libexample 1.4.1 (services/alpha)"),
     "the stack is in the question: {query}"
   );
+  assert!(
+    query.contains("The oldest recorded component is libexample 1.4.1"),
+    "the age floor is in the question: {query}"
+  );
   let filed = store.item(item.id).unwrap();
   assert_eq!(filed.state, ItemState::Fit);
   assert_eq!(filed.touches.as_deref(), Some("services/alpha, node-a, services/beta"));
@@ -2930,4 +2934,28 @@ async fn a_restart_ends_a_notice_s_session_then_gives_back_its_slot() {
     ["DELETE /sessions/worker@run:7", "DELETE /slot-requests?owner=research%3Anotice%3A43"],
     "the session is ended before everything the notice's owner holds is given back"
   );
+}
+
+#[tokio::test]
+async fn an_advisory_whose_inventory_records_no_version_is_told_no_floor_stands() {
+  let ground = support::ground(|_| {}).await;
+  give_owner_room(&ground.app).await;
+  let store = &ground.app.store;
+  store
+    .add_stack_row(&NewStackRow {
+      component: "libexample".into(),
+      version: None,
+      place: None,
+      repository: Some("services/alpha".into()),
+      worker: None,
+    })
+    .unwrap();
+  store
+    .ask("security", "example.org/sa-2", "SA-2", "https://example.org/sa-2", Shape::Advisory)
+    .unwrap();
+  settle(&ground).await;
+
+  let query = ground.turns_named("research-1")[0]["prompt"].as_str().unwrap().to_string();
+  assert!(query.contains("- libexample unknown (services/alpha)"), "{query}");
+  assert!(query.contains("No age floor stands"), "{query}");
 }

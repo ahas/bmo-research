@@ -9,6 +9,10 @@ use crate::store::{Yield, now_ms};
 /// One pass: the sources due of every running category read, then every running category's slots filled.
 pub async fn scan(app: &App) -> Result<(), String> {
   let now = now_ms();
+  // The floor is read afresh every pass, so a deployment or a registration that moved it moves what the
+  // queue takes next.
+  let inventory = crate::stack::inventory(app);
+  let floor = crate::stack::age_floor(&inventory);
   for category in app.store.categories()? {
     if category.state == Running::Stopped {
       continue;
@@ -20,7 +24,12 @@ pub async fn scan(app: &App) -> Result<(), String> {
       }
       read_source(app, &category, &source).await;
     }
-    app.store.fill(&category)?;
+    let (_, skipped) = app.store.fill_with(&category, floor.as_ref())?;
+    if let Some(floor) = floor.as_ref() {
+      for name in skipped {
+        eprintln!("bmo-research: skipped {name}: older than the age floor, {}", floor.line());
+      }
+    }
   }
   Ok(())
 }

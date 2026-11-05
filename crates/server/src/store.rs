@@ -896,9 +896,20 @@ impl Store {
   /// Every unqueued seen row of a category queued, oldest found first, the queue holding no cap; answers the
   /// items made.
   pub fn fill(&self, category: &Category) -> Result<Vec<i64>, String> {
+    self.fill_with(category, None).map(|(made, _)| made)
+  }
+
+  /// The same, judged against the platform's age floor: an advisory whose fixed builds predate the oldest
+  /// recorded component is marked `stale` and never queued, and its name is answered so the pass can say it.
+  /// A floor that does not stand, or an advisory with no date, skips nothing.
+  pub fn fill_with(
+    &self,
+    category: &Category,
+    floor: Option<&crate::stack::AgeFloor>,
+  ) -> Result<(Vec<i64>, Vec<String>), String> {
     let mut conn = self.lock();
     let tx = conn.transaction().map_err(|e| e.to_string())?;
-    let made = take_unqueued(&tx, category).map_err(|e| e.to_string())?;
+    let made = take_unqueued(&tx, category, floor).map_err(|e| e.to_string())?;
     tx.commit().map_err(|e| e.to_string())?;
     Ok(made)
   }
@@ -2492,23 +2503,34 @@ fn read_research_run(r: &rusqlite::Row<'_>) -> rusqlite::Result<ResearchRunRow> 
   })
 }
 
-/// Up to `free` of a category's unqueued seen rows made waiting items, oldest found first.
-fn take_unqueued(tx: &Transaction<'_>, category: &Category) -> rusqlite::Result<Vec<i64>> {
-  type Row = (String, String, Option<String>, Option<String>, String, Option<i64>, i64);
+/// Up to `free` of a category's unqueued seen rows made waiting items, oldest found first; an advisory older
+/// than the age floor is marked `stale` instead and its name answered.
+fn take_unqueued(
+  tx: &Transaction<'_>,
+  category: &Category,
+  floor: Option<&crate::stack::AgeFloor>,
+) -> rusqlite::Result<(Vec<i64>, Vec<String>)> {
+  type Row = (String, String, Option<String>, Option<String>, String, Option<i64>, i64, Option<i64>);
   let rows: Vec<Row> = {
     let mut stmt = tx.prepare(
-      "select key, name, maker, address, kind, source_id, found_at from seen
+      "select key, name, maker, address, kind, source_id, found_at, published_at from seen
        where category = ?1 and state = 'unqueued' order by found_at, rowid",
     )?;
     stmt
       .query_map(params![category.name], |r| {
-        Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?))
+        Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?))
       })?
       .collect::<Result<Vec<_>, _>>()?
   };
   let now = now_ms();
   let mut made = Vec::new();
-  for (key, name, maker, address, kind, source_id, found_at) in rows {
+  let mut skipped = Vec::new();
+  for (key, name, maker, address, kind, source_id, found_at, published_at) in rows {
+    if category.shape == CategoryShape::Advisory && crate::stack::stale(published_at, floor) {
+      tx.execute("update seen set state = 'stale' where key = ?1", params![key])?;
+      skipped.push(name);
+      continue;
+    }
     let shape = item_shape(category.shape, ItemKind::parse(&kind));
     tx.execute(
       "insert into queue (category, key, name, maker, address, kind, shape, source_id, asked, priority, state,
@@ -2520,7 +2542,7 @@ fn take_unqueued(tx: &Transaction<'_>, category: &Category) -> rusqlite::Result<
     tx.execute("update seen set state = 'queued', item_id = ?2 where key = ?1", params![key, id])?;
     made.push(id);
   }
-  Ok(made)
+  Ok((made, skipped))
 }
 
 /// How often a write that finds the file locked by another process looks again whether the lock is free.

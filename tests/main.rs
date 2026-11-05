@@ -18,6 +18,7 @@ mod routes;
 mod runner;
 mod scan;
 mod sources;
+mod stack;
 mod store;
 mod structure;
 mod tool;
