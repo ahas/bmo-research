@@ -281,7 +281,7 @@ async fn a_report_s_korean_side_is_drawn_into_the_same_page_with_a_switch_and_to
   let html = rewrites[0]["html"].as_str().unwrap();
   let page = words::page();
   for part in [
-    "<html lang=\"ko\" data-shown=\"ko\">",
+    "<html lang=\"ko\" data-shown=\"ko\" data-languages=\"ko,en\" data-fallback=\"ko\">",
     "<style data-archive>",
     "data-show=\"ko\" lang=\"ko\" aria-pressed=\"true\"",
     "data-show=\"en\" lang=\"en\" aria-pressed=\"false\"",

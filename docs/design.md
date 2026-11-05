@@ -345,11 +345,13 @@ take; so its own area stays the research and the measurement, however many categ
   keeps exactly as written, its model and product names, figures with their units, code, links and fixed
   section names, handed to the translation model as its own reference translations rather than as an
   instruction. A switch at the page's top shows Korean first and English beside it, each named in its own
-  words. A notice's own line is Korean from the start (`prompts/report.toml`).
+  words; the page opens on the reader's language side, Korean where that language is not held. A notice's
+  own line is Korean from the start (`prompts/report.toml`).
 - **The page is heard as well as read.** The run's narration script is spoken by the platform's voice unit:
   in Korean, translated through the same route with a note that it is a spoken narration, as the sound the
   archive plays at the document's head, and in English as it was written, kept beside it; the page's listen
-  band plays the sound of the language shown.
+  band plays the sound of the language shown, which is the language the page opened on until the reader
+  switches it.
 - **A research asked for a room is heard too.** It is written in its question's language, the owner's
   Korean when he asks in Korean, and its narration script is spoken as written in that language, as the
   sound the archive plays at the document's head; the room is told of the document only once that sound is

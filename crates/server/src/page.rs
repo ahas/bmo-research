@@ -1,7 +1,8 @@
 //! A deep dive's page (`docs/runner.md`, 「The page」): every language its document holds drawn into one HTML
-//! page on the archive's design, Korean first, a switch between them where it holds two, and the listen band
-//! under the title referring to each narration attached by its name, which the archive stands as its player;
-//! under the title too, the line saying where the research came from.
+//! page on the archive's design, Korean first in the markup, opening on the reader's language side with
+//! Korean as its fallback, a switch between them where it holds two, and the listen band under the title
+//! referring to each narration attached by its name, which the archive stands as its player; under the title
+//! too, the line saying where the research came from.
 //! The markdown is written as HTML by `pulldown-cmark`, a table written without the row under its head stands
 //! as a table, any raw HTML a result wrote stands as text, a fenced `mermaid` block is a diagram the page
 //! draws with Mermaid, and a citation mark is a footnote linked to its entry of the sources list and back.
@@ -25,6 +26,24 @@ pub struct Side<'a> {
   pub description: Option<&'a str>,
   pub origin: Option<&'a str>,
   pub body: &'a str,
+}
+
+/// The side a page opens on: the first of the reader's languages whose primary subtag names a held side,
+/// else the language the artifact reader names in `named` where it names a held side and is not the
+/// fallback, else Korean where the page holds it, else the page's first side. A tag is matched by its
+/// primary subtag without regard to case. The page's own script applies this same order as it opens.
+pub fn opening<'a>(codes: &[&'a str], reader: &[&str], named: Option<&str>) -> Option<&'a str> {
+  let fallback = codes.iter().copied().find(|code| *code == "ko").or_else(|| codes.first().copied());
+  let find = |tag: &str| {
+    let primary = tag.split('-').next().unwrap_or_default();
+    codes.iter().copied().find(|code| code.eq_ignore_ascii_case(primary))
+  };
+  named
+    .and_then(find)
+    .filter(|code| Some(*code) != fallback)
+    .or_else(|| reader.iter().find_map(|tag| find(tag)))
+    .or_else(|| named.and_then(find))
+    .or(fallback)
 }
 
 /// Text set into markdown as it stands, its marks taken as text.
@@ -86,8 +105,27 @@ var(--doc-rule);border-radius:999px;background:var(--doc-surface);color:var(--do
 .switch button[aria-pressed=\"true\"]{border-color:var(--doc-accent);background:var(--doc-accent-soft);\
 color:var(--doc-accent);font-weight:600}";
 
+// The page's opening side, chosen before the body is drawn: the reader's own language where the page holds
+// it, the language the artifact reader names where that language is not Korean, Korean as the fallback, and
+// the only side otherwise. The page's markup names the held languages and the fallback.
+const READER_SCRIPT: &str = "(function(){var root=document.documentElement;\
+var held=(root.getAttribute(\"data-languages\")||\"\").split(\",\");\
+var fallback=root.getAttribute(\"data-fallback\")||\"\";\
+function held_code(tag){var primary=String(tag||\"\").toLowerCase().split(\"-\")[0];\
+for(var i=0;i<held.length;i++){if(held[i].toLowerCase()===primary){return held[i];}}return \"\";}\
+var chosen=\"\";\
+try{var from_reader=held_code(new URLSearchParams(location.search).get(\"language\"));\
+if(from_reader&&from_reader!==fallback){chosen=from_reader;}}catch(e){}\
+if(!chosen&&navigator.languages){for(var j=0;j<navigator.languages.length&&!chosen;j++){\
+chosen=held_code(navigator.languages[j]);}}\
+if(!chosen){chosen=held_code(navigator.language);}\
+if(!chosen){try{chosen=held_code(new URLSearchParams(location.search).get(\"language\"));}catch(e){}}\
+if(!chosen){chosen=held_code(fallback)||held[0]||\"\";}\
+if(chosen){root.setAttribute(\"data-shown\",chosen);root.setAttribute(\"lang\",chosen);}})();";
+
 // The switch's behaviour: the language pressed shown, the other hidden, and a player playing there paused. The
 // players are found by their language alone, since the archive stands each `audio` element as its own player.
+// It starts on the side the page opened on, so the narration heard is that side's.
 const SWITCH_SCRIPT: &str = "(function(){var root=document.documentElement;\
 var buttons=document.querySelectorAll(\".switch button\");\
 function show(code){root.setAttribute(\"data-shown\",code);root.setAttribute(\"lang\",code);\
@@ -96,6 +134,7 @@ String(buttons[i].getAttribute(\"data-show\")===code));}\
 var sounds=document.querySelectorAll(\"[data-language]\");\
 for(var j=0;j<sounds.length;j++){if(sounds[j].getAttribute(\"data-language\")!==code\
 &&typeof sounds[j].pause===\"function\"){sounds[j].pause();}}}\
+var current=root.getAttribute(\"data-shown\");if(current){show(current);}\
 for(var k=0;k<buttons.length;k++){buttons[k].addEventListener(\"click\",function(event){\
 show(event.currentTarget.getAttribute(\"data-show\"));});}})();";
 
@@ -388,6 +427,16 @@ pub fn compose(sides: &[Side<'_>], sounds: &[Sound<'_>]) -> String {
     return String::new();
   };
   let two = sides.len() > 1;
+  let codes: Vec<&str> = sides.iter().map(|side| side.code).collect();
+  let fallback = opening(&codes, &[], None).unwrap_or(first.code);
+  let held = match two {
+    true => format!(
+      " data-languages=\"{}\" data-fallback=\"{}\"",
+      escaped(&codes.join(",")),
+      escaped(fallback)
+    ),
+    false => String::new(),
+  };
   let mark = |code: &str| {
     if two {
       format!(" data-language=\"{}\" lang=\"{}\"", escaped(code), escaped(code))
@@ -397,7 +446,7 @@ pub fn compose(sides: &[Side<'_>], sounds: &[Sound<'_>]) -> String {
   };
   let mut page = String::new();
   page.push_str(&format!(
-    "<!doctype html>\n<html lang=\"{code}\" data-shown=\"{code}\">\n<head>\n<meta charset=\"utf-8\">\n\
+    "<!doctype html>\n<html lang=\"{code}\" data-shown=\"{code}\"{held}>\n<head>\n<meta charset=\"utf-8\">\n\
      <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>{title}</title>\n",
     code = escaped(first.code),
     title = escaped(first.title),
@@ -421,6 +470,9 @@ pub fn compose(sides: &[Side<'_>], sounds: &[Sound<'_>]) -> String {
   }
   if !style.is_empty() {
     page.push_str(&format!("<style data-archive>{style}</style>\n"));
+  }
+  if two {
+    page.push_str(&format!("<script>{READER_SCRIPT}</script>\n"));
   }
   page.push_str("</head>\n<body>\n<header>\n");
   if two {

@@ -416,7 +416,11 @@ daemon finishes, held first to the shape the deep dive asked for.
 
 - **One HTML page holds every language the document has,** Korean first where it has it, then English, each
   side its title, its description and its body, the body's markdown written as HTML by a maintained library
-  with any raw HTML the result wrote shown as text.
+  with any raw HTML the result wrote shown as text. **The page opens on the side matching the reader's
+  language:** the language the artifact reader names in its `language`, where that is not Korean, or the
+  first of the browser's own languages the page holds; Korean where neither names a language the page holds,
+  and the only side where the page holds no Korean. Korean stays first in the markup and on the switch
+  whichever side the page opened on.
 - **A table stands as a table** where the result wrote it without the row under its head: lines that each
   open and close with a pipe, two or more running to the end of a paragraph the library reads, are given
   that row — a column under each cell of the first — and set apart from any prose the paragraph opens with,
@@ -425,9 +429,10 @@ daemon finishes, held first to the shape the deep dive asked for.
   holds where a result was written without it.
 - **The head** is the archive design's masthead: a `header` opening the body with, where the page holds two
   languages, a small switch above the title naming each language in its own words (`prompts/page.toml`),
-  Korean pressed first. Pressing a language shows its side and hides the other. The switch is plain inline
-  script and style, the style marked `data-archive` and drawn in the design's colour variables, so the page
-  reads in the light and the dark scheme alike.
+  Korean first and pressed on the side the page opened on. Pressing a language shows its side and hides the
+  other. The switch is plain inline script and style, the style marked `data-archive` and drawn in the
+  design's colour variables, so the page reads in the light and the dark scheme alike. The language the page
+  opened on is set before the body is drawn, so no side shows first and is then replaced.
 - **Where the research came from stands under the title,** in the `header` after the description: one line
   for each language side, marked as its side, its label and its words those of `prompts/page.toml`
   (`[[language]]`: the label `origin`, then `source`, `asked`, or `follow_up` (`follow_up_untitled` where
@@ -446,7 +451,10 @@ daemon finishes, held first to the shape the deep dive asked for.
   element in its place as its own player element, keeping the attributes, and plays the sound kept under the
   name. The page writes the band and the references alone. Where it holds two languages the switch hides
   the other side's band heading and player by their `data-language`, selected by that attribute alone since
-  the element is the archive's player by then, and pauses each hidden player.
+  the element is the archive's player by then, and pauses each hidden player. **The narration heard is the
+  sound of the side shown,** so the language the page opened on is the language spoken, and a switch changes
+  both together: an English reader hears the English narration, and no playing sound of the other language
+  is left running.
 - **Diagrams** are a body's fenced `mermaid` blocks, each written as a `pre` of the class `mermaid` with its
   text escaped, and drawn by the page itself: Mermaid, at the exact version the archive's reader draws with,
   loaded once over https and started on the page's load, strict, in the dark theme under a dark colour scheme

@@ -542,7 +542,8 @@ search runner applies it, and the run writes its document in English, the questi
 
 - **One document holds both languages:** the page the runner filed in English (`docs/runner.md`, 「The page」)
   is drawn again with the Korean side first once that side is had, and set with the artifact service's
-  `PATCH /documents/{id}`: `title` the Korean title where the Korean side is had, `html` the page, and
+  `PATCH /documents/{id}`: `title` the Korean title where the Korean side is had, `html` the page opening on
+  the reader's language side, Korean where that language is not held, and
   `labels` the run's document's labels with `languages` naming the languages the page holds, comma-separated,
   `category` the lead item's shape (`manual`, `investigation`, `advisory` or `brief`), and `pending` what the
   page still lacks, the item's `pending` comma-separated, left out once it lacks nothing — the archive's
@@ -661,7 +662,8 @@ search runner applies it, and the run writes its document in English, the questi
 - **Each sound is attached** to the document with `POST /documents/{id}/attachments`: the Korean sound as `narration-ko.ogg`
   with `role` `head`, the English as `narration-en.ogg` with no role. The page is then drawn again with its
   listen band referring to every sound attached by its name (`docs/runner.md`, 「The page」), and the
-  archive plays them there. A sound already attached is not made again.
+  archive plays the sound of the side shown there, so the narration's language follows the language the
+  page opened on and the switch rather than a fixed side. A sound already attached is not made again.
 - **The Korean narration's words are kept** as they are translated (`docs/store.md`, `page_texts`), so the
   review reads what was spoken and a sound made again speaks them without translating them again.
 - **Every filed page is drawn as this binary draws it.** As the daemon starts, and on `bmo-research

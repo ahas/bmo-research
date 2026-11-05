@@ -2,7 +2,7 @@
 //! loads only where it holds one, its listen band referring to each narration attached by its name, and the
 //! line under its title saying where the research came from.
 
-use research_server::page::{Side, Sound, attachment_address, compose, origin_line};
+use research_server::page::{Side, Sound, attachment_address, compose, opening, origin_line};
 
 const MERMAID: &str = "https://cdn.jsdelivr.net/npm/mermaid@12.0.0/dist/mermaid.min.js";
 
@@ -103,6 +103,78 @@ fn the_listen_band_stands_under_the_title_with_a_reference_to_each_narration_att
     "the switch finds the players by language"
   );
   assert!(!html.contains("audio[data-language]"));
+}
+
+#[test]
+fn a_page_opens_on_the_reader_s_language_with_korean_as_its_fallback() {
+  let codes = ["ko", "en"];
+  assert_eq!(opening(&codes, &["en-US", "en"], None), Some("en"), "an English reader opens English");
+  assert_eq!(opening(&codes, &["ko-KR", "ko"], None), Some("ko"), "a Korean reader opens Korean");
+  assert_eq!(
+    opening(&codes, &["fr-FR"], None),
+    Some("ko"),
+    "Korean stands where the language is not held"
+  );
+  assert_eq!(opening(&codes, &["ko-KR"], Some("en")), Some("en"), "the reader's named language wins");
+  assert_eq!(opening(&codes, &[], None), Some("ko"), "the fallback is Korean");
+  assert_eq!(opening(&["en"], &["ko-KR"], None), Some("en"), "the only side shows");
+  assert_eq!(opening(&["ko", "en"], &["fr-FR"], Some("en")), Some("en"), "a named held side is taken");
+  assert_eq!(opening(&[], &["en"], None), None, "no side opens");
+}
+
+#[test]
+fn the_page_chooses_its_side_before_the_body_and_starts_the_switch_and_narration_on_it() {
+  let sides = [
+    Side {
+      code: "ko",
+      title: "Thing-7B (ko)",
+      description: None,
+      origin: None,
+      body: "The body (ko).",
+    },
+    Side {
+      code: "en",
+      title: "Thing-7B",
+      description: None,
+      origin: None,
+      body: "The body.",
+    },
+  ];
+  let sounds = [
+    Sound {
+      code: "ko",
+      name: "narration-ko.ogg",
+    },
+    Sound {
+      code: "en",
+      name: "narration-en.ogg",
+    },
+  ];
+  let html = compose(&sides, &sounds);
+  assert!(
+    html.contains("<html lang=\"ko\" data-shown=\"ko\" data-languages=\"ko,en\" data-fallback=\"ko\">"),
+    "{html}"
+  );
+  let reader = html.find("navigator.languages").expect("the reader's languages are read");
+  assert!(reader < html.find("<body>").unwrap(), "the side is chosen before the body is drawn");
+  assert!(
+    html.contains("from_reader!==fallback"),
+    "the reader's named language is not the fallback"
+  );
+  assert!(html.contains("navigator.language"), "the browser's language is read");
+  assert!(
+    html.contains("html[data-shown=\"en\"] [data-language]:not([data-language=\"en\"]){display:none}")
+  );
+  assert!(
+    html.contains("var current=root.getAttribute(\"data-shown\");if(current){show(current);}"),
+    "the switch starts on the side the page opened on: {html}"
+  );
+  for code in ["ko", "en"] {
+    assert!(
+      html.contains(&format!("data-language=\"{code}\"")),
+      "the {code} side and its narration are marked"
+    );
+  }
 }
 
 #[test]
