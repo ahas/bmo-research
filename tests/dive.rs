@@ -109,6 +109,46 @@ fn file(ground: &Ground, run: i64, id: i64, content: String) {
   );
 }
 
+/// An item of `category` reported with a filed document, the earlier report an investigation compares with.
+fn reported(ground: &Ground, category: &str, key: &str, name: &str, document: i64, title: &str) -> i64 {
+  let item = ground
+    .app
+    .store
+    .ask(category, key, name, &format!("https://example.org/{key}"), Shape::Investigation)
+    .unwrap();
+  let (run, _) = ground.app.store.start_try(category, &[item.id]).unwrap().unwrap();
+  let filed = research_server::store::Filed {
+    document_id: document,
+    title: title.into(),
+    share_url: format!("https://share.example/d{document}"),
+    ..Default::default()
+  };
+  assert!(ground.app.store.file(item.id, &filed).unwrap());
+  assert!(ground.app.store.finished(item.id, document).unwrap());
+  ground.app.store.end_run(run, "closed", Some("answered"), None).unwrap();
+  item.id
+}
+
+/// The heading an investigation's comparison section stands under.
+fn comparison_heading() -> String {
+  words::document()
+    .sections
+    .investigation
+    .iter()
+    .find(|heading| heading.contains("earlier research"))
+    .cloned()
+    .expect("the investigation's comparison heading stands in prompts/document.toml")
+}
+
+/// A whole investigation document carrying the comparison section, under the answer's.
+fn investigation_document(comparison: &str) -> String {
+  format!(
+    "# An investigation\n\n## {}\n\nIt is.\n\n## {}\n\n{comparison}\n",
+    answer_heading(),
+    comparison_heading()
+  )
+}
+
 /// How the page of an item's document stands.
 fn page_of(ground: &Ground, item: i64) -> PageState {
   let document = ground.app.store.item(item).unwrap().document_id.expect("the item holds a document");
@@ -2958,4 +2998,74 @@ async fn an_advisory_whose_inventory_records_no_version_is_told_no_floor_stands(
   let query = ground.turns_named("research-1")[0]["prompt"].as_str().unwrap().to_string();
   assert!(query.contains("- libexample unknown (services/alpha)"), "{query}");
   assert!(query.contains("No age floor stands"), "{query}");
+}
+
+#[tokio::test]
+async fn an_investigation_brings_its_category_s_nearest_reports_into_its_brief_and_names_them() {
+  let ground = support::ground(|s| s.retry_minutes = 60).await;
+  give_owner_room(&ground.app).await;
+  reported(&ground, "it", "qwen2.5-7b", "Qwen2.5-7B", 811, "Qwen2.5-7B investigation");
+  reported(&ground, "it", "qwen3-8b", "Qwen3-8B", 812, "Qwen3-8B investigation");
+  reported(&ground, "it", "llama-3-70b", "Llama-3-70B", 813, "Llama-3-70B investigation");
+  reported(&ground, "security", "qwen3-cost", "Qwen3 cost", 814, "Qwen3 cost advisory");
+  let item = ground
+    .app
+    .store
+    .ask("it", "qwen3-32b", "Qwen3-32B", "https://example.org/qwen3-32b", Shape::Investigation)
+    .unwrap();
+  let comparison = "It changes Qwen2.5-7B's figures and updates document 811; Qwen3-8B still holds.";
+  file(&ground, 1, 900, investigation_document(comparison));
+
+  settle(&ground).await;
+
+  let prompt = ground.turns_named("research-1")[0]["prompt"].as_str().unwrap().to_string();
+  assert!(
+    prompt.contains("document 812 \"Qwen3-8B investigation\""),
+    "the same family's report is in the brief: {prompt}"
+  );
+  assert!(
+    prompt.contains("document 811 \"Qwen2.5-7B investigation\""),
+    "the earlier version is in the brief: {prompt}"
+  );
+  assert!(prompt.contains("https://share.example/d811"), "its live link is in the brief: {prompt}");
+  assert!(prompt.contains(&comparison_heading()), "the section is named: {prompt}");
+  assert!(!prompt.contains("document 814"), "another category's report is not brought: {prompt}");
+  let family = prompt.find("document 812").unwrap();
+  let older = prompt.find("document 811").unwrap();
+  let unrelated = prompt.find("document 813").unwrap();
+  assert!(
+    family < older && older < unrelated,
+    "the nearest stands first, the unrelated last: {prompt}"
+  );
+
+  let filed = ground.app.store.item(item.id).unwrap();
+  assert_eq!(filed.state, ItemState::Reported);
+  let written = ground.app.store.research_run(1).unwrap().written.unwrap();
+  assert!(written.contains(comparison), "the document names the reports it updates: {written}");
+}
+
+#[tokio::test]
+async fn an_investigation_with_no_earlier_report_says_none_stands_and_proceeds() {
+  let ground = support::ground(|s| s.retry_minutes = 60).await;
+  give_owner_room(&ground.app).await;
+  let item = ground
+    .app
+    .store
+    .ask("it", "only-1", "Only-1", "https://example.org/only-1", Shape::Investigation)
+    .unwrap();
+  let none = "No earlier report in this category stands.";
+  file(&ground, 1, 901, investigation_document(none));
+
+  settle(&ground).await;
+
+  let prompt = ground.turns_named("research-1")[0]["prompt"].as_str().unwrap().to_string();
+  assert!(
+    prompt.contains("None. No earlier report in this category stands."),
+    "the brief says none stands: {prompt}"
+  );
+  assert!(!prompt.contains("- document "), "no report is named where none stands: {prompt}");
+  let filed = ground.app.store.item(item.id).unwrap();
+  assert_eq!(filed.state, ItemState::Reported, "the research proceeds without a comparison");
+  let written = ground.app.store.research_run(1).unwrap().written.unwrap();
+  assert!(written.contains(none), "the document says none stands: {written}");
 }

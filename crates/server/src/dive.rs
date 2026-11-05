@@ -328,8 +328,138 @@ fn question(app: &App, items: &[Item]) -> String {
         ],
       )
     }
+    Shape::Investigation => {
+      let prior = prior_lines(&prior_reports(app, lead));
+      words::question(
+        Shape::Investigation,
+        &[("name", &lead.name), ("address", &address), ("origin", &origin), ("prior", &prior)],
+      )
+    }
     shape => words::question(shape, &[("name", &lead.name), ("address", &address), ("origin", &origin)]),
   }
+}
+
+/// The most earlier reports an investigation's brief brings, the nearest by subject.
+const PRIOR_MOST: usize = 4;
+
+/// The words that name nothing of a subject: the shape a report takes, and the words an English title
+/// carries for every subject alike.
+const PRIOR_COMMON: [&str; 16] = [
+  "a",
+  "an",
+  "and",
+  "advisory",
+  "brief",
+  "for",
+  "how",
+  "in",
+  "investigation",
+  "manual",
+  "of",
+  "on",
+  "report",
+  "the",
+  "to",
+  "what",
+];
+
+/// The earlier reports an investigation's brief brings: its category's reported items nearest by subject,
+/// selected by their titles and subjects and at most `PRIOR_MOST`. A category holding no reported item
+/// answers none.
+fn prior_reports(app: &App, lead: &Item) -> Vec<Item> {
+  let Ok(reported) = app.store.reported(&lead.category_name) else {
+    return Vec::new();
+  };
+  let terms = subject_terms(lead);
+  let same_maker = |item: &Item| {
+    item
+      .maker
+      .as_deref()
+      .zip(lead.maker.as_deref())
+      .is_some_and(|(one, other)| one.eq_ignore_ascii_case(other))
+  };
+  let mut ranked: Vec<(usize, Item)> = reported
+    .into_iter()
+    .filter(|item| item.id != lead.id)
+    .map(|item| {
+      let shared: usize = terms
+        .intersection(&subject_terms(&item))
+        .map(|term| if term.chars().count() >= 4 { 3 } else { 2 })
+        .sum();
+      (shared + if same_maker(&item) { 2 } else { 0 }, item)
+    })
+    .collect();
+  ranked.sort_by(|(score, item), (other, other_item)| other.cmp(score).then(other_item.id.cmp(&item.id)));
+  ranked.truncate(PRIOR_MOST);
+  ranked.into_iter().map(|(_, item)| item).collect()
+}
+
+/// The terms a subject is known by: its name, its key, its maker and the head its report was given, each
+/// kept whole and split where letters meet digits, so one model family's versions share `qwen`, less the
+/// words every report shares.
+fn subject_terms(item: &Item) -> HashSet<String> {
+  let texts = [
+    Some(item.name.as_str()),
+    Some(item.key.as_str()),
+    item.maker.as_deref(),
+    item.title.as_deref(),
+  ];
+  let mut terms = HashSet::new();
+  for text in texts.into_iter().flatten() {
+    for word in text.split(|c: char| !c.is_alphanumeric()) {
+      let word = word.to_lowercase();
+      if subject_word(&word) {
+        terms.insert(word.clone());
+      }
+      let mut letters = String::new();
+      for c in word.chars() {
+        match c.is_alphabetic() {
+          true => letters.push(c),
+          false => {
+            if subject_word(&letters) {
+              terms.insert(std::mem::take(&mut letters));
+            }
+            letters.clear();
+          }
+        }
+      }
+      if subject_word(&letters) {
+        terms.insert(letters);
+      }
+    }
+  }
+  terms
+}
+
+/// Whether a word names part of a subject: two letters at least, no figure alone, and none of the words
+/// every report shares.
+fn subject_word(word: &str) -> bool {
+  word.chars().count() >= 2 && !PRIOR_COMMON.contains(&word) && !word.chars().all(|c| c.is_ascii_digit())
+}
+
+/// The lines an investigation's brief gives its category's earlier reports, each by its document number,
+/// title, subject and live link, or the one line saying none stands.
+fn prior_lines(priors: &[Item]) -> String {
+  if priors.is_empty() {
+    return "None. No earlier report in this category stands.".to_owned();
+  }
+  priors
+    .iter()
+    .map(|item| {
+      let title = item
+        .title
+        .as_deref()
+        .map(str::trim)
+        .filter(|title| !title.is_empty())
+        .unwrap_or(&item.name);
+      let document = item.document_id.map(|id| id.to_string()).unwrap_or_else(|| "unknown".to_owned());
+      match item.share_url.as_deref().map(str::trim).filter(|url| !url.is_empty()) {
+        Some(url) => format!("- document {document} \"{title}\" — {}, {url}", item.name),
+        None => format!("- document {document} \"{title}\" — {}", item.name),
+      }
+    })
+    .collect::<Vec<String>>()
+    .join("\n")
 }
 
 /// One try carried to its end, the demand it held given back where it ended before its run did, and the pull

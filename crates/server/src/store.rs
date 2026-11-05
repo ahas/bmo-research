@@ -1097,6 +1097,24 @@ impl Store {
       .map_err(|e| e.to_string())
   }
 
+  /// A category's reports: the items that filed a document and were reported, the whole history an
+  /// investigation's brief picks the nearest of (`docs/api.md`, 「The questions」), newest first.
+  pub fn reported(&self, category: &str) -> Result<Vec<Item>, String> {
+    let conn = self.lock();
+    let mut stmt = conn
+      .prepare(&format!(
+        "select {ITEM_COLUMNS} from queue where category = ?1 and document_id is not null
+           and state in ('reported', 'fit', 'taken')
+         order by id desc"
+      ))
+      .map_err(|e| e.to_string())?;
+    stmt
+      .query_map(params![category], read_item)
+      .map_err(|e| e.to_string())?
+      .collect::<Result<Vec<_>, _>>()
+      .map_err(|e| e.to_string())
+  }
+
   /// When a category's latest try was asked, or none.
   pub fn last_try_at(&self, category: &str) -> Result<Option<i64>, String> {
     self

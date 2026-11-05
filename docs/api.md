@@ -501,6 +501,12 @@ search runner applies it, and the run writes its document in English, the questi
   investigation (`research.md`, 「The investigation」); an ask names its own. The item's `{name}`,
   `{address}` and `{origin}` are set in. The manual's question names the headings and the label the fit is
   read by; both name the opening section saying what the subject is and what it is for.
+- **An investigation's `{prior}`** is its category's nearest earlier reports, at most a handful, read from
+  the store's own queue rather than the queue listing: the reported items whose titles and subjects share
+  the item's subject terms — the same model family, task, benchmark or technique — each by its document
+  number, title, subject and live link, the latest first where they stand equally near. A category holding
+  no reported item sets the one line saying none stands, so the run compares with nothing and invents no
+  comparison.
 - `advisory.md`, an `advisory` category's (`security-advisory.md`): the item's `{name}`, `{address}` and
   `{origin}`, `{stack}`, the stack inventory a row a line, and `{floor}`, the age floor the run is judged
   against. It asks for the exposure as a table naming each component's repository.

@@ -140,6 +140,11 @@
   - `주장 심사` — the maker's claims judged in layers, with the table `제조사 주장 vs 제3자 측정 —
     대조표`: columns `수치·주장 | 조건 | 잰 사람 | 날짜 | 출처 | 판정`, a row `제3자 측정 | 없음`
     where nobody outside the maker measured, and `반대편 논거` set beside it.
+  - `같은 범주 앞선 조사와 견주기` (English: `How it stands against earlier research`) — the earlier
+    reports the question brought, each by its document number and title: what this subject changes from
+    them, what it supersedes, what still holds, and which of their documents this research updates.
+    Where the question says none stands, one line says the category held no earlier report and nothing
+    is compared; never a comparison invented.
   - `우리 카드 산수` — 「Calculations shown whole」.
   - `쓸모 판정` — one of three, written with its mark: `ⓐ 시험하자`, `ⓑ 조각만 가져오자`,
     `ⓒ 안 씀, 계속 지켜봄`; ⓐ and ⓑ carry a `발주서 초안` for the job that follows: the grounds,

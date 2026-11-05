@@ -85,7 +85,9 @@ sources ──scan──▶ candidates ──new?──▶ queue ──a place l
    dataset or a tool, and as an investigation where it is a claim or an event. The run's question is the
    item's name, its maker's address and where it came from — the source that found it, the owner's ask, or
    the earlier research a follow-up continues — with the shape named, so the runner's research rulebook
-   applies. A try cut short by something it needs going away is asked again at once, uncounted; a try that
+   applies. An investigation's question also names the nearest earlier reports in its category, by subject
+   proximity and title, so the run compares the new subject with them; a category holding none says so in
+   one line. A try cut short by something it needs going away is asked again at once, uncounted; a try that
    fails on its own content is asked again after `retry_minutes`, and past its retries the item is stuck
    and the repair worker is asked to fix the cause (「Nothing is given up」).
 5. **The report.** The document the run filed is the report: it opens by saying what the thing is and
