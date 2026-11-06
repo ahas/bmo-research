@@ -96,9 +96,10 @@ sources ──scan──▶ candidates ──new?──▶ queue ──a place l
    continues, nothing else — never the grounds, never the sources. The first room is the owner's private room, read from the receiver at start; rooms are added
    and removed through the routes and the tools.
 6. **The word.** A report whose document says the thing fits the lab (the manual's section on running it in
-   the lab, under the heading `prompts/document.toml` names, names a card it fits) is marked `fit`, and its notice says so and asks for the owner's word. The notice
-   carries what the chat agent needs to act on that word: the report's link, the thing's name and the
-   reproduction plan's place in the document. The owner answers in the room; the chat agent files the
+   the lab, under the heading `prompts/document.toml` names, names a card it fits) is marked `fit`, and its
+   notice says so. The notice carries the data the chat agent acts on: the report's link, the thing's name
+   and the reproduction plan's place in the document. It asks nothing of its reader: the chat agent's own
+   rules have it put the question to the owner. The owner answers in the room; the chat agent files the
    verification item as it files any work, with the report's link in the brief, and tells the daemon the
    item is taken (`PATCH /queue/{item}` with `taken` and the item's number) or dismissed. An item nobody
    answers stays `fit` and is listed, never nagged about.
@@ -326,8 +327,9 @@ take; so its own area stays the research and the measurement, however many categ
   and `research/recipients`): a room is told through the receiver's instruction route, which hands the
   notice to the room's answerer; an agent that answers no room — a repository's worker — is told by one run
   of agency's `worker` role at that repository's checkout, on a slot this unit asks and gives back, the
-  notice as the turn's words (`docs/api.md`, 「The notices」). A worker's turn is a notice, never an order to
-  deploy: what it does with it is the worker's rules'.
+  notice as the turn's words (`docs/api.md`, 「The notices」). The turn carries the notice's data and a
+  marker naming it alone; what the worker does with it is its own rules', which its session already
+  carries.
 - **A security notice names its repository.** The stack inventory maps each component to the repository
   or host that runs it and the worker that keeps it; the advisory investigation's exposure table carries
   that column, and the daemon sends each touched repository's worker its own part. A component with no

@@ -776,18 +776,20 @@ search runner applies it, and the run writes its document in English, the questi
     them back (`docs/runner.md`, 「A restart」).
   - **Its report row** is kept as the run ends, `sent` once the turn is answered and `refused` with the
     sentence of the step that failed: no repository of the name, no slot, no session, or no answer.
-- **A `fit` item's notice carries what its recipient needs to act,** after the line: what its shape says
-  (`fit` for a manual, the question for the owner's word; `touches` for an advisory, what it touches set
-  in), the thing's name (`name`), and the plan's place (`plan`, the heading set in). The chat agent files
-  what the owner's word calls for, and marks the item `taken` or `dismissed`.
+- **A `fit` item's notice carries the reading and the data its recipient acts on,** after the line: what
+  its shape says (`fit` for a manual, what it touches for an advisory, `touches` set in), the thing's name
+  (`name`), and the plan's place (`plan`, the heading set in). The notice asks nothing of its reader: the
+  chat agent's own rules have it put the question to the owner, file what his word calls for, and mark
+  the item `taken` or `dismissed`.
 - **The share link** is the document's live link from the artifact service's `GET /shares`, or one made
   with `POST /shares` where none stands.
 - **An advisory's touched repositories are told their own part.** For each repository the exposure table
   touches, every worker the stack names for that repository is told, by a turn as an agent recipient is,
-  the words `worker` holds: the advisory's name, the repository, its touched rows, the English document's
-  share link and the plan's place. Workers read English, which the page's switch shows them. The
-  category's recipients are told the whole; a repository no stack row names a worker for is heard by them
-  alone.
+  the words `worker` holds: a marker naming the notice, the advisory's name, the repository, its touched
+  rows, the English document's share link and the plan's place. Workers read English, which the page's
+  switch shows them. What a worker does with its part is its own rules'; the notice decides nothing for
+  it. The category's recipients are told the whole; a repository no stack row names a worker for is heard
+  by them alone.
 - **An engine that does not come** is told to the owner's private room alone, once per waiting place, with
   `restore`, the registration, its service and the minutes waited set in, under the kind
   `research-restore:<registration>`.

@@ -1,4 +1,6 @@
 # The words of the notices the daemon hands a category's recipients (docs/api.md, "The notices").
+# A notice carries its data alone, under a marker where it has one; what its reader does with it stands
+# in that session's own rules, never in the notice.
 # {title}, {summary} and {link} are the page's Korean title, a noun phrase naming the thing and never the
 # verdict, the first sentence of its Korean description and the document's one share link, told once the page
 # is whole; {follows} is, for a follow-up, `follows` with {parent} the title of the document it follows from,
@@ -13,16 +15,16 @@
 line = "{title}{follows} — {summary} {link}"
 follows = " (「{parent}」의 후속 조사)"
 follows_document = " (문서 {document}의 후속 조사)"
-fit = "우리 카드에 들어간다고 적혀 있습니다. 사장님께 검수 여부를 여쭤 주세요."
-touches = "우리 플랫폼의 {touches}에 닿는다고 적혀 있습니다. 저장소를 맡은 워커가 있으면 그 워커에게 따로 알렸습니다."
+fit = "우리 카드에 들어간다고 적혀 있습니다."
+touches = "우리 플랫폼의 {touches}에 닿는다고 적혀 있습니다."
 name = "대상: {name}"
 plan = "계획은 문서의 「{plan}」 절에 있습니다."
-# A touched repository's part, told to the worker that keeps it as a turn; workers read English.
+# A touched repository's part, told to the worker that keeps it as a turn; workers read English. It names the
+# notice and carries its data alone: what the worker does with it is its own rules'.
 worker = """Security notice: the advisory {name} touches the repository {repository}.
 {rows}
 The report: {link}
-The patch steps stand in its section "{plan}".
-This is a notice, not an order: what you do with it is your own rules' to decide."""
+The patch steps stand in its section "{plan}"."""
 stuck = "{name} 조사를 {tries}번 시도했지만 끝내지 못해, 헬퍼에게 원인을 고쳐 달라고 맡겼습니다. 고쳐질 때까지 계속 다시 시도합니다."
 restore = "조사에 쓰는 {model} 모델({service})이 {minutes}분이 지나도록 카드를 받지 못해, 조사 한 건이 그대로 기다리고 있습니다."
 

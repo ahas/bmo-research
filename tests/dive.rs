@@ -246,6 +246,16 @@ async fn a_manual_is_asked_read_filed_and_told_with_what_the_owner_s_word_needs(
   assert!(!order.contains("It does more."), "only the first sentence is told");
   assert!(order.contains(&words::document().manual[0].plan_heading));
   assert!(told[0]["summary"].as_str().unwrap().contains("Thing-7B"));
+  assert_eq!(
+    research_server::reading::first_sentence(&report.fit),
+    report.fit.trim(),
+    "the fit line is the reading's data alone"
+  );
+  assert_eq!(
+    order.lines().count(),
+    4,
+    "the notice carries its data alone, with no instruction sentence: {order}"
+  );
 
   let filed = ground.app.store.item(item.id).unwrap();
   assert_eq!(filed.state, ItemState::Fit);
@@ -1841,7 +1851,27 @@ async fn an_advisory_tells_each_touched_repository_s_worker_its_part_and_the_rec
 
   let room = orders(&ground);
   assert_eq!(room.len(), 1);
-  assert!(room[0]["said"]["order"].as_str().unwrap().contains("services/beta"));
+  let room_notice = room[0]["said"]["order"].as_str().unwrap();
+  assert!(room_notice.contains("services/beta"));
+  for data in [
+    "services/alpha",
+    "node-a",
+    "services/beta",
+    "SA-1",
+    words::document().advisory[0].plan_heading.as_str(),
+  ] {
+    assert!(room_notice.contains(data), "{data} missing from the whole notice: {room_notice}");
+  }
+  assert_eq!(
+    research_server::reading::first_sentence(&words::report().touches),
+    words::report().touches.trim(),
+    "the touches line is the advisory's data alone"
+  );
+  assert_eq!(
+    room_notice.lines().count(),
+    4,
+    "the room's notice carries its data alone, with no instruction sentence: {room_notice}"
+  );
   // An agent's notice goes out on a task of its own, its report row kept once agency answers the turn.
   for _ in 0..500 {
     if store
@@ -1864,7 +1894,23 @@ async fn an_advisory_tells_each_touched_repository_s_worker_its_part_and_the_rec
   assert_eq!(part.len(), 1);
   let prompt = part[0]["prompt"].as_str().unwrap();
   assert!(prompt.contains("services/alpha") && !prompt.contains("services/beta"), "{prompt}");
-  assert!(prompt.contains("https://share.example/d77"));
+  for data in [
+    "Security notice:",
+    "SA-1",
+    "libexample 1.4.1 node-a",
+    "https://share.example/d77",
+    words::document().advisory[0].plan_heading.as_str(),
+  ] {
+    assert!(prompt.contains(data), "{data} missing from the worker's part: {prompt}");
+  }
+  for instruction in ["not an order", "your own rules", "what you do with it"] {
+    assert!(!prompt.contains(instruction), "the worker's turn carries its data alone: {prompt}");
+  }
+  assert_eq!(
+    prompt.lines().count(),
+    4,
+    "the worker's part is its data alone, with no instruction sentence: {prompt}"
+  );
   let whole = ground.turns_named(&format!("research-notice-{}-watcher", item.id));
   assert_eq!(whole.len(), 1);
   assert_eq!(whole[0]["prompt"], room[0]["said"]["order"]);
