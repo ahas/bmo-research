@@ -132,7 +132,7 @@ An env file is read as `KEY=value` lines, as the unit that keeps it writes it.
 Where the platform's deploy records stand, read into the stack inventory beside the registered rows
 (`docs/api.md`, 「stack」). A record names a unit's component, its release version where the record names one
 and its commit otherwise, and when it went live; the oldest recorded component is the age floor every
-advisory is judged against (「The questions」).
+advisory is judged against, at the scan and again before its research (「The questions」).
 
 | Key | Default | Meaning |
 |---|---|---|

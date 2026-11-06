@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use bmo_research_client::{
   ResearchKeySettings, ResearchRun, ResearchRunAsk, ResearchRunState, ResearchSettings,
-  ResearchSettingsChange, SearchEngineState,
+  ResearchSettingsChange, SearchEngineState, Shape,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -759,6 +759,9 @@ pub struct PageAsk {
   pub opening: Vec<String>,
   pub origin: Option<String>,
   pub continues: Option<i64>,
+  /// The platform's age floor an advisory is judged against, as the run's question names it; none where no
+  /// floor stands or the shape is not an advisory.
+  pub floor: Option<String>,
 }
 
 /// The result a run continues from: the earlier run's, as the ledger keeps it, and the index of the first of
@@ -1045,7 +1048,8 @@ async fn go(app: Arc<App>, going: Going) {
     Err(why) => Err(why.clone()),
   };
   let outcome = match &result {
-    Ok(_) => "answered".to_string(),
+    Ok(Finished::Written(_)) => "answered".to_string(),
+    Ok(Finished::Skipped(_)) => "skipped".to_string(),
     Err(why) => format!("failed: {why}"),
   };
   // The slot is given back before the session it is bound to is ended, so its finish says whether agency
@@ -1153,31 +1157,81 @@ async fn first_session(
     .map_err(|fault| going.met(fault, "agency started no session for the run"))
 }
 
-/// The run's work on its slot, each session started on it before the one before is ended: the first answer,
-/// or the earlier result a continuing run takes as its own, then the rounds, the whole document and the
-/// narration. Answers the run's result.
+/// What a run's work came to: the result written, or an advisory the scope check judged older than the
+/// platform's age floor, which files no document and tells no one.
+enum Finished {
+  Written(String),
+  Skipped(String),
+}
+
+/// The run's work on its slot, each session started on it before the one before is ended: the scope check an
+/// advisory's deep dive gets before any research, the first answer, or the earlier result a continuing run
+/// takes as its own, then the rounds, the whole document and the narration. Answers the run's outcome.
 async fn carried(
   app: &App,
   going: &Going,
   road: &Road,
   bound: &mut Option<String>,
-) -> Result<String, String> {
+) -> Result<Finished, String> {
   let first = match &going.continued {
     Some(earlier) => earlier.written.clone(),
     None => {
       let session = first_session(app, going, road, bound).await?;
+      if let Some(floor) = scope_skip(app, going, &session).await {
+        return Ok(Finished::Skipped(floor));
+      }
       first_answer(app, going, &session).await?
     }
   };
   if words::runner().rounds.contains_key(&going.ask.key) {
-    return Ok(rounds(app, going, road, first, bound).await);
+    return Ok(Finished::Written(rounds(app, going, road, first, bound).await));
   }
   let session = match bound.clone() {
     Some(session) => session,
     None => first_session(app, going, road, bound).await?,
   };
   let answer = whole(app, going, &session, first).await;
-  Ok(narrated(app, going, &session, answer).await)
+  Ok(Finished::Written(narrated(app, going, &session, answer).await))
+}
+
+/// The floor an advisory's run is judged older than before its research begins, where its scope turn answers
+/// the marker; none for another shape, a run with no floor, or a turn that did not come back, which researches
+/// as it stands.
+async fn scope_skip(app: &App, going: &Going, session: &str) -> Option<String> {
+  let Filing::Page(page) = &going.filing else {
+    return None;
+  };
+  if page.category != Shape::Advisory.as_str() {
+    return None;
+  }
+  let floor = page.floor.as_deref()?;
+  let ask = &words::runner().scope;
+  let question = fill(&ask.question, &[("outside", &ask.outside), ("inside", &ask.inside)]);
+  let prompt = format!("{question}\n\n## The task\n\n{}", going.ask.query);
+  let name = format!("research-{}-scope", going.run);
+  match turn(app, going, session, &name, &prompt).await {
+    Ok(text) if scope_marker(&text, &ask.outside) => Some(floor.to_owned()),
+    Ok(_) => None,
+    Err(why) => {
+      note(
+        app,
+        going.run,
+        "scope",
+        &format!("The scope check did not answer, so the research goes on: {why}"),
+      );
+      None
+    }
+  }
+}
+
+/// Whether a scope turn's text opens with the marker saying the advisory is older than the floor: its first
+/// non-empty line, so a document that merely mentions the words is never read as one.
+pub fn scope_marker(text: &str, marker: &str) -> bool {
+  text
+    .lines()
+    .map(str::trim)
+    .find(|line| !line.is_empty())
+    .is_some_and(|line| line.starts_with(marker))
 }
 
 /// One turn into a session, answered once it ends however long that takes (`docs/runner.md`, 「A turn's
@@ -1527,9 +1581,29 @@ async fn file_page(
 }
 
 /// The run's end: its result filed, the run closed in the ledger, and its room told.
-async fn ended(app: &App, going: &Going, model: &str, result: Result<String, String>) {
+async fn ended(app: &App, going: &Going, model: &str, result: Result<Finished, String>) {
   let run = going.run;
   let ask = &going.ask;
+  if let Ok(Finished::Skipped(floor)) = &result {
+    let said = format!("older than the age floor, {floor}");
+    note(
+      app,
+      run,
+      "ended",
+      &format!("The advisory is skipped: {said}; no document and no notice."),
+    );
+    match app.store.close_research_run(run, "skipped", Some(&said), None) {
+      Ok(true) => {}
+      Ok(false) => {}
+      Err(why) => eprintln!("bmo-research: research {run} was not closed: {why}"),
+    }
+    return;
+  }
+  let result = match result {
+    Ok(Finished::Written(text)) => Ok(text),
+    Ok(Finished::Skipped(_)) => unreachable!("the skipped outcome returns above"),
+    Err(why) => Err(why),
+  };
   if let (Filing::Page(page), Ok(text)) = (&going.filing, &result) {
     let (outcome, error, filed) = match file_page(app, going, page, text).await {
       ("failed", Some(why), None) => match going.loss() {

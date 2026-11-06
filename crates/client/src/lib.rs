@@ -427,7 +427,8 @@ impl Shape {
   }
 }
 
-/// An item's place in its life (`docs/api.md`, 「queue」).
+/// An item's place in its life (`docs/api.md`, 「queue」): `skipped` stands for an advisory the run judged
+/// outside the platform's age floor before researching it, with no document and no notice.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum ItemState {
@@ -439,10 +440,11 @@ pub enum ItemState {
   Stuck,
   Taken,
   Dismissed,
+  Skipped,
 }
 
 impl ItemState {
-  pub const ALL: [ItemState; 8] = [
+  pub const ALL: [ItemState; 9] = [
     ItemState::Waiting,
     ItemState::Running,
     ItemState::Finishing,
@@ -451,6 +453,7 @@ impl ItemState {
     ItemState::Stuck,
     ItemState::Taken,
     ItemState::Dismissed,
+    ItemState::Skipped,
   ];
 
   pub fn as_str(self) -> &'static str {
@@ -463,6 +466,7 @@ impl ItemState {
       ItemState::Stuck => "stuck",
       ItemState::Taken => "taken",
       ItemState::Dismissed => "dismissed",
+      ItemState::Skipped => "skipped",
     }
   }
 

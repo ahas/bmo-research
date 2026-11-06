@@ -169,9 +169,10 @@ the one to read.
   advisory names), `plan` (the heading of the document's plan section, as the document holds it),
   `jobItemId` (the job item the chat agent filed for it), `repairItemId` (the job item filed for the repair worker
   while it is stuck, 「The repair」; null where none was), `error` (why its latest try failed or was
-  interrupted: that try's outcome, not how the item stands now; null while a try is under way and after one
-  that filed its document, until that document is gone, which it then names; 「The page」), `errorAt` (when
-  that try ended, null where `error` is), `foundAt`, `createdAt` and `changedAt`.
+  interrupted, or the floor a skipped advisory was judged against: not how the item stands now; null while a
+  try is under way and after one that filed its document, until that document is gone, which it then names;
+  「The page」), `errorAt` (when that try ended, null where `error` is), `foundAt`, `createdAt` and
+  `changedAt`.
 - **Where an item came from** is its `origin`, an object whose `kind` is one of three:
   - `source`, an item a scan took in: `source` names the source that found it, by its kind and what it
     reads (its query, else its address), null where that source no longer stands;
@@ -186,8 +187,11 @@ the one to read.
   recipients, or `fit` where the document asks the owner's word (「The fit」); `stuck` once its failed
   tries pass `retries`, still asked again on every retry wait while the repair worker is asked to fix the cause
   (「The repair」); `taken` once the chat agent filed the work it calls for; `dismissed` on the owner's
-  word. No count of tries gives an item up: dismissal is the one way an item leaves the queue unreported. A
-  dismissed item's key stays seen, so nothing turns it up again.
+  word; `skipped` once an advisory's run judged its fixed builds older than the platform's age floor before
+  researching it, with no document and no notice, `error` the one line naming the floor
+  (「The deep dive」). No count of tries gives an item up: dismissal and a skip are the ways an item leaves the
+  queue unreported. A dismissed item's key stays seen, so nothing turns it up again; a skipped one stays seen
+  too.
 - **The queue's order** is the order runs are taken in, within a category: `priority` from highest, then
   `foundAt` from oldest, then `id`. Between categories, the categories take turns: of those running with a
   try due (an item whose retry is due, or a brief's gathering that is due, 「The deep dive」), the next try
@@ -280,7 +284,9 @@ the one to read.
   a place nor a repository, is 400 `bad-request`. The owner and the jobs keep it; the daemon reads it into
   every advisory's question, together with the platform's deploy records (`docs/settings.md`, 「The stack」),
   and a touched repository's worker is told its part (「The notices」). The oldest recorded component is the
-  age floor every advisory is judged against (「The questions」).
+  age floor every advisory is judged against (「The questions」): at the scan and again in the run's scope turn
+  before its research, so an advisory whose fixed builds predate the floor is skipped with no document and no
+  notice.
 
 ### facts
 
@@ -318,9 +324,10 @@ the one to read.
   the background to its end, with no clock (`docs/runner.md`, 「Nothing of a run is clocked」); a session
   agency does not start for it ends it `cut` or `failed` (`docs/runner.md`, 「One run, step by step」).
 - **A research run** is `runId`, `key`, `query`, `asker`, `roomId`, `provider`, `model`, `state` (`waiting`,
-  `running` or `closed`), `outcome` (`answered`, `failed`, or `cut` where what it stood on went away,
-  `docs/runner.md`, 「A cut run」; null while open), `startedAt`, `finishedAt`, `documentId` and `link` (the
-  filed document and its share link, null where none was filed), `error` (why it failed), `branches` (how
+  `running` or `closed`), `outcome` (`answered`, `failed`, `skipped` where an advisory's fixed builds predate
+  the age floor, or `cut` where what it stood on went away, `docs/runner.md`, 「A cut run」; null while open),
+  `startedAt`, `finishedAt`, `documentId` and `link` (the filed document and its share link, null where none
+  was filed), `error` (why it failed, or the floor a skipped advisory was judged against), `branches` (how
   many it opened), `turns` (the names of the agency turns it went out under, its first answer's, each
   round's and its page's review's, by which its tool calls are read in agency's log), `narrations` (the
   languages whose narration its document plays) and `pending` (what its document still lacks, as a page's
@@ -392,6 +399,10 @@ the one to read.
   reads the run's row every `poll_seconds` until its `state` is `closed`. A run the deep dive asks tells no
   room itself. A try that asks no run — one that takes up a document an earlier run filed — gives its
   place's slot back, cancelled, as it starts.
+- **An advisory's run is judged against the age floor before its research** (`docs/runner.md`, 「The deep
+  dive's page」): the try hands the runner the floor its question names, the run asks one scope turn of the
+  advisory's fixed builds, and a run older than the floor closes `skipped` with no shape asked and no
+  document filed.
 - **The run is held to its shape:** the try hands the runner the section headings its item's shape holds
   (`prompts/document.toml`, `[sections]`), and the runner files the result as a page only where it is whole:
   its head lines, its body opening with the answer, the opening section saying what the subject is where
@@ -399,7 +410,9 @@ the one to read.
   language, the run's session asked once more for the whole document where they are short
   (`docs/runner.md`, 「The deep dive's page」). The try hands the runner the item's origin too, which the
   page prints under its title.
-- **A try ends filed, interrupted or failed.** It is filed once the run's row names the document it filed.
+- **A try ends filed, skipped, interrupted or failed.** It is filed once the run's row names the document it
+  filed; a run closed `skipped` ends the try `skipped`, its items `skipped` with the floor in their error and
+  no document or notice standing, and no retry due.
 - **An interrupted try** is one that ended because something the run needs could not be reached or was
   taken away, not because of what it asked or wrote: the runner refusing the ask 503 (`docs/runner.md`,
   「One run, step by step」), a run that closed `cut` (this unit's restart, or agency failing or no longer
@@ -410,8 +423,8 @@ the one to read.
   on the items and on its try's row, saying what went away and that the try is not counted.
 - **A failed try** is one that ended on its own content: the runner refusing the ask 400, 500 or 502 (an ask
   of the wrong shape, the runner's own failure, agency refusing what was asked), or a closed run with no
-  document, its error the run's — the result still short of its shape once asked again whole, or a turn
-  that wrote nothing while its slot stood. It counts toward `retries`: its items wait again with `retryAt`
+  document whose outcome is not `skipped`, its error the run's — the result still short of its shape once
+  asked again whole, or a turn that wrote nothing while its slot stood. It counts toward `retries`: its items wait again with `retryAt`
   `retry_minutes` ahead. A failed try that takes the lead's tries past `retries` puts its items `stuck`
   (「The repair」), and every recipient of the category is told so once.
 - **A brief** gathers every waiting or stuck item of its category whose retry is due into one run, once its category's `gatherMinutes` have passed since the last of its tries that filed its
@@ -754,6 +767,8 @@ search runner applies it, and the run writes its document in English, the questi
   it stands `finishing`, its `pending` naming what it waits on, and its run's log says the same under
   `filed`. The report goes out on the try that makes the page whole, the run's log saying so under `told`.
   A page whose report was already told is not told again when a part it lacked is had later.
+- **An advisory skipped on the age floor is told to no one:** it files no document and no page stands, so no
+  report, no worker's part and no room's notice goes out for it; its item keeps the one line naming the floor.
 - **A room** is told with the receiver's `POST /instructions`: `room`, `sort` `notice`, `kind`
   `research-report:<itemId>` (a brief's first item), `said` `{"order": "<the notice>"}` and `summary`.
 - **An agent** is told by one run of agency's `worker` role at its repository's checkout, sent on a task of

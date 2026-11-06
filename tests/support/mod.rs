@@ -140,6 +140,8 @@ pub struct World {
   pub narration: Option<String>,
   /// What each research run's turns write as it stands, in place of its filed result.
   pub raw: BTreeMap<i64, String>,
+  /// What an advisory run's scope turn writes; `IN SCOPE` where it is not set.
+  pub scope: Option<String>,
   /// What a deep dive's whole-document turn writes; none writes the run's result again.
   pub whole: Option<String>,
   /// What a deep dive's review turn writes; none writes `PASS`.
@@ -703,6 +705,10 @@ async fn research_turn(w: &Shared, name: &str) -> Response {
     tokio::time::sleep(std::time::Duration::from_millis(10)).await;
   }
   let world = w.lock().unwrap();
+  if name.ends_with("-scope") {
+    let answer = world.scope.clone().unwrap_or_else(|| "IN SCOPE".into());
+    return axum::Json(json!({"outcome": "answered", "answer": answer})).into_response();
+  }
   if name.ends_with("-narration") {
     let script = world.narration.clone().unwrap_or_default();
     return axum::Json(json!({"outcome": "answered", "answer": script})).into_response();

@@ -846,7 +846,7 @@
         "type": "object"
       },
       "ItemState": {
-        "description": "An item's place in its life (`docs/api.md`, 「queue」).",
+        "description": "An item's place in its life (`docs/api.md`, 「queue」): `skipped` stands for an advisory the run judged\noutside the platform's age floor before researching it, with no document and no notice.",
         "enum": [
           "waiting",
           "running",
@@ -855,7 +855,8 @@
           "fit",
           "stuck",
           "taken",
-          "dismissed"
+          "dismissed",
+          "skipped"
         ],
         "type": "string"
       },

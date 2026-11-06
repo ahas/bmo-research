@@ -521,12 +521,19 @@ async fn carried(app: Arc<App>, run: i64, asked: Option<i64>, handed: Option<Han
         model: Some(model),
         ..ResearchRunAsk::default()
       };
+      let floor = match lead.shape {
+        Shape::Advisory => {
+          crate::stack::age_floor(&crate::stack::inventory(&app)).map(|floor| floor.line())
+        }
+        _ => None,
+      };
       let filing = Filing::Page(PageAsk {
         category: lead.shape.as_str().to_owned(),
         sections: words::document().sections.of(lead.shape).to_vec(),
         opening: words::document().opening.of(lead.shape).to_vec(),
         origin: origin_of(&app, &lead, LANGUAGES[1]),
         continues: earlier,
+        floor,
       });
       match runner::launch(app.clone(), ask, filing, handed).await {
         Ok(launched) => {
@@ -551,6 +558,16 @@ async fn carried(app: Arc<App>, run: i64, asked: Option<i64>, handed: Option<Han
     tokio::time::sleep(Duration::from_millis((app.settings.poll_seconds * 1000).max(50))).await;
   };
   let outcome = closed.outcome.clone();
+  if outcome.as_deref() == Some("skipped") {
+    let why = closed.error.clone().unwrap_or_else(|| "older than the age floor".to_owned());
+    eprintln!("bmo-research: skipped {}: {why}", lead.name);
+    if let Err(why) = app.store.skip(lead.id, &why) {
+      eprintln!("bmo-research: item {} was not marked skipped: {why}", lead.id);
+    }
+    let _ = app.store.end_run(run, "skipped", outcome.as_deref(), None);
+    app.places.wake();
+    return;
+  }
   if outcome.as_deref() == Some("cut") {
     let why = closed.error.clone().unwrap_or_else(|| "the run was cut".into());
     return interrupt(&app, run, &lead, "cut", outcome.as_deref(), &why);

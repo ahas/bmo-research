@@ -149,6 +149,27 @@ fn without_a_floor_every_advisory_is_queued() {
 }
 
 #[test]
+fn a_skipped_item_keeps_one_line_naming_the_floor_and_waits_for_no_retry() {
+  let store = store();
+  let item = store
+    .ask("security", "example.org/sa", "SA", "https://example.org/sa", Shape::Advisory)
+    .unwrap();
+  let (run, _) = store.start_try("security", &[item.id]).unwrap().unwrap();
+  let floor = "older than the age floor, Node.js 22.20.0 (recorded 2026-11-02T03:02:42Z)";
+  store.skip(item.id, floor).unwrap();
+  store.end_run(run, "skipped", Some("skipped"), None).unwrap();
+
+  let skipped = store.item(item.id).unwrap();
+  assert_eq!(skipped.state, ItemState::Skipped);
+  assert_eq!(skipped.error.as_deref(), Some(floor), "the queue keeps the floor it used");
+  assert!(skipped.retry_at.is_none(), "a skipped item waits for no retry");
+  assert!(
+    store.waiting("security", now_ms(), 1).unwrap().is_empty(),
+    "a skipped item is never taken again"
+  );
+}
+
+#[test]
 fn a_candidate_is_kept_once_and_an_archived_one_is_never_queued() {
   let store = store();
   let one = candidate("seen-once", ItemKind::Model);

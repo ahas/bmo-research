@@ -1235,6 +1235,19 @@ async fn a_picture_with_no_source_entry_is_left_out_and_nothing_is_fetched() {
   );
 }
 
+#[test]
+fn a_scope_marker_is_read_from_the_first_line_alone() {
+  use research_server::runner::scope_marker;
+  assert!(scope_marker("OUT OF SCOPE\n", "OUT OF SCOPE"));
+  assert!(scope_marker("\n  OUT OF SCOPE: libexample 1.4.1\n", "OUT OF SCOPE"));
+  assert!(!scope_marker("IN SCOPE\n", "OUT OF SCOPE"));
+  assert!(!scope_marker("", "OUT OF SCOPE"));
+  assert!(
+    !scope_marker("A document says the advisory is OUT OF SCOPE.\n", "OUT OF SCOPE"),
+    "a document that merely mentions the words is never read as a skip"
+  );
+}
+
 #[tokio::test]
 async fn a_session_with_no_demand_of_its_own_names_the_pool_to_agency() {
   let (ground, _base, client) = served().await;

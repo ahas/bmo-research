@@ -1851,6 +1851,22 @@ impl Store {
     Ok(())
   }
 
+  /// An advisory's run judged it older than the platform's age floor before researching it: the item stands
+  /// `skipped`, its one line the floor it was judged against, with no document and no notice
+  /// (`docs/api.md`, 「queue」). An item a try no longer runs is left as it stands.
+  pub fn skip(&self, id: i64, why: &str) -> Result<(), String> {
+    let now = now_ms();
+    self
+      .lock()
+      .execute(
+        "update queue set state = 'skipped', retry_at = null, error = ?2, error_at = ?3, changed_at = ?3
+         where id = ?1 and state = 'running'",
+        params![id, why, now],
+      )
+      .map_err(|e| e.to_string())?;
+    Ok(())
+  }
+
   pub fn dismiss(&self, id: i64) -> Result<Item, Refusal> {
     let item = self.item(id)?;
     if matches!(item.state, ItemState::Taken | ItemState::Dismissed) {

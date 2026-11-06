@@ -360,9 +360,20 @@ pub struct RunnerWords {
   pub search: SearchRulebooks,
   pub questions: BTreeMap<String, String>,
   pub rounds: BTreeMap<String, Rounds>,
+  pub scope: ScopeAsk,
   pub narration: NarrationAsk,
   pub whole: WholeAsk,
   pub review: ReviewAsk,
+}
+
+/// What an advisory's run is asked before its research (`docs/runner.md`, 「The deep dive's page」): the
+/// question, and the markers its answer opens with where the advisory is older than the age floor or not.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScopeAsk {
+  pub question: String,
+  pub outside: String,
+  pub inside: String,
 }
 
 /// What a deep dive's session is asked for a narration its result lacks: the question, and the rulebook and

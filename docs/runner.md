@@ -107,7 +107,13 @@ run is this unit's.
    its own side (「A cut run」), failed where it refused what was asked. A run that continues from an earlier
    run's result asks no first turn, so it starts no session here: its first is the rounds' (「A run that
    continues」).
-7. **The first turn:** the request, as one turn of the session (`POST /sessions/{id}/turns`) carrying the
+7. **The scope check and the first turn:** a deep dive's advisory is judged before its research, as one turn
+   of the session named `research-<run>-scope`: the question `prompts/runner.toml` holds under `[scope]`, the
+   advisory's own fixed builds against the floor its task names, answered with one line. `OUT OF SCOPE` means
+   every fixed build appeared before the floor: the run closes `skipped` at once, files no document and tells
+   no one, and the queue keeps one line naming the floor. Any other answer, a turn that wrote nothing, or a
+   shape that is not an advisory goes on to the first turn.
+   The request is then asked as one turn of the session (`POST /sessions/{id}/turns`) carrying the
    turn's own parts — a fresh resume, the name `research-<run>`, the title, the room or 0, no words heard and
    no variables — its road, effort and folder the session's, waited on until it ends (「A turn's send」); what
    it wrote is its whole text (「What a turn wrote」). A run that continues from an earlier run's result asks no
@@ -125,10 +131,11 @@ run is this unit's.
    no first turn — a deep dive's result short of its shape is asked
    once more for the whole document (「The deep dive's page」), and any result that carries no `LISTEN:`
    script is asked for one (「The narration」).
-10. **The end:** the slot is given back (`finished`, its outcome `answered` or `failed: <why>`) and the
-   session it is bound to then ended (`DELETE /sessions/{id}`), every session before it ended already (「The
+10. **The end:** the slot is given back (`finished`, its outcome `answered`, `skipped` or `failed: <why>`) and
+   the session it is bound to then ended (`DELETE /sessions/{id}`), every session before it ended already (「The
    slots' children」); the result is drawn into its document and filed (「The document」; a deep dive's held to
-   its shape first, 「The deep dive's page」), and the run is closed in the ledger with its outcome, the document and its link. A run told to its
+   its shape first, 「The deep dive's page」), and the run is closed in the ledger with its outcome, the document and its link. A run closed `skipped` files
+   no document and closes with the floor it was judged against as its one line. A run told to its
    room then has its document's narration spoken and attached, and its room is told once the sound is
    (「The narration's sound」, 「The room」). Every step is written into the run's log.
 
@@ -325,6 +332,12 @@ of it only once the sound is attached.
 
 A run the daemon asks for its own deep dive is filed differently from a run told to a room: as one page the
 daemon finishes, held first to the shape the deep dive asked for.
+
+- **An advisory older than the platform's age floor is never filed.** Before its research begins the run is
+  asked the scope turn (「One run, step by step」); where every fixed build appeared before the floor it closes
+  `skipped` with no document and no notice, and the daemon leaves the item `skipped` with one line naming the
+  floor, which is all the queue keeps of it. An advisory at or after the floor, or one whose fixed-build date
+  cannot be read, is researched and filed as it stands.
 
 - **The shape is checked before anything is filed.** The deep dive names the section headings its item's shape
   holds and its opening's headings, in every language a result may be written in (`prompts/document.toml`,

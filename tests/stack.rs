@@ -100,7 +100,8 @@ fn the_floor_line_names_the_component_and_version_and_the_unknown_case_says_no_f
   };
   let named = stack::floor_text(Some(&floor));
   assert!(named.contains("The oldest recorded component is Node.js 22.20.0"), "{named}");
-  assert!(named.contains("out of scope"), "{named}");
+  assert!(named.contains("judged against it before its research"), "{named}");
+  assert!(named.contains("the document names it"), "{named}");
 
   let none = stack::floor_text(None);
   assert!(none.contains("No age floor stands"), "{none}");

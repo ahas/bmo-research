@@ -35,6 +35,14 @@ rounds = ["what", "sources", "facts", "coverage", "establish", "final"]
 [rounds.browse]
 rounds = ["what", "sources", "facts", "coverage", "establish", "final"]
 
+# What an advisory's run is asked before its research begins (docs/runner.md, "The deep dive's page"): the
+# vendor's fixed builds judged against the platform age floor the task names. The answer is one line, the
+# marker alone, so the daemon can skip the run without a document or a notice.
+[scope]
+question = "Before any research, judge the advisory the task below names against the platform's age floor. Read only the advisory's own fixed builds and the dates the vendor gives them. Where the task states no floor stands, where a fixed build appeared at or after the floor, or where the advisory gives no date for one, write one line and nothing else: {inside}. Where every fixed build the advisory names appeared before the floor, write one line and nothing else: {outside}. Write no heading, no list, no result structure and nothing else."
+outside = "OUT OF SCOPE"
+inside = "IN SCOPE"
+
 # What a run's session is asked where its result carries no `LISTEN:` script (docs/runner.md, 「The
 # narration」): the question, and the rulebook and its section the narration is written by.
 [narration]

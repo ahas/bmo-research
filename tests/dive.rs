@@ -3129,6 +3129,43 @@ async fn an_advisory_whose_inventory_records_no_version_is_told_no_floor_stands(
 }
 
 #[tokio::test]
+async fn an_advisory_older_than_the_floor_is_skipped_with_no_document_and_no_notice() {
+  let ground = support::ground(|_| {}).await;
+  give_owner_room(&ground.app).await;
+  let store = &ground.app.store;
+  store
+    .add_stack_row(&NewStackRow {
+      component: "libexample".into(),
+      version: Some("1.4.1".into()),
+      place: Some("node-a".into()),
+      repository: Some("services/alpha".into()),
+      worker: None,
+    })
+    .unwrap();
+  let item = store
+    .ask("security", "example.org/sa-3", "SA-3", "https://example.org/sa-3", Shape::Advisory)
+    .unwrap();
+  ground.world.lock().unwrap().scope = Some("OUT OF SCOPE".into());
+  settle(&ground).await;
+
+  let skipped = store.item(item.id).unwrap();
+  assert_eq!(skipped.state, ItemState::Skipped);
+  let line = skipped.error.clone().unwrap_or_default();
+  assert!(line.starts_with("older than the age floor, libexample 1.4.1"), "{line}");
+  assert!(skipped.retry_at.is_none(), "a skipped advisory waits for no retry");
+  assert!(skipped.document_id.is_none(), "no document stands for it");
+
+  assert_eq!(ground.turns_named("research-1-scope").len(), 1, "the scope is judged before research");
+  assert!(ground.turns_named("research-1").is_empty(), "the research is never asked");
+  assert!(ground.run_documents().is_empty(), "no document is filed");
+  assert!(orders(&ground).is_empty(), "no room is told");
+  assert!(
+    ground.asked("agency").iter().all(|a| !a.path.contains("research-notice-")),
+    "no worker is told either"
+  );
+}
+
+#[tokio::test]
 async fn an_investigation_brings_its_category_s_nearest_reports_into_its_brief_and_names_them() {
   let ground = support::ground(|s| s.retry_minutes = 60).await;
   give_owner_room(&ground.app).await;

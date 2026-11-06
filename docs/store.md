@@ -54,7 +54,7 @@ Every candidate judged, once, by its key.
 | `kind` | The item kind its source turns up |
 | `published_at` | When it appeared, where the source says |
 | `source_id` | The source it came from |
-| `state` | `unqueued`, kept and not yet queued, which the scan's pass queues before it ends; `queued`, an item stands for it; `archived`, the archive already holds it; `stale`, an advisory whose fixed builds predate the platform's age floor, never queued |
+| `state` | `unqueued`, kept and not yet queued, which the scan's pass queues before it ends; `queued`, an item stands for it; `archived`, the archive already holds it; `stale`, an advisory whose recorded date predates the platform's age floor, never queued |
 | `item_id` | The item made of it, or null |
 | `found_at` | When it was read |
 
@@ -82,7 +82,7 @@ The items (`docs/api.md`, 「queue」).
 | `plan` | The heading of the document's plan section |
 | `job_item_id` | The job item the chat agent filed for it |
 | `repair_item_id` | The job item filed for the repair worker while it is stuck, or null; cleared as it is asked again |
-| `error`, `error_at` | Why the latest try failed or was interrupted, and when that try ended; null while a try is under way and after one that filed its document, until the archive answers 404 for that document, which it then names with when that was read |
+| `error`, `error_at` | Why the latest try failed or was interrupted, or the floor a skipped advisory was judged against, and when that try ended; null while a try is under way and after one that filed its document, until the archive answers 404 for that document, which it then names with when that was read |
 | `found_at`, `created_at`, `changed_at` | When its candidate was found, when it was queued and last changed |
 
 ## `runs`
@@ -237,7 +237,7 @@ The runner's ledger (`docs/runner.md`): one row per research run.
 | `key`, `line` | The research key it was asked at, and the line it goes out on |
 | `query`, `asker`, `options`, `room_id` | What was asked, by whom, with which options, and the room it is told to, or null |
 | `provider`, `model` | The road it goes out on |
-| `state`, `outcome`, `error` | `waiting`, `running` or `closed`; `answered`, `failed` or `cut` once closed; and why it failed |
+| `state`, `outcome`, `error` | `waiting`, `running` or `closed`; `answered`, `failed`, `skipped` or `cut` once closed; and why it failed or the floor it was skipped against |
 | `started_at`, `finished_at` | When it was asked, and when it closed |
 | `branches_allowed`, `branches` | How many branches it may open, and how many it opened |
 | `record` | The run's research record, the JSON object its sessions carry under `labels.research` |

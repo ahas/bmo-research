@@ -91,7 +91,8 @@ sources ──scan──▶ candidates ──new?──▶ queue ──a place l
    fails on its own content is asked again after `retry_minutes`, and past its retries the item is stuck
    and the repair worker is asked to fix the cause (「Nothing is given up」).
 5. **The report.** The document the run filed is the report: it opens by saying what the thing is and
-   what it is for, and under its title says where the research came from. The daemon tells every report
+   what it is for, and under its title says where the research came from. A run skipped on the age floor
+   files no document and tells no one, so no report stands for it. The daemon tells every report
    room: the share link and one line saying what the thing is, naming the earlier document a follow-up
    continues, nothing else — never the grounds, never the sources. The first room is the owner's private room, read from the receiver at start; rooms are added
    and removed through the routes and the tools.
@@ -163,9 +164,12 @@ report rooms. Three stand at the start:
   of how a flaw is exploited are not read past what the exposure judgement needs. A reported item says
   which hosts and repositories it touches.
 - **The researcher owns the age floor.** The oldest recorded component, by the moment its build or version
-  was recorded, is read afresh on every pass and handed every advisory in its question; an advisory whose
-  fixed builds appeared before it never joins the queue. A version the inventory does not record is never
-  read as old or new: one unknown row leaves the floor unknown, and an unknown floor skips nothing.
+  was recorded, is read afresh on every pass and handed every advisory in its question. An advisory whose
+  recorded date predates it never joins the queue, and one already queued judges its own fixed builds against
+  the floor before its research begins: where every fixed build appeared before it, the run is skipped whole
+  — no document and no notice — and the queue keeps one line naming the floor. A version the inventory does
+  not record is never read as old or new: one unknown row leaves the floor unknown, and an unknown floor
+  skips nothing.
 - **The economy category keeps facts.** Each brief's figures (an index, a rate, a price, a release) are
   written to the store with their source and date, so a later system reads a series, not documents.
 - **Each category has its own cadence, road and rooms,** and a category can be stopped alone; a stopped

@@ -6,7 +6,7 @@
       "type": "string"
     },
     "state": {
-      "description": "A comma-separated list of item states: waiting, running, reported, fit, failed, taken, dismissed.",
+      "description": "A comma-separated list of item states: waiting, running, reported, fit, stuck, taken, dismissed, skipped.",
       "type": "string"
     }
   },

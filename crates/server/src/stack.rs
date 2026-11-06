@@ -128,10 +128,10 @@ pub fn block(rows: &[Recorded]) -> String {
 pub fn floor_text(floor: Option<&AgeFloor>) -> String {
   match floor {
     Some(floor) => format!(
-      "The oldest recorded component is {}. An advisory whose fixed builds appeared before that is out of scope: say so in one line, name this floor, and stop. An advisory whose fixed builds appeared at or after it is judged as usual.",
+      "The oldest recorded component is {}. Every advisory is judged against it before its research; the document names it in `Exposure of our platform`.",
       floor.line()
     ),
-    None => "No age floor stands: the inventory is empty, or it records a component with no version, and an unrecorded version is neither old nor new. No advisory is skipped on age.".to_string(),
+    None => "No age floor stands: the inventory is empty, or it records a component with no version, and an unrecorded version is neither old nor new. Nothing is skipped on age, and the document names the floor as unknown.".to_string(),
   }
 }
 
