@@ -321,6 +321,7 @@ pub struct SearchDocumentWords {
   pub deal: String,
   pub review: String,
   pub news: String,
+  pub picture_source: String,
 }
 
 /// The words a run's document is written in, by language: `ko`, and `en` for every other.

@@ -4,17 +4,17 @@
 //! pictures kept beside it — and nothing of the structure lines themselves; a deep dive's held to its shape
 //! and filed as a page; and the filing of it in the artifact service.
 
-use std::net::IpAddr;
 use std::time::Duration;
 
 use base64::Engine;
 use serde_json::{Value, json};
 
 use crate::App;
-use crate::page::{self, Side};
+use crate::page::{self, Figure, Side};
 use crate::reading;
 use crate::runner::PageAsk;
 use crate::store::{RunDocument, now_ms};
+use crate::tool_host::ToolHost;
 use crate::words::SearchDocumentWords as Words;
 
 // The name the product rulebook gives its news section, which a result writes in English.
@@ -36,13 +36,31 @@ pub fn language_of(question: &str) -> &'static str {
   if question.chars().any(hangul) { "ko" } else { "en" }
 }
 
-/// A picture the result names, as the document draws it: its address, its caption and the name it is kept
-/// under beside the document.
+/// The source entry a picture belongs to: its mark, the page it links and the words saying what it supports.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PictureSource {
+  pub mark: String,
+  pub url: String,
+  pub what: String,
+}
+
+/// A picture the result names, as the document draws it: its address, its caption, the name it is kept
+/// under beside the document, and the source entry its block closes with.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Picture {
   pub url: String,
   pub caption: String,
   pub name: String,
+  pub source: Option<PictureSource>,
+}
+
+/// A picture fetched and kept beside a document: the name it is kept under, the type explorer answered and
+/// its bytes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KeptPicture {
+  pub name: String,
+  pub media_type: String,
+  pub bytes: Vec<u8>,
 }
 
 /// A result made into its document.
@@ -102,6 +120,72 @@ fn opens(line: &str) -> bool {
   OPENERS.iter().any(|opener| line.starts_with(opener))
 }
 
+// A `SOURCE` line read as its mark, the page it links and what it supports, none for any other line.
+fn source_at(line: &str) -> Option<(String, String, String)> {
+  let rest = line.trim().strip_prefix("SOURCE")?;
+  let (mark, cited) = match rest.trim_start().strip_prefix('[') {
+    Some(marked) => match marked.split_once("]:") {
+      Some((mark, cited)) => (mark.trim().to_owned(), cited),
+      None => (String::new(), rest),
+    },
+    None => (String::new(), rest.trim_start().trim_start_matches(':')),
+  };
+  let cited = parts(cited);
+  let url = cited.first().copied().unwrap_or_default().to_owned();
+  let what = cited.get(1).copied().filter(|what| !what.is_empty()).unwrap_or(url.as_str()).to_owned();
+  (!url.is_empty()).then_some((mark, url, what))
+}
+
+// Whether a line opens a block of its own, so a picture and its source entry stand in one block.
+fn boundary(line: &str) -> bool {
+  let line = line.trim();
+  ["VERDICT:", "SECTION:", "NAME:", "===ITEM===", "UNCONFIRMED:", "MENU:", "LISTEN:"]
+    .iter()
+    .any(|opener| line.starts_with(opener))
+}
+
+// A picture's caption as its body writes it: what it shows, then the source entry it came from, so it reads
+// on its own where the picture stands.
+fn captioned(caption: &str, source: &PictureSource, words: &Words) -> String {
+  let source = format!("{}: {}", words.picture_source, source.what.trim());
+  match caption.trim().is_empty() {
+    true => source,
+    false => format!("{} — {source}", caption.trim()),
+  }
+}
+
+// A picture's caption made to stand inside a markdown image's brackets, brackets and backslashes taken as
+// text.
+fn picture_text(text: &str) -> String {
+  let mut out = String::with_capacity(text.len());
+  for c in text.chars() {
+    if matches!(c, '\\' | '[' | ']') {
+      out.push('\\');
+    }
+    out.push(c);
+  }
+  out
+}
+
+// The name a kept picture is kept under without its extension, the name its body target gives it.
+fn base_name(name: &str) -> &str {
+  name.rsplit_once('.').map_or(name, |(base, _)| base)
+}
+
+// The extension a kept picture's name carries, by the type explorer answered.
+fn extension(media_type: &str) -> &'static str {
+  match media_type.split(';').next().unwrap_or_default().trim().to_ascii_lowercase().as_str() {
+    "image/jpeg" | "image/jpg" => "jpg",
+    "image/png" => "png",
+    "image/gif" => "gif",
+    "image/webp" => "webp",
+    "image/avif" => "avif",
+    "image/tiff" => "tiff",
+    "image/svg+xml" => "svg",
+    _ => "img",
+  }
+}
+
 /// A result's structure lines made into its document in `words`.
 pub fn draw(result: &str, words: &Words) -> Drawn {
   let mut drawn = Drawn::default();
@@ -115,7 +199,13 @@ pub fn draw(result: &str, words: &Words) -> Drawn {
     body.push(format!("## {text}"));
     body.push(String::new());
   };
-  for raw in result.lines() {
+  let lines: Vec<&str> = result.lines().collect();
+  let source_lines: Vec<(usize, PictureSource)> = lines
+    .iter()
+    .enumerate()
+    .filter_map(|(at, raw)| source_at(raw).map(|(mark, url, what)| (at, PictureSource { mark, url, what })))
+    .collect();
+  for (index, raw) in lines.iter().enumerate() {
     let line = raw.trim_end();
     let trimmed = line.trim();
     if mode == Mode::Narration && !opens(trimmed) {
@@ -219,25 +309,29 @@ pub fn draw(result: &str, words: &Words) -> Drawn {
         .copied()
         .collect::<Vec<_>>()
         .join(" · ");
+      // A picture belongs to the block whose source entry names where it came from, and one that block
+      // names no source for is left out.
+      let source = source_lines
+        .iter()
+        .find(|(at, _)| *at > index && !lines[index + 1..*at].iter().any(|line| boundary(line)))
+        .map(|(_, source)| source.clone());
+      let Some(source) = source.filter(|_| !url.is_empty() && !caption.is_empty()) else {
+        continue;
+      };
       let name = format!("picture-{:02}", drawn.pictures.len() + 1);
-      body.push(format!("![{caption}]({name})"));
-      drawn.pictures.push(Picture { url, caption, name });
+      body.push(format!("![{}]({name})", picture_text(&captioned(&caption, &source, words))));
+      drawn.pictures.push(Picture {
+        url,
+        caption,
+        name,
+        source: Some(source),
+      });
     } else if let Some(value) = after(trimmed, "MORE:") {
       if !value.is_empty() {
         body.push(value.to_owned());
       }
-    } else if let Some(rest) = trimmed.strip_prefix("SOURCE") {
-      let (mark, cited) = match rest.trim_start().strip_prefix('[') {
-        Some(marked) => match marked.split_once("]:") {
-          Some((mark, cited)) => (mark.trim().to_owned(), cited),
-          None => (String::new(), rest),
-        },
-        None => (String::new(), rest.trim_start().trim_start_matches(':')),
-      };
-      let cited = parts(cited);
-      let url = cited.first().copied().unwrap_or_default().to_owned();
-      let what = cited.get(1).copied().filter(|what| !what.is_empty()).unwrap_or(url.as_str()).to_owned();
-      if !url.is_empty() && !sources.iter().any(|(_, kept, _)| *kept == url) {
+    } else if let Some((mark, url, what)) = source_at(trimmed) {
+      if !sources.iter().any(|(_, kept, _)| *kept == url) {
         sources.push((mark, url, what));
       }
     } else {
@@ -324,119 +418,121 @@ pub fn filing(drawn: &Drawn, run: i64, key: &str, query: &str, room: Option<i64>
   })
 }
 
-// How many pictures one document keeps, and the most bytes one picture may be. A fetch is waited on until its
-// host answers or its connection breaks.
+// How many pictures one document keeps.
 const MOST_PICTURES: usize = 12;
-const MOST_PICTURE_BYTES: usize = 15 * 1024 * 1024;
-const MOST_REDIRECTS: usize = 3;
 
-// Whether an address is one the outward fetch may reach: none on this machine or its networks.
-fn public(ip: IpAddr) -> bool {
-  match ip {
-    IpAddr::V4(v4) => {
-      !(v4.is_private()
-        || v4.is_loopback()
-        || v4.is_link_local()
-        || v4.is_unspecified()
-        || v4.is_broadcast()
-        || v4.is_multicast()
-        || v4.octets()[0] == 100 && (64..128).contains(&v4.octets()[1]))
-    }
-    IpAddr::V6(v6) => {
-      !(v6.is_loopback()
-        || v6.is_unspecified()
-        || v6.is_multicast()
-        || (v6.segments()[0] & 0xfe00) == 0xfc00
-        || (v6.segments()[0] & 0xffc0) == 0xfe80)
-    }
-  }
-}
-
-// Whether a web address names a host the outward fetch may reach, every address it resolves to public.
-async fn reachable(url: &url::Url) -> bool {
-  if !matches!(url.scheme(), "http" | "https") {
-    return false;
-  }
-  let Some(host) = url.host_str() else { return false };
-  let port = url.port_or_known_default().unwrap_or(443);
-  match tokio::net::lookup_host((host, port)).await {
-    Ok(addresses) => {
-      let addresses: Vec<_> = addresses.collect();
-      !addresses.is_empty() && addresses.iter().all(|address| public(address.ip()))
-    }
-    Err(_) => false,
-  }
-}
-
-/// One picture fetched through the guarded direct fetch: every hop's host checked, at most a few redirects,
-/// a picture's type and size; none where any check fails.
-pub async fn fetch_picture(address: &str) -> Option<(Vec<u8>, String)> {
-  let client = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).build().ok()?;
-  let mut at = url::Url::parse(address).ok()?;
-  for _ in 0..=MOST_REDIRECTS {
-    if !reachable(&at).await {
-      return None;
-    }
-    let answer = client.get(at.clone()).send().await.ok()?;
-    if answer.status().is_redirection() {
-      let next = answer.headers().get(reqwest::header::LOCATION)?.to_str().ok()?;
-      at = at.join(next).ok()?;
+/// The pictures a result names, fetched through the tool host's `explorer/fetch_raster` under the run's
+/// pacing name, at most the bound: the name each is kept under beside its document, the type explorer
+/// answered and its bytes. A picture explorer answers none for is not kept.
+pub async fn fetch_pictures(app: &App, drawn: &Drawn, run: i64) -> Vec<KeptPicture> {
+  let pacing = format!("research:{run}");
+  let mut kept = Vec::new();
+  for picture in drawn.pictures.iter().take(MOST_PICTURES) {
+    let Ok((bytes, media_type)) = ToolHost::new(&app.settings).fetch_raster(&picture.url, &pacing).await
+    else {
+      continue;
+    };
+    if bytes.is_empty() || !media_type.starts_with("image/") {
       continue;
     }
-    if !answer.status().is_success() {
-      return None;
-    }
-    let media = answer.headers().get(reqwest::header::CONTENT_TYPE)?.to_str().ok()?.to_owned();
-    if !media.starts_with("image/")
-      || answer.content_length().is_some_and(|length| length as usize > MOST_PICTURE_BYTES)
-    {
-      return None;
-    }
-    let bytes = answer.bytes().await.ok()?;
-    return (bytes.len() <= MOST_PICTURE_BYTES && !bytes.is_empty()).then(|| (bytes.to_vec(), media));
+    kept.push(KeptPicture {
+      name: format!("{}.{}", picture.name, extension(&media_type)),
+      media_type,
+      bytes,
+    });
   }
-  None
+  kept
 }
 
-/// The pictures kept beside a filed document, at most the bound; a picture not kept is drawn from its address
-/// in the body. Answers the body as it is to stand, and how many were kept.
-pub async fn keep_pictures(app: &App, document: i64, drawn: &Drawn) -> (String, usize) {
-  let mut body = drawn.body.clone();
-  let mut kept = 0;
-  for (at, picture) in drawn.pictures.iter().enumerate() {
-    let fetched = if at < MOST_PICTURES { fetch_picture(&picture.url).await } else { None };
-    let attached = match fetched {
-      Some((bytes, media)) => app
-        .peers
-        .artifact_send(
-          reqwest::Method::POST,
-          &format!("/documents/{document}/attachments"),
-          &json!({
-            "name": picture.name,
-            "mediaType": media,
-            "content": base64::engine::general_purpose::STANDARD.encode(bytes),
-          }),
-        )
-        .await
-        .is_ok(),
-      None => false,
-    };
-    if attached {
-      kept += 1;
-    } else {
-      body = body.replace(&format!("]({})", picture.name), &format!("]({})", picture.url));
-    }
+/// The figures a page draws from the pictures it names: each from the copy kept beside it as a data address,
+/// else from the address the result gave, so a page needs no outside host for a picture it kept.
+pub fn figures(drawn: &Drawn, kept: &[KeptPicture]) -> Vec<Figure> {
+  drawn
+    .pictures
+    .iter()
+    .map(|picture| {
+      let one = kept.iter().find(|one| base_name(&one.name) == picture.name);
+      let address = one.map_or_else(
+        || picture.url.clone(),
+        |one| {
+          format!(
+            "data:{};base64,{}",
+            one.media_type,
+            base64::engine::general_purpose::STANDARD.encode(&one.bytes)
+          )
+        },
+      );
+      Figure {
+        target: picture.name.clone(),
+        address,
+        name: one.map_or_else(|| picture.name.clone(), |one| one.name.clone()),
+      }
+    })
+    .collect()
+}
+
+/// The pictures kept beside a filed document, read back for a page drawn again: each picture the document
+/// keeps by the name the result gave it, at most the bound. None where the archive cannot be read; a
+/// picture whose bytes are not had is left out and drawn from its address.
+pub async fn kept_pictures(app: &App, document: i64, drawn: &Drawn) -> Vec<KeptPicture> {
+  if drawn.pictures.is_empty() {
+    return Vec::new();
   }
-  (body, kept)
+  let Ok(attachments) = app.peers.attachments(document).await else {
+    return Vec::new();
+  };
+  let mut kept = Vec::new();
+  for picture in drawn.pictures.iter().take(MOST_PICTURES) {
+    let Some(one) = attachments.iter().find(|one| base_name(&one.name) == picture.name) else {
+      continue;
+    };
+    let Ok((bytes, media_type)) = app.peers.attachment_bytes(document, one.id).await else {
+      continue;
+    };
+    kept.push(KeptPicture {
+      name: one.name.clone(),
+      media_type,
+      bytes,
+    });
+  }
+  kept
+}
+
+// The body a room's document files with its pictures named by the files kept beside it, each picture not
+// kept drawn from its address.
+fn pictured_body(drawn: &Drawn, kept: &[KeptPicture]) -> String {
+  let mut body = drawn.body.clone();
+  for picture in &drawn.pictures {
+    let name = kept
+      .iter()
+      .find(|one| base_name(&one.name) == picture.name)
+      .map_or(picture.url.as_str(), |one| one.name.as_str());
+    body = body.replace(&format!("]({})", picture.name), &format!("]({name})"));
+  }
+  body
 }
 
 /// A result's document filed in the artifact service and given its share link, which ends a day after it is
-/// made; the document stays in the archive.
-pub async fn file(app: &App, drawn: &Drawn, filing: &Value) -> Result<RunDocument, String> {
-  let filed = app.peers.artifact_send(reqwest::Method::POST, "/documents", filing).await?;
+/// made; the document stays in the archive. Its pictures are fetched and kept beside it before it is filed,
+/// and one the archive refuses is drawn from its address instead.
+pub async fn file(app: &App, drawn: &Drawn, filing: &Value, run: i64) -> Result<RunDocument, String> {
+  let kept = fetch_pictures(app, drawn, run).await;
+  let mut filing = filing.clone();
+  let mut body = pictured_body(drawn, &kept);
+  filing["body"] = body.clone().into();
+  let filed = app.peers.artifact_send(reqwest::Method::POST, "/documents", &filing).await?;
   let id = filed["id"].as_i64().ok_or("the artifact service named no document for the result")?;
-  let (body, _) = keep_pictures(app, id, drawn).await;
-  if body != drawn.body {
+  let mut patched = false;
+  for picture in &drawn.pictures {
+    let Some(one) = kept.iter().find(|one| base_name(&one.name) == picture.name) else {
+      continue;
+    };
+    if app.peers.attach(id, &one.name, &one.media_type, None, &one.bytes).await.is_err() {
+      body = body.replace(&format!("]({})", one.name), &format!("]({})", picture.url));
+      patched = true;
+    }
+  }
+  if patched {
     app
       .peers
       .artifact_send(
@@ -508,24 +604,29 @@ pub fn page_title(drawn: &Drawn, fallback: &str) -> String {
     .unwrap_or_else(|| fallback.to_owned())
 }
 
-/// A deep dive's page's English body: every picture drawn from its address, the heading it opens with taken
-/// out where it says the title, since the page's head says it, and the first section under one of the
+/// A deep dive's page's English body: each picture named where the body names it, the heading it opens with
+/// taken out where it says the title, since the page's head says it, and the first section under one of the
 /// `opening` headings set before the rest, so the page opens by saying what its subject is.
 pub fn page_body(drawn: &Drawn, title: &str, opening: &[String]) -> String {
   let rest = reading::without_opening_heading(&drawn.body, title);
-  let mut body = reading::lifted(rest, opening);
-  for picture in &drawn.pictures {
-    body = body.replace(&format!("]({})", picture.name), &format!("]({})", picture.url));
-  }
-  body
+  reading::lifted(rest, opening)
 }
 
 /// A deep dive's page as the artifact service files it: kind `page`, the page drawn in English alone with the
-/// line saying where the research came from and its opening first, its head and its labels as a room's
-/// document's, with the languages it holds, its item's shape as its category, and its Korean side pending.
-pub fn page_filing(drawn: &Drawn, run: i64, key: &str, query: &str, title: &str, ask: &PageAsk) -> Value {
+/// line saying where the research came from and its opening first, the pictures `figures` names drawn where
+/// the text names them, its head and its labels as a room's document's, with the languages it holds, its
+/// item's shape as its category, and its Korean side pending.
+pub fn page_filing(
+  drawn: &Drawn,
+  run: i64,
+  key: &str,
+  query: &str,
+  title: &str,
+  ask: &PageAsk,
+  figures: &[Figure],
+) -> Value {
   let body = page_body(drawn, title, &ask.opening);
-  let html = page::compose(
+  let html = page::compose_with(
     &[Side {
       code: "en",
       title,
@@ -534,6 +635,7 @@ pub fn page_filing(drawn: &Drawn, run: i64, key: &str, query: &str, title: &str,
       body: &body,
     }],
     &[],
+    figures,
   );
   let mut labels = labels(drawn, run, key, query);
   labels["languages"] = "en".into();
@@ -561,10 +663,12 @@ async fn share_for_a_day(app: &App, id: i64) -> Result<String, String> {
 
 /// A deep dive's page filed in the artifact service, its pictures kept beside it, and given its share link,
 /// which ends a day after it is made.
-pub async fn file_page(app: &App, drawn: &Drawn, filing: &Value) -> Result<RunDocument, String> {
+pub async fn file_page(app: &App, filing: &Value, kept: &[KeptPicture]) -> Result<RunDocument, String> {
   let filed = app.peers.artifact_send(reqwest::Method::POST, "/documents", filing).await?;
   let id = filed["id"].as_i64().ok_or("the artifact service named no document for the result")?;
-  keep_pictures(app, id, drawn).await;
+  for picture in kept {
+    let _ = app.peers.attach(id, &picture.name, &picture.media_type, None, &picture.bytes).await;
+  }
   let link = share_for_a_day(app, id).await?;
   Ok(RunDocument {
     id,

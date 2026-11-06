@@ -1141,6 +1141,101 @@ async fn a_turn_whose_card_was_taken_is_sent_again_and_what_it_wrote_is_not_its_
 }
 
 #[tokio::test]
+async fn a_room_s_document_keeps_the_pictures_it_read_and_names_their_source() {
+  let (ground, _base, client) = served().await;
+  let png = b"\x89PNG\r\n\x1a\nscreen".to_vec();
+  ground
+    .world
+    .lock()
+    .unwrap()
+    .pictures
+    .insert("https://example.org/screen.png".into(), ("image/png".into(), png.clone()));
+  let result = "ANSWERED: yes :: the run\nTITLE: Research 1\nTOPIC: What run 1 found\n\n\
+                VERDICT:\nRun 1 answered.\n\nSECTION: The screen\n\n\
+                IMAGE: https://example.org/screen.png :: the settings screen\n\n\
+                SOURCE [1]: https://example.org/page :: the product page\n\n\
+                UNCONFIRMED:\n1. Nothing.\n";
+  ground.world.lock().unwrap().raw.insert(1, result.into());
+  client
+    .ask_research(&ResearchRunAsk {
+      key: "search:basic".into(),
+      query: "Which engine serves Thing-7B fastest?".into(),
+      room_id: Some(5),
+      ..ResearchRunAsk::default()
+    })
+    .await
+    .unwrap();
+
+  let run = closed(&ground, 1).await;
+  assert_eq!((run.outcome.as_deref(), run.document_id), (Some("answered"), Some(901)));
+  let filed = ground.run_documents();
+  let body = filed[0]["body"].as_str().unwrap();
+  assert!(
+    body.contains("![the settings screen — Source: the product page](picture-01.png)"),
+    "{body}"
+  );
+
+  let attached: Vec<_> = ground
+    .world
+    .lock()
+    .unwrap()
+    .attachments
+    .iter()
+    .filter(|one| one.document == 901)
+    .map(|one| (one.name.clone(), one.media_type.clone(), one.bytes.clone()))
+    .collect();
+  assert_eq!(attached, [("picture-01.png".to_string(), "image/png".to_string(), png)]);
+
+  let calls: Vec<Value> = ground
+    .asked_path("tool-host", "POST", "/tool-calls")
+    .into_iter()
+    .map(|ask| ask.body)
+    .collect();
+  let picture = calls
+    .iter()
+    .find(|call| call["namespace"] == "explorer" && call["name"] == "fetch_raster")
+    .expect("the picture is read through explorer");
+  assert_eq!(picture["input"]["address"], "https://example.org/screen.png");
+  assert_eq!(picture["input"]["pacing"], "research:1");
+}
+
+#[tokio::test]
+async fn a_picture_with_no_source_entry_is_left_out_and_nothing_is_fetched() {
+  let (ground, _base, client) = served().await;
+  ground
+    .world
+    .lock()
+    .unwrap()
+    .pictures
+    .insert("https://example.org/screen.png".into(), ("image/png".into(), b"screen".to_vec()));
+  let result = "ANSWERED: yes :: the run\nTITLE: Research 1\nTOPIC: What run 1 found\n\n\
+                VERDICT:\nRun 1 answered.\n\nSECTION: The screen\n\n\
+                IMAGE: https://example.org/screen.png :: the settings screen\n\n\
+                UNCONFIRMED:\n1. Nothing.\n";
+  ground.world.lock().unwrap().raw.insert(1, result.into());
+  client
+    .ask_research(&ResearchRunAsk {
+      key: "search:basic".into(),
+      query: "Which engine serves Thing-7B fastest?".into(),
+      room_id: Some(5),
+      ..ResearchRunAsk::default()
+    })
+    .await
+    .unwrap();
+  closed(&ground, 1).await;
+
+  let filed = ground.run_documents();
+  let body = filed[0]["body"].as_str().unwrap();
+  assert!(!body.contains("picture-01"), "the picture is left out: {body}");
+  assert!(ground.world.lock().unwrap().attachments.is_empty());
+  let calls = ground.asked_path("tool-host", "POST", "/tool-calls");
+  assert!(
+    calls.iter().all(|ask| ask.body["name"] != "fetch_raster"),
+    "nobody fetches a picture the report does not source"
+  );
+}
+
+#[tokio::test]
 async fn a_session_with_no_demand_of_its_own_names_the_pool_to_agency() {
   let (ground, _base, client) = served().await;
   let asked = client

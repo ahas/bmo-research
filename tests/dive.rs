@@ -88,6 +88,16 @@ fn long_manual(size: usize) -> String {
   )
 }
 
+/// A manual whose lab section carries a picture of the run screen, closed by the source it came from.
+fn manual_with_picture() -> String {
+  let w = &words::document().manual[0];
+  format!(
+    "# Thing-7B\n\n## 7. {}\n\n- {} n3, n9\n\nIMAGE: https://example.org/screen.png :: the run \
+     screen\n\nSOURCE [1]: https://example.org/page :: the maker's page\n\n## 9. {}\n\n- re-measure\n",
+    w.heading, w.label, w.plan_heading
+  )
+}
+
 /// The translation asks agency was handed, in the order they were asked.
 fn translations(ground: &Ground) -> Vec<Value> {
   ground
@@ -356,6 +366,78 @@ async fn a_report_s_korean_side_is_drawn_into_the_same_page_with_a_switch_and_to
   assert_eq!(rendered.document_id, Some(501));
   let state = page_of(&ground, item.id);
   assert_eq!((state.translation_tries, state.retry_at), (1, None));
+}
+
+#[tokio::test]
+async fn a_report_carries_the_pictures_it_read_with_the_source_they_came_from() {
+  use base64::Engine;
+
+  let ground = support::ground(|_| {}).await;
+  give_owner_room(&ground.app).await;
+  let png = b"\x89PNG\r\n\x1a\nscreen".to_vec();
+  ground
+    .world
+    .lock()
+    .unwrap()
+    .pictures
+    .insert("https://example.org/screen.png".into(), ("image/png".into(), png.clone()));
+  ground
+    .app
+    .store
+    .ask("it", "example.org/thing", "Thing-7B", "https://example.org/thing", Shape::Manual)
+    .unwrap();
+  file(&ground, 1, 501, manual_with_picture());
+
+  settle(&ground).await;
+
+  let filed = ground.run_documents();
+  let html = filed[0]["html"].as_str().unwrap();
+  assert!(html.contains("class=\"picture\""), "{html}");
+  assert!(html.contains("data-attachment=\"picture-01.png\""), "{html}");
+  assert!(
+    html.contains(&format!(
+      "src=\"data:image/png;base64,{}\"",
+      base64::engine::general_purpose::STANDARD.encode(&png)
+    )),
+    "the page draws its own kept copy: {html}"
+  );
+  assert!(
+    html.contains("the run screen — Source: the maker&#39;s page"),
+    "the caption names where it came from: {html}"
+  );
+
+  let attached: Vec<_> = ground
+    .world
+    .lock()
+    .unwrap()
+    .attachments
+    .iter()
+    .filter(|one| one.document == 501)
+    .map(|one| (one.name.clone(), one.media_type.clone(), one.bytes.clone()))
+    .collect();
+  assert_eq!(attached, [("picture-01.png".to_string(), "image/png".to_string(), png.clone())]);
+
+  let calls: Vec<Value> = ground
+    .asked_path("tool-host", "POST", "/tool-calls")
+    .into_iter()
+    .map(|ask| ask.body)
+    .collect();
+  let picture = calls
+    .iter()
+    .find(|call| call["namespace"] == "explorer" && call["name"] == "fetch_raster")
+    .expect("the picture is read through explorer");
+  assert_eq!(picture["input"]["address"], "https://example.org/screen.png");
+  assert_eq!(picture["input"]["pacing"], "research:1");
+
+  let rewrites = ground.rewrites(501);
+  let last = rewrites.last().expect("the page is drawn again")["html"].as_str().unwrap();
+  assert!(
+    last.contains(&format!(
+      "src=\"data:image/png;base64,{}\"",
+      base64::engine::general_purpose::STANDARD.encode(&png)
+    )),
+    "a page drawn again draws its kept picture: {last}"
+  );
 }
 
 #[tokio::test]

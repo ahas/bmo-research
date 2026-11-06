@@ -191,6 +191,9 @@ pub struct World {
   pub voice_gone: Vec<usize>,
   /// The markup the stand-in explorer answers each page address with; an address not here answers 404.
   pub pages: BTreeMap<String, String>,
+  /// The picture the stand-in explorer answers each address with: its media type and its bytes; an address
+  /// not here is refused.
+  pub pictures: BTreeMap<String, (String, Vec<u8>)>,
   /// How many characters one slice of a page holds, however many were asked for.
   pub slice_chars: Option<usize>,
 }
@@ -1307,10 +1310,35 @@ fn web_fetch(w: &Shared, input: &Value) -> Value {
 }
 
 async fn host_call(State(w): State<Shared>, method: Method, uri: Uri, body: Bytes) -> Response {
+  use base64::Engine;
   keep(&w, "tool-host", &method, &uri, &body);
   let asked: Value = serde_json::from_slice(&body).unwrap_or_default();
   if asked["namespace"] == "web" && asked["name"] == "web_fetch" {
     return axum::Json(web_fetch(&w, &asked["input"])).into_response();
+  }
+  if asked["namespace"] == "explorer" && asked["name"] == "fetch_raster" {
+    let address = asked["input"]["address"].as_str().unwrap_or_default();
+    let answer = match w.lock().unwrap().pictures.get(address) {
+      Some((media_type, bytes)) => json!({
+        "namespace": "explorer",
+        "name": "fetch_raster",
+        "result": {
+          "content": [{
+            "type": "image",
+            "data": base64::engine::general_purpose::STANDARD.encode(bytes),
+            "mimeType": media_type,
+          }]
+        },
+        "spentMs": 1,
+      }),
+      None => json!({
+        "namespace": "explorer",
+        "name": "fetch_raster",
+        "result": {"content": [{"type": "text", "text": format!("ERROR: {address} answered no picture")}], "isError": true},
+        "spentMs": 1,
+      }),
+    };
+    return axum::Json(answer).into_response();
   }
   let engines = json!({"engines": [{"name": "example-engine", "category": "general", "state": "ok"}]});
   axum::Json(json!({"namespace": "explorer", "name": "search_engines", "result": {"content": [], "structuredContent": engines}, "spentMs": 1}))

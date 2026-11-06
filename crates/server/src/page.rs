@@ -167,6 +167,16 @@ pub struct Sound<'a> {
   pub name: &'a str,
 }
 
+/// One picture the body names, drawn where it stands: the target the markdown names it by, the address the
+/// page draws it from — its own kept copy or the address the result gave — and the name it is kept under
+/// beside the document, which the page writes on the image.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Figure {
+  pub target: String,
+  pub address: String,
+  pub name: String,
+}
+
 /// A text made safe to stand in HTML, as an element's text or an attribute's value.
 pub fn escaped(text: &str) -> String {
   let mut out = String::with_capacity(text.len());
@@ -181,28 +191,68 @@ fn is_diagram(kind: &CodeBlockKind<'_>) -> bool {
 
 /// A markdown body written as HTML for the side of the language `code`, a table written without the row under
 /// its head given that row, any raw HTML it holds shown as text,
-/// each fenced `mermaid` block a diagram's block, its text escaped, and each citation mark naming an entry of
-/// its sources list a footnote (`cited`).
+/// each fenced `mermaid` block a diagram's block, its text escaped, each citation mark naming an entry of
+/// its sources list a footnote (`cited`), and each picture `figures` names drawn where the body names it.
 pub fn body_html(markdown: &str, code: &str) -> String {
+  body_html_with(markdown, code, &[])
+}
+
+/// A body as `body_html` writes it, each picture `figures` names drawn where the body names it with its
+/// caption under it, and a picture no figure names drawn from its own address.
+pub fn body_html_with(markdown: &str, code: &str, figures: &[Figure]) -> String {
   let markdown = structure::mended(markdown);
   let mut events = Vec::new();
   let mut diagram: Option<String> = None;
+  let mut image: Option<(String, String)> = None;
   for event in Parser::new_ext(&markdown, structure::options()) {
-    match (event, diagram.as_mut()) {
-      (Event::Start(Tag::CodeBlock(kind)), None) if is_diagram(&kind) => diagram = Some(String::new()),
-      (Event::Text(text), Some(open)) => open.push_str(&text),
-      (Event::End(TagEnd::CodeBlock), Some(_)) => {
+    match (event, diagram.as_mut(), image.as_mut()) {
+      (Event::Start(Tag::CodeBlock(kind)), None, None) if is_diagram(&kind) => {
+        diagram = Some(String::new())
+      }
+      (Event::Text(text), Some(open), _) => open.push_str(&text),
+      (Event::End(TagEnd::CodeBlock), Some(_), _) => {
         let text = diagram.take().unwrap_or_default();
         events.push(Event::Html(format!("{DIAGRAM}{}</pre>\n", escaped(&text)).into()));
       }
-      (_, Some(_)) => {}
-      (Event::Html(text) | Event::InlineHtml(text), None) => events.push(Event::Text(text)),
-      (other, None) => events.push(other),
+      (Event::Start(Tag::Image { dest_url, .. }), None, None) => {
+        image = Some((dest_url.to_string(), String::new()))
+      }
+      (Event::Text(text), None, Some((_, alt))) | (Event::Code(text), None, Some((_, alt))) => {
+        alt.push_str(&text)
+      }
+      (Event::End(TagEnd::Image), None, Some(_)) => {
+        let (target, alt) = image.take().unwrap_or_default();
+        let alt = alt.trim();
+        let drawn = match figures.iter().find(|figure| figure.target == target) {
+          Some(figure) => picture_html(figure, alt),
+          None => format!("<img src=\"{}\" alt=\"{}\">", escaped(&target), escaped(alt)),
+        };
+        events.push(Event::InlineHtml(drawn.into()));
+      }
+      (_, Some(_), _) | (_, _, Some(_)) => {}
+      (Event::Html(text) | Event::InlineHtml(text), None, None) => events.push(Event::Text(text)),
+      (other, None, None) => events.push(other),
     }
   }
   let mut out = String::new();
   html::push_html(&mut out, cited(merged(events), code).into_iter());
   out
+}
+
+// One picture drawn where the body names it, its caption under it: the result's caption, which names the
+// source entry the picture came from. The name it is kept under stands on the image for a reader of the
+// markup.
+fn picture_html(figure: &Figure, alt: &str) -> String {
+  let caption = match alt.is_empty() {
+    true => String::new(),
+    false => format!("<span class=\"caption\">{}</span>", escaped(alt)),
+  };
+  format!(
+    "<span class=\"picture\"><img src=\"{}\" alt=\"{}\" data-attachment=\"{}\">{caption}</span>",
+    escaped(&figure.address),
+    escaped(alt),
+    escaped(&figure.name)
+  )
 }
 
 // Adjacent texts joined into one: the parser hands a mark's brackets apart, and raw HTML shown as text stands
@@ -220,6 +270,12 @@ fn merged(events: Vec<Event<'_>>) -> Vec<Event<'_>> {
 
 // The class a citation mark's link carries, which the footnotes' style draws.
 const CITE: &str = "class=\"cite\"";
+
+// The pictures' look, an addition to the archive's design drawn in its colour variables: the kept picture
+// centred in the reading column under the text that names it, its caption under it.
+const PICTURE_STYLE: &str = ".picture{display:block;margin:12px 0;text-align:center}.picture \
+img{max-width:100%;height:auto;border:1px solid var(--doc-rule);border-radius:8px}.picture \
+.caption{display:block;margin-top:6px;font-size:14px;color:var(--doc-muted)}";
 
 // The footnotes' look, an addition to the archive's design drawn in its colour variables: a mark raised, the
 // box saying what its source supports and its address under the line as wide as the reading column while it
@@ -422,6 +478,11 @@ fn cited<'a>(events: Vec<Event<'a>>, code: &str) -> Vec<Event<'a>> {
 /// The page: every side in the order given, the first shown first, the listen band under the title where a
 /// narration is attached, and the footnotes' style where a body cites an entry of its sources list.
 pub fn compose(sides: &[Side<'_>], sounds: &[Sound<'_>]) -> String {
+  compose_with(sides, sounds, &[])
+}
+
+/// The page as `compose` draws it, each picture `figures` names drawn where a body names it.
+pub fn compose_with(sides: &[Side<'_>], sounds: &[Sound<'_>], figures: &[Figure]) -> String {
   let words = words::page();
   let Some(first) = sides.first() else {
     return String::new();
@@ -454,7 +515,8 @@ pub fn compose(sides: &[Side<'_>], sounds: &[Sound<'_>]) -> String {
   if let Some(description) = first.description.filter(|d| !d.trim().is_empty()) {
     page.push_str(&format!("<meta name=\"description\" content=\"{}\">\n", escaped(description.trim())));
   }
-  let bodies: Vec<String> = sides.iter().map(|side| body_html(side.body, side.code)).collect();
+  let bodies: Vec<String> =
+    sides.iter().map(|side| body_html_with(side.body, side.code, figures)).collect();
   let mut style = String::new();
   if two {
     style.push_str(SWITCH_STYLE);
@@ -467,6 +529,9 @@ pub fn compose(sides: &[Side<'_>], sounds: &[Sound<'_>]) -> String {
   }
   if bodies.iter().any(|body| body.contains(CITE)) {
     style.push_str(CITE_STYLE);
+  }
+  if bodies.iter().any(|body| body.contains("class=\"picture\"")) {
+    style.push_str(PICTURE_STYLE);
   }
   if !style.is_empty() {
     page.push_str(&format!("<style data-archive>{style}</style>\n"));

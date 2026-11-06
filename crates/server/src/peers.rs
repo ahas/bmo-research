@@ -120,10 +120,17 @@ struct VoiceFile {
   token_file: Option<String>,
 }
 
-/// An attachment of a document, as the artifact service lists it: its name, all that is read of it.
-#[derive(Deserialize)]
-struct Attachment {
-  name: String,
+/// A file a document keeps: its number, the name it is kept under, its type, and what it is read as where
+/// the archive says.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Attachment {
+  pub id: i64,
+  pub name: String,
+  #[serde(default)]
+  pub media_type: String,
+  #[serde(default)]
+  pub kind: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -595,8 +602,8 @@ impl Peers {
     }
   }
 
-  /// Whether a document keeps a file under a name.
-  pub async fn attached(&self, document_id: i64, name: &str) -> Result<bool, String> {
+  /// A document's files, in the order the archive keeps them.
+  pub async fn attachments(&self, document_id: i64) -> Result<Vec<Attachment>, String> {
     let artifact = self.artifact()?;
     let path = format!("/documents/{document_id}/attachments");
     let answer = self
@@ -608,7 +615,25 @@ impl Peers {
       .await?;
     let listed: Listed<Attachment> = serde_json::from_value(answer)
       .map_err(|e| format!("the artifact service's attachments did not read: {e}"))?;
-    Ok(listed.items.iter().any(|kept| kept.name == name))
+    Ok(listed.items)
+  }
+
+  /// One file a document keeps, by its number: its bytes and the type the archive serves it as.
+  pub async fn attachment_bytes(
+    &self,
+    document_id: i64,
+    attachment: i64,
+  ) -> Result<(Vec<u8>, String), String> {
+    let artifact = self.artifact()?;
+    let path = format!("/documents/{document_id}/attachments/{attachment}");
+    self
+      .bytes(&artifact, self.request(&artifact, reqwest::Method::GET, &path), &format!("GET {path}"))
+      .await
+  }
+
+  /// Whether a document keeps a file under a name.
+  pub async fn attached(&self, document_id: i64, name: &str) -> Result<bool, String> {
+    Ok(self.attachments(document_id).await?.iter().any(|kept| kept.name == name))
   }
 
   async fn documents(&self, query: &[(&str, &str)]) -> Result<Vec<Document>, String> {

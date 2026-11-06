@@ -233,6 +233,26 @@
 - **A claim is checked by arithmetic where it can be:** a card's parameter count against the file's
   bytes at the stated precision.
 
+## The pictures
+
+- **A picture is taken only from material this research read.** It comes from a page the run or one of its
+  branches opened, or from a source the report lists, and it shows the subject itself: a model's interface,
+  a chart of its figures, a written specification, a screen, a design, the thing a product shot or a
+  diagram shows. The `IMAGE:` line stands where the text writes about what it shows, inside the section or
+  entry it belongs to, and the block closes with the `SOURCE` lines that name where it came from. A picture
+  whose block names no source a reader can open is left out, and so is one from a page nobody here read.
+- **At most six pictures in the body**, and fewer where fewer carry the subject: one to three for a thing,
+  and more only where the question is how something looks or what a screen or a figure actually says. Never
+  one for a value, a rate, a date or a version.
+- **The caption says what the picture shows and where it came from:** the thing, the part, the view or the
+  screen in a few words of the question's language, then the source entry's own title. It reads on its own,
+  so a reader who does not open the source still knows what they are looking at. The report keeps its own
+  copy of every picture it carries and draws it beside that caption.
+- **Leave out decoration and anything not this subject:** a logo, a banner, an icon, a stock photo, a map, a
+  price table or any picture that is mostly text, a screenshot's browser chrome, another thing's picture,
+  another branch's or another business's picture, and one too small or blurred to make out. Where nothing
+  visual was read, the result carries no `IMAGE:` line at all.
+
 ## The voice
 
 - **The question's language,** plain sentences in the register the owner's documents use (Korean:

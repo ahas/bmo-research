@@ -237,11 +237,16 @@ run is this unit's.
     where it writes no verdict), each `SECTION:` under its own name, the unconfirmed list, and the sources
     last, one link a line, titled by what each supports. A set's entries stand as sections of their own; a menu
     as its own list.
-  - **its pictures:** every `IMAGE:` line's picture fetched by a guarded direct fetch — every hop's host a
-    public address, at most three redirects, an image type, at most 15 MB — at most twelve, each fetch waited
-    on until its host answers or its connection breaks, attached under a name of its own
-    (`POST /documents/{id}/attachments`), and the body set again with `PATCH /documents/{id}`; a picture not
-    kept is drawn from its address.
+  - **its pictures:** a picture the result names with an `IMAGE:` line, only where the block the line stands
+    in closes with a `SOURCE` line — the source entry it belongs to — and left out entirely where no source
+    entry names it. Each is fetched through the tool host's `explorer/fetch_raster` under the run's pacing
+    name, which checks the address and every redirect and answers the picture in its own type; at most
+    twelve, each fetch waited on until explorer answers or its connection breaks. A picture answered is
+    attached beside the document as `picture-<n>.<ext>` (`POST /documents/{id}/attachments`, its type
+    explorer's), and a room's document's body names it as it is filed; a picture the archive refuses is
+    drawn from its address and the body set again with `PATCH /documents/{id}`. A picture not answered is
+    drawn from its address. Its caption is the result's caption and the source entry's title,
+    so a reader sees what the picture shows and where it came from.
   - **the narration:** a `LISTEN:` script is lifted out of the body and given to the document as sound: a
     run told to its room has it attached at the document's head (「The narration's sound」), a deep dive's
     page beside its page (「The deep dive's page」).
@@ -354,7 +359,8 @@ daemon finishes, held first to the shape the deep dive asked for.
 - **It is filed as a page,** `kind` `page`, its `html` the page drawn in English alone (「The page」), its head
   and labels as a room's document's are, with the label `languages` `en`, `category` its item's shape in place
   of the key, and `pending` `korean`, since its Korean side is still to come; its pictures are kept beside it as a
-  room's document's are, and the page draws every picture from its address.
+  room's document's are, and the page draws each from the kept copy where the text names it, captioned with
+  what it shows and the source entry it came from.
 - **The daemon finishes it** (`docs/api.md`, 「The page」): the Korean side, with the page drawn again with
   both languages and set with `PATCH /documents/{id}`, the narration's sounds attached beside it, and then
   the review (「The review」) and its fixes, before its report is told. The result stays in the ledger as

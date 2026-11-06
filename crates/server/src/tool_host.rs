@@ -6,6 +6,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use base64::Engine;
 use http_body_util::{BodyExt, Full};
 use hyper::body::Bytes;
 use hyper_util::rt::TokioIo;
@@ -141,6 +142,44 @@ impl<'a> ToolHost<'a> {
       .filter(|v| !v.is_null())
       .cloned()
       .ok_or_else(|| format!("{namespace}/{name} answered no structured content"))
+  }
+
+  /// A picture read through explorer's `explorer/fetch_raster` under a record of its own naming the
+  /// namespace and the data root, its requests paced under `pacing`, standing until the reading ends and
+  /// taken back then: its bytes and its media type.
+  pub async fn fetch_raster(&self, address: &str, pacing: &str) -> Result<(Vec<u8>, String), String> {
+    let issuer = self.issuer()?;
+    let record = json!({
+      "holderName": HOLDER,
+      "namespaces": ["explorer"],
+      "capabilities": [],
+      "grants": [],
+      "variables": BTreeMap::from([("BMO_DATA_DIR", self.settings.data_root.to_string_lossy())]),
+      "labels": { "line": "system" },
+    });
+    let issued = self.issue(&issuer, &record, "a picture reading").await?;
+    let call = json!({
+      "namespace": "explorer",
+      "name": "fetch_raster",
+      "input": { "address": address, "pacing": pacing },
+    });
+    let called = self.called(hyper::Method::POST, "/tool-calls", &issued.token, Some(&call)).await;
+    issued.take_back().await;
+    let result = &called?["result"];
+    if result["isError"].as_bool() == Some(true) {
+      return Err(said(result, " "));
+    }
+    let block = result["content"]
+      .as_array()
+      .and_then(|blocks| blocks.iter().find(|block| block["type"] == "image"))
+      .ok_or("explorer answered no picture")?;
+    let data = block["data"].as_str().ok_or("explorer answered a picture with no data")?;
+    let media_type =
+      block["mimeType"].as_str().ok_or("explorer answered a picture with no type")?.to_owned();
+    let bytes = base64::engine::general_purpose::STANDARD
+      .decode(data)
+      .map_err(|e| format!("explorer answered a picture that did not read: {e}"))?;
+    Ok((bytes, media_type))
   }
 
   /// A page's markup read through explorer's `web/web_fetch` under a record of its own, held to the strategy

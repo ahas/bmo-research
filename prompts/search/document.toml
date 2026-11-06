@@ -17,6 +17,7 @@ stock = "판매 상태"
 deal = "할인"
 review = "후기"
 news = "신제품·가격 소식"
+picture_source = "출처"
 
 [en]
 answer = "The answer"
@@ -33,3 +34,4 @@ stock = "Stock"
 deal = "Deal"
 review = "Review"
 news = "New products and prices"
+picture_source = "Source"

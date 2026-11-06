@@ -22,7 +22,7 @@ use unicode_segmentation::UnicodeSegmentation;
 use crate::App;
 use crate::document::{self, Drawn};
 use crate::engine;
-use crate::page::{self, Side, Sound};
+use crate::page::{self, Figure, Side, Sound};
 use crate::peers::{Peers, Synthesis};
 use crate::pull::{self, Road};
 use crate::reading::{self, Exposure};
@@ -812,6 +812,7 @@ fn drawing(
   (source, english): (&Source, &str),
   rendering: Option<&Rendering>,
   narrations: &[(&str, String)],
+  figures: &[Figure],
 ) -> Drawing {
   let origins = LANGUAGES.map(|code| origin_of(app, lead, code));
   let mut sides = Vec::new();
@@ -839,7 +840,7 @@ fn drawing(
   let languages: Vec<&str> = sides.iter().map(|side| side.code).collect();
   let labels = page_labels(source, lead, &languages, &lead.pending);
   Drawing {
-    html: page::compose(&sides, &sounds),
+    html: page::compose_with(&sides, &sounds, figures),
     title: sides[0].title.to_owned(),
     labels,
   }
@@ -893,7 +894,9 @@ async fn redraw(
   rendering: Option<&Rendering>,
   narrations: &[(&str, String)],
 ) -> Result<(), String> {
-  set_page(app, document_id, &drawing(app, lead, drawn_from, rendering, narrations)).await
+  let kept = document::kept_pictures(app, document_id, &drawn_from.0.drawn).await;
+  let figures = document::figures(&drawn_from.0.drawn, &kept);
+  set_page(app, document_id, &drawing(app, lead, drawn_from, rendering, narrations, &figures)).await
 }
 
 /// The narrations a page plays, each by the name its sound is kept under now.
@@ -1019,7 +1022,9 @@ async fn drawn_again(app: &App, item: &Item, document_id: i64, run_id: i64) -> R
   }
   let review = app.store.review(document_id)?;
   let narrations = played(&item.narrations, review.as_ref());
-  let drawn = drawing(app, &item, (&source, &english), rendering.as_ref(), &narrations);
+  let kept = document::kept_pictures(app, document_id, &source.drawn).await;
+  let figures = document::figures(&source.drawn, &kept);
+  let drawn = drawing(app, &item, (&source, &english), rendering.as_ref(), &narrations, &figures);
   if app.peers.kept_page(document_id).await? == drawn.html
     && app.peers.kept_labels(document_id).await? == drawn.labels
   {

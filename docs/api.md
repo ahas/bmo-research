@@ -677,6 +677,12 @@ search runner applies it, and the run writes its document in English, the questi
   listen band referring to every sound attached by its name (`docs/runner.md`, 「The page」), and the
   archive plays the sound of the side shown there, so the narration's language follows the language the
   page opened on and the switch rather than a fixed side. A sound already attached is not made again.
+- **A page's pictures are drawn from the copies kept beside it:** each picture the run's result named, the
+  block it stands in closing with a source entry, is kept as `picture-<n>.<ext>` and drawn where the body
+  names it, with the result's caption and the source entry's title under it. The page carries the picture's
+  bytes itself, so a reader needs no outside host; a picture the report could not keep is drawn from its
+  address. A page drawn again, from the daemon's start or `bmo-research redraw`, draws the same pictures from
+  the attachments the document keeps.
 - **The Korean narration's words are kept** as they are translated (`docs/store.md`, `page_texts`), so the
   review reads what was spoken and a sound made again speaks them without translating them again.
 - **Every filed page is drawn as this binary draws it.** As the daemon starts, and on `bmo-research
@@ -885,12 +891,14 @@ of these units, and reads each one's address and token from that unit's own file
 - **the artifact service:** `GET /documents?q=<name>&limit=1`, the archive check a candidate passes
   (`docs/sources.md`); `POST /documents`, a run's document, `html` for a deep dive's page;
   `POST /documents/{documentId}/attachments` with `name`, `mediaType`, `content` (base64) and, for a deep
-  dive's Korean narration and a room's document's narration, `role` `head`, a picture of a run's document or
-  a narration's sound;
-  `GET /documents/{documentId}/attachments`, whether a narration's sound is already attached;
-  `PATCH /documents/{documentId}` with `body` and `labels` once a room's document's pictures are kept, or with
-  `title`, `html` and `labels` as a page is drawn again, or with `labels` alone as what a page or a room's
-  document lacks changes;
+  dive's Korean narration and a room's document's narration, `role` `head`, a picture of a run's document as
+  `picture-<n>.<ext>` or a narration's sound;
+  `GET /documents/{documentId}/attachments`, the files a document keeps — whether a narration's sound is
+  already attached, and the pictures a page draws again — and
+  `GET /documents/{documentId}/attachments/{attachmentId}`, one file's bytes;
+  `PATCH /documents/{documentId}` with `body` and `labels` where a picture the archive refused is drawn from
+  its address instead, or with `title`, `html` and `labels` as a page is drawn again, or with `labels` alone
+  as what a page or a room's document lacks changes;
   `GET /documents/{documentId}/content?download=true` and `GET /documents/{documentId}`, a page and its labels
   as the archive keeps them, compared with the page drawn again (「The page」);
   `GET /shares?documentId=<documentId>` and `POST /shares` with `documentId` and, for a run's document as
@@ -915,9 +923,10 @@ of these units, and reads each one's address and token from that unit's own file
 - **the tool host:** on its control socket, under the issuer token it keeps (`docs/settings.md`,
   「The tool host」): `GET /namespaces/web/tools` page by page, read for each tool's `listing`;
   `POST /tool-sessions` with a record naming the namespace `explorer` and `BMO_DATA_DIR`,
-  `POST /tool-calls` under that session's token calling `explorer/search_engines`, and
-  `DELETE /tool-sessions/{token}`, the search engines' state. A record names no `ttlMs`: it stands until
-  the call it was made for ends, and is then taken back. A `page` source's listing the same way under
+  `POST /tool-calls` under that session's token calling `explorer/search_engines`, the search engines' state,
+  and calling `explorer/fetch_raster` with `address` and `pacing`, the picture a document keeps, answered as
+  one image block with its base64 `data` and `mimeType`, and `DELETE /tool-sessions/{token}`. A record names
+  no `ttlMs`: it stands until the call it was made for ends, and is then taken back. A `page` source's listing the same way under
   a record naming the namespace `web`, the capability `web.read`, `BMO_DATA_DIR` and the label `research`
   with its `strategy` (explorer's `direct-then-browser` for `direct`, `browser-first` for `browser`), whose
   calls of `web/web_fetch` hand `url`, `raw` true, `max_chars` and `offset` and read the page's markup on

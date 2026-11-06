@@ -1511,8 +1511,10 @@ async fn file_page(
   }
   let drawn = document::draw(text, words::search_document(document::language_of(&ask.query)));
   let title = drawn.title.clone().unwrap_or_default();
-  let filing = document::page_filing(&drawn, run, &ask.key, &ask.query, &title, page);
-  match document::file_page(app, &drawn, &filing).await {
+  let kept = document::fetch_pictures(app, &drawn, run).await;
+  let figures = document::figures(&drawn, &kept);
+  let filing = document::page_filing(&drawn, run, &ask.key, &ask.query, &title, page, &figures);
+  match document::file_page(app, &filing, &kept).await {
     Ok(filed) => {
       note(app, run, "filed", &format!("The result was filed as page {}: {}", filed.id, filed.link));
       ("answered", None, Some(filed))
@@ -1549,7 +1551,7 @@ async fn ended(app: &App, going: &Going, model: &str, result: Result<String, Str
       let code = document::language_of(&ask.query);
       let drawn = document::draw(text, words::search_document(code));
       let filing = document::filing(&drawn, run, &ask.key, &ask.query, ask.room_id);
-      match document::file(app, &drawn, &filing).await {
+      match document::file(app, &drawn, &filing, run).await {
         Ok(filed) => {
           note(
             app,

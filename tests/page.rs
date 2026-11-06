@@ -2,7 +2,9 @@
 //! loads only where it holds one, its listen band referring to each narration attached by its name, and the
 //! line under its title saying where the research came from.
 
-use research_server::page::{Side, Sound, attachment_address, compose, opening, origin_line};
+use research_server::page::{
+  Figure, Side, Sound, attachment_address, compose, compose_with, opening, origin_line,
+};
 
 const MERMAID: &str = "https://cdn.jsdelivr.net/npm/mermaid@12.0.0/dist/mermaid.min.js";
 
@@ -175,6 +177,42 @@ fn the_page_chooses_its_side_before_the_body_and_starts_the_switch_and_narration
       "the {code} side and its narration are marked"
     );
   }
+}
+
+#[test]
+fn a_picture_the_page_kept_stands_where_the_body_names_it_with_its_caption() {
+  let sides = [Side {
+    code: "en",
+    title: "Thing-7B",
+    description: None,
+    origin: None,
+    body: "## How it looks\n\n![the settings screen — Source: the maker's page](picture-01)\n",
+  }];
+  let figures = [Figure {
+    target: "picture-01".into(),
+    address: "data:image/png;base64,iVBORw0KGgo=".into(),
+    name: "picture-01.png".into(),
+  }];
+  let html = compose_with(&sides, &[], &figures);
+  assert!(html.contains("<span class=\"picture\">"), "{html}");
+  assert!(
+    html.contains("<img src=\"data:image/png;base64,iVBORw0KGgo=\" alt=\"the settings screen — Source: the maker&#39;s page\" data-attachment=\"picture-01.png\">"),
+    "{html}"
+  );
+  assert!(
+    html.contains("<span class=\"caption\">the settings screen — Source: the maker&#39;s page</span>"),
+    "{html}"
+  );
+  assert!(html.contains(".picture img{max-width:100%"), "the pictures' style is set: {html}");
+  assert!(html.contains("data:image/png;base64"), "the page draws its own kept copy");
+}
+
+#[test]
+fn a_picture_no_figure_names_is_drawn_from_its_own_address() {
+  let html = page("![a screen](https://example.org/screen.png)\n");
+  assert!(html.contains("<img src=\"https://example.org/screen.png\" alt=\"a screen\">"), "{html}");
+  assert!(!html.contains("class=\"picture\""), "no caption is written around it: {html}");
+  assert!(!html.contains(".picture img"), "the pictures' style stands only where a picture does");
 }
 
 #[test]
@@ -357,6 +395,46 @@ fn a_body_citing_no_entry_has_no_footnotes() {
   assert!(html.contains("It runs [1]."), "{html}");
   assert!(!html.contains("class=\"cite\""));
   assert!(!html.contains("<style"), "{html}");
+}
+
+#[test]
+fn a_picture_belongs_to_the_source_entry_closing_its_block_and_one_without_a_source_is_left_out() {
+  use research_server::document::draw;
+  use research_server::words;
+
+  let words = words::search_document("en");
+  let sourced = "ANSWERED: yes :: the thing\nTITLE: Thing-7B\nVERDICT:\nIt runs.\n\nSECTION: The screen\n\n\
+                 IMAGE: https://example.org/screen.png :: the settings screen\n\n\
+                 SOURCE [2]: https://example.org/page :: the maker's page\n";
+  let drawn = draw(sourced, words);
+  assert_eq!(drawn.pictures.len(), 1);
+  assert_eq!(
+    drawn.pictures[0]
+      .source
+      .as_ref()
+      .map(|source| (source.mark.as_str(), source.url.as_str())),
+    Some(("2", "https://example.org/page"))
+  );
+  assert!(
+    drawn.body.contains("![the settings screen — Source: the maker's page](picture-01)"),
+    "{}",
+    drawn.body
+  );
+
+  let unsourced = "ANSWERED: yes :: the thing\nTITLE: Thing-7B\nVERDICT:\nIt runs.\n\nSECTION: The screen\n\n\
+                   IMAGE: https://example.org/screen.png :: the settings screen\n\n\
+                   UNCONFIRMED:\n1. Nothing.\n";
+  let drawn = draw(unsourced, words);
+  assert!(drawn.pictures.is_empty(), "a picture with no source entry is left out");
+  assert!(!drawn.body.contains("picture-01"), "{}", drawn.body);
+
+  let another_block = "ANSWERED: yes :: the thing\nTITLE: Thing-7B\nVERDICT:\nIt runs.\n\nSECTION: The screen\n\n\
+                       IMAGE: https://example.org/screen.png :: the settings screen\n\n\
+                       SECTION: The maker\n\nThe page. [1]\n\n\
+                       SOURCE [1]: https://example.org/page :: the maker's page\n";
+  let drawn = draw(another_block, words);
+  assert!(drawn.pictures.is_empty(), "a source in a later block names nothing here");
+  assert!(!drawn.body.contains("picture-01"), "{}", drawn.body);
 }
 
 #[test]
