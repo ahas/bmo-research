@@ -20,12 +20,14 @@ use crate::config::KeyDefaults;
 use crate::dive::{self, Speech};
 use crate::document;
 use crate::peers::{Ending, Fault, Peers};
+use crate::references::{self, ReferenceAsk};
 use crate::store::{NewResearchRun, ResearchRunRow, RunDocument, Store, now_ms};
 use crate::tool_host::ToolHost;
 use crate::words::{self, FINAL, fill};
 
 /// The research keys, in the order the settings answer them.
-pub const KEYS: [&str; 4] = ["search:basic", "search:thorough", "search:exhaustive", "browse"];
+pub const KEYS: [&str; 5] =
+  ["search:basic", "search:thorough", "search:exhaustive", "browse", "references"];
 
 /// How the web tools may read a page.
 pub const STRATEGIES: [&str; 3] = ["direct-then-browser", "browser-first", "direct-only"];
@@ -57,6 +59,16 @@ fn said(value: &Option<String>) -> Option<&str> {
   value.as_deref().map(str::trim).filter(|said| !said.is_empty())
 }
 
+// An ask's options as the store and the prompts hold them: a string as it was written, another value as its
+// JSON.
+fn options_text(options: &Option<Value>) -> Option<String> {
+  match options {
+    Some(Value::String(text)) => Some(text.trim().to_owned()).filter(|text| !text.is_empty()),
+    Some(value) => Some(value.to_string()),
+    None => None,
+  }
+}
+
 // The research settings.
 
 /// The settings every run is held to: the owner's where he changed them, the settings file's otherwise.
@@ -84,6 +96,9 @@ impl Held {
 /// The settings file's defaults.
 pub fn defaults(app: &App) -> Held {
   let declared = &app.settings.research_settings;
+  // A settings file naming `keys` answers only the keys it names, so a key it leaves out keeps the
+  // settings' own default rather than falling out of the settings the boundary answers.
+  let standard = crate::config::ResearchDefaults::default().keys;
   Held {
     branch_role: declared.branch_role.clone(),
     strategy: declared.strategy.clone(),
@@ -91,8 +106,13 @@ pub fn defaults(app: &App) -> Held {
     engine_interval_ms: declared.engine_interval_ms,
     keys: KEYS
       .iter()
-      .map(|key| (key.to_string(), declared.keys.get(*key).copied()))
-      .filter_map(|(k, v)| v.map(|v| (k, v)))
+      .filter_map(|key| {
+        declared
+          .keys
+          .get(*key)
+          .or_else(|| standard.get(*key))
+          .map(|kept| ((*key).to_string(), *kept))
+      })
       .collect(),
   }
 }
@@ -286,6 +306,21 @@ pub fn browse_instructions() -> Result<String, String> {
   )
 }
 
+/// A references run's instructions: the references task with the web namespace's listing, the references
+/// rulebook whole, then plain writing and self-preservation. It is handed that one rulebook, and no search
+/// rulebook binds it.
+pub fn references_instructions(tools: &str) -> Result<String, String> {
+  Ok(
+    [
+      fill(words::REFERENCE_TASK, &[("tools", tools)]).trim().to_string(),
+      rulebook_whole("references")?,
+      rulebook_whole(&words::runner().search.plain_writing)?,
+      rulebook_whole(&words::runner().search.self_preservation)?,
+    ]
+    .join("\n\n"),
+  )
+}
+
 /// The budget a run is told as its ceiling: the pages its first answer may fetch and each branch's, or
 /// nothing where the key names none.
 pub fn budget_line(kept: KeyDefaults) -> String {
@@ -312,15 +347,37 @@ pub fn request(ask: &ResearchRunAsk, kept: KeyDefaults) -> String {
     many => format!("up to {many} branches"),
   };
   let asked_at = chrono::Utc::now().to_rfc3339();
+  let options = options_text(&ask.options).unwrap_or_else(|| "none".to_owned());
   fill(
     words::SEARCH_REQUEST,
     &[
       ("query", ask.query.trim()),
       ("asker", said(&ask.asker).unwrap_or("the owner")),
       ("askedAt", &asked_at),
-      ("options", said(&ask.options).unwrap_or("none")),
+      ("options", &options),
       ("depth", depth_of(&ask.key)),
       ("branches", &branches),
+      ("budget", &budget_line(kept)),
+    ],
+  )
+  .trim()
+  .to_string()
+}
+
+/// The request a references run is put to, its template filled with the ask and the options it names.
+pub fn references_request(ask: &ResearchRunAsk, reference: &ReferenceAsk, kept: KeyDefaults) -> String {
+  let asked_at = chrono::Utc::now().to_rfc3339();
+  fill(
+    words::REFERENCE_REQUEST,
+    &[
+      ("query", ask.query.trim()),
+      ("subjectKey", &reference.subject_key),
+      ("kind", &reference.kind),
+      ("asker", said(&ask.asker).unwrap_or("the owner")),
+      ("askedAt", &asked_at),
+      ("language", &reference.language),
+      ("candidateLimit", &reference.candidate_limit.to_string()),
+      ("engines", &reference.image_engines.join(", ")),
       ("budget", &budget_line(kept)),
     ],
   )
@@ -696,6 +753,11 @@ pub fn ask_fault(ask: &ResearchRunAsk) -> Option<String> {
   if ask.query.trim().is_empty() {
     return Some("a research asks a question".to_string());
   }
+  if ask.key == references::KEY
+    && let Err(why) = references::ask(ask)
+  {
+    return Some(why);
+  }
   (said(&ask.provider).is_some() && said(&ask.model).is_none())
     .then(|| "a research names its provider only with its model".to_string())
 }
@@ -745,6 +807,8 @@ fn note(app: &App, run: i64, kind: &str, text: &str) {
 pub enum Filing {
   Room,
   Page(PageAsk),
+  /// A reference dossier: filed as a `search` document for the drawing service, with no room told.
+  References,
 }
 
 /// What a deep dive asks of its run's page: the section headings its shape holds and its opening's, in every
@@ -824,6 +888,8 @@ struct Going {
   kept: KeyDefaults,
   rulebooks: Vec<String>,
   capabilities: Vec<String>,
+  /// The subject a references run builds its dossier for, or none.
+  reference: Option<ReferenceAsk>,
   demand: Option<i64>,
   /// The earlier result the run continues from, or none.
   continued: Option<Continued>,
@@ -921,10 +987,23 @@ async fn sent_out(
   if let Some(why) = ask_fault(&ask) {
     return Err(Refused::Ask(why));
   }
+  let reference = if ask.key == references::KEY {
+    Some(references::ask(&ask).map_err(Refused::Ask)?)
+  } else {
+    None
+  };
   let line = line_of(&ask.key);
   let (held, _) = held(&app).map_err(Refused::Failed)?;
   let kept = held.key(&ask.key);
-  let (system, rulebooks) = if line == "search" {
+  let (system, rulebooks) = if reference.is_some() {
+    let tools = ToolHost::new(&app.settings).listing("web").await.map_err(|why| {
+      Refused::Unavailable(format!("the references run's instructions are not composed: {why}"))
+    })?;
+    (
+      references_instructions(&tools).map_err(Refused::Failed)?,
+      vec![references::KEY.to_owned()],
+    )
+  } else if line == "search" {
     let tools = ToolHost::new(&app.settings)
       .listing("web")
       .await
@@ -936,7 +1015,11 @@ async fn sent_out(
   } else {
     (browse_instructions().map_err(Refused::Failed)?, Vec::new())
   };
-  let prompt = request(&ask, kept);
+  let prompt = match &reference {
+    Some(reference) => references_request(&ask, reference, kept),
+    None => request(&ask, kept),
+  };
+  let options = options_text(&ask.options);
   let run = app
     .store
     .open_research_run(&NewResearchRun {
@@ -944,7 +1027,7 @@ async fn sent_out(
       line,
       query: ask.query.trim(),
       asker: said(&ask.asker),
-      options: said(&ask.options),
+      options: options.as_deref(),
       room_id: ask.room_id.filter(|room| *room != 0),
       provider: said(&ask.provider).unwrap_or_default(),
       model: said(&ask.model).unwrap_or_default(),
@@ -1018,6 +1101,7 @@ async fn sent_out(
     kept,
     rulebooks,
     capabilities,
+    reference,
     demand,
     continued,
     lost: Mutex::new(None),
@@ -1348,7 +1432,43 @@ async fn rounds(
     asking += 1;
   }
   let last = whole(app, going, &session, last).await;
+  if going.reference.is_some() {
+    return reference_whole(app, going, &session, last).await;
+  }
   narrated(app, going, &session, last).await
+}
+
+/// A references run's result held to the dossier's shape: where its last fenced block is not the JSON the
+/// drawing service reads, `session` is asked once for the whole dossier, its problems set in, and that turn's
+/// text is the result judged. A turn that writes nothing leaves the result as it stands, and the filing
+/// judges it then.
+async fn reference_whole(app: &App, going: &Going, session: &str, result: String) -> String {
+  let run = going.run;
+  let Some(reference) = &going.reference else {
+    return result;
+  };
+  let Err(problems) = references::dossier(&result, reference, now_ms()) else {
+    return result;
+  };
+  note(
+    app,
+    run,
+    "whole",
+    &format!("The dossier is not whole, so it is asked again whole: {problems}."),
+  );
+  let question = fill(&words::runner().references.whole, &[("problems", &problems)]);
+  let prompt = round_prompt(&question, &going.prompt, &result);
+  let name = format!("research-{run}-whole");
+  match turn(app, going, session, &name, &prompt).await {
+    Ok(text) => {
+      note(app, run, "whole", "The whole dossier was asked again and came back.");
+      text
+    }
+    Err(why) => {
+      note(app, run, "whole", &format!("The whole dossier did not come: {why}"));
+      result
+    }
+  }
 }
 
 /// The prompt a run's missing narration is asked with: the narration question and the rulebook's section on
@@ -1611,6 +1731,40 @@ async fn ended(app: &App, going: &Going, model: &str, result: Result<Finished, S
         None => ("failed", Some(why), None),
       },
       other => other,
+    };
+    match app.store.close_research_run(run, outcome, error.as_deref(), filed.as_ref()) {
+      Ok(true) => note(app, run, "ended", &format!("The research ended {outcome}.")),
+      Ok(false) => {}
+      Err(why) => eprintln!("bmo-research: research {run} was not closed: {why}"),
+    }
+    return;
+  }
+  if matches!(going.filing, Filing::References) {
+    let reference = going.reference.as_ref().expect("a references filing holds its ask");
+    let (outcome, error, filed) = match &result {
+      Ok(text) => match references::file(app, run, ask, reference, text).await {
+        Ok(filed) => {
+          note(
+            app,
+            run,
+            "filed",
+            &format!("The dossier was filed as document {}: {}", filed.id, filed.link),
+          );
+          ("answered", None, Some(filed))
+        }
+        Err(why) => {
+          let why = format!("the dossier was not filed: {why}");
+          note(app, run, "filed", &why);
+          match going.loss() {
+            Some(loss) => ("cut", Some(cut_error(&why, &loss)), None),
+            None => ("failed", Some(why), None),
+          }
+        }
+      },
+      Err(why) => match going.loss() {
+        Some(loss) => ("cut", Some(cut_error(why, &loss)), None),
+        None => ("failed", Some(why.clone()), None),
+      },
     };
     match app.store.close_research_run(run, outcome, error.as_deref(), filed.as_ref()) {
       Ok(true) => note(app, run, "ended", &format!("The research ended {outcome}.")),

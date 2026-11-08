@@ -277,7 +277,7 @@ pub async fn call(
         key: need_text(arguments, "key")?,
         query: need_text(arguments, "query")?,
         asker: text(arguments, "asker"),
-        options: text(arguments, "options"),
+        options: text(arguments, "options").map(serde_json::Value::String),
         room_id: arguments["roomId"].as_i64(),
         provider: text(arguments, "provider"),
         model: text(arguments, "model"),

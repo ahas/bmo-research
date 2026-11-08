@@ -15,6 +15,7 @@ pub mod page;
 pub mod peers;
 pub mod pull;
 pub mod reading;
+pub mod references;
 pub mod review;
 pub mod routes;
 pub mod runner;

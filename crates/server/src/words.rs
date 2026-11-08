@@ -24,6 +24,8 @@ pub const SEARCH_BRANCH: &str = include_str!("../../../prompts/search/branch.md"
 pub const SEARCH_REQUEST: &str = include_str!("../../../prompts/search/request.md");
 pub const BROWSE_TASK: &str = include_str!("../../../prompts/browse/task.md");
 pub const BROWSE_REQUEST: &str = include_str!("../../../prompts/browse/request.md");
+pub const REFERENCE_TASK: &str = include_str!("../../../prompts/references/task.md");
+pub const REFERENCE_REQUEST: &str = include_str!("../../../prompts/references/request.md");
 const SEARCH_DOCUMENT: &str = include_str!("../../../prompts/search/document.toml");
 const RUNNER: &str = include_str!("../../../prompts/runner.toml");
 const REPAIR: &str = include_str!("../../../prompts/repair.toml");
@@ -41,6 +43,7 @@ const RULEBOOKS: &[(&str, &str)] = &[
   ("economy-brief", include_str!("../../../prompts/rules/economy-brief.md")),
   ("plain-writing", include_str!("../../../prompts/rules/plain-writing.md")),
   ("self-preservation", include_str!("../../../prompts/rules/self-preservation.md")),
+  ("references", include_str!("../../../prompts/rules/references.md")),
 ];
 
 /// The words of the notices.
@@ -78,8 +81,56 @@ pub struct DocumentWords {
   pub manual: Vec<ManualWords>,
   pub advisory: Vec<AdvisoryWords>,
   pub brief: Vec<BriefWords>,
+  pub references: Vec<ReferenceWords>,
   pub sections: Sections,
   pub opening: Sections,
+}
+
+impl DocumentWords {
+  /// The words a reference dossier is written in, in the language the person who asked for the draw writes.
+  pub fn reference(&self, language: &str) -> &ReferenceWords {
+    self
+      .references
+      .iter()
+      .find(|words| words.language == language)
+      .or_else(|| self.references.iter().find(|words| words.language == "en"))
+      .expect("prompts/document.toml holds an en reference dossier")
+  }
+}
+
+/// The headings, columns and reasons a reference dossier is written with, in one language.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReferenceWords {
+  pub language: String,
+  /// The document's title, with `{name}` set to the subject's.
+  pub title: String,
+  pub what: String,
+  pub appearance: String,
+  pub aliases: String,
+  pub constraints: String,
+  pub candidates: String,
+  pub sources: String,
+  pub unresolved: String,
+  /// The heading over the candidate JSON, which is the body's last fenced block.
+  pub json: String,
+  pub none: String,
+  pub unnamed: String,
+  pub no_licence: String,
+  pub no_url: String,
+  pub no_page: String,
+  pub no_dimensions: String,
+  pub no_media: String,
+  /// `{count}` where more candidates came than the ask allows.
+  pub past_limit: String,
+  pub title_column: String,
+  pub page_column: String,
+  pub address_column: String,
+  pub creator_column: String,
+  pub publisher_column: String,
+  pub dimensions_column: String,
+  pub media_column: String,
+  pub licence_column: String,
 }
 
 /// Headings a deep dive's result holds, by its item's shape, in every language it may be written in: its
@@ -363,7 +414,16 @@ pub struct RunnerWords {
   pub scope: ScopeAsk,
   pub narration: NarrationAsk,
   pub whole: WholeAsk,
+  pub references: ReferencesAsk,
   pub review: ReviewAsk,
+}
+
+/// What a references run's session is asked where its result is not the dossier JSON: the question, with
+/// `{problems}` set to what the block lacks.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReferencesAsk {
+  pub whole: String,
 }
 
 /// What an advisory's run is asked before its research (`docs/runner.md`, 「The deep dive's page」): the

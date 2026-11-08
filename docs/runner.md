@@ -9,12 +9,16 @@ run is this unit's.
 ## The keys
 
 - **A run is asked at a key:** `search:basic`, `search:thorough` and `search:exhaustive` go out on agency's
-  search line, `browse` on its browse line. A run holds the role the settings name for its line — `voyager`
-  for the search line, `seeker` for the browse line (`docs/settings.md`, `[runner]`) — and goes out on the
-  provider, the model and the effort that role's order gives its slot as agency lets it in, unless the ask
-  names a road of its own (「One run, step by step」). Its turns go out on the road its slot was let in on,
-  which agency reads off the session, and carry no work parts of their own.
+  search line, `browse` on its browse line, and `references`, the drawing service's, on the search line. A
+  run holds the role the settings name for its line — `voyager` for the search line, `seeker` for the browse
+  line (`docs/settings.md`, `[runner]`) — and goes out on the provider, the model and the effort that role's
+  order gives its slot as agency lets it in, unless the ask names a road of its own (「One run, step by
+  step」). Its turns go out on the road its slot was let in on, which agency reads off the session, and
+  carry no work parts of their own.
 - **Each key has its settings** (「What a run is held to」) and its rounds (`prompts/runner.toml`).
+- **A references run is asked by the drawing service** through `POST /research-runs`, never by the chat
+  agent's `research/run`: its options name the subject's key and kind, the dossier's language, the candidate
+  limit and the image engines (「The references dossier」). It is filed for bmo-paint and told to no room.
 
 ## What a run is held to: the research settings
 
@@ -52,11 +56,17 @@ run is this unit's.
   applies, with `research/rulebook`, which answers the rulebooks the record names under `rulebooks` alone.
 - **A browse's system prompt** is the browse task (`prompts/browse/task.md`) and the rulebook against
   destroying the system.
+- **A references run's system prompt** is the references task (`prompts/references/task.md`) with the same
+  listing, the `references` rulebook whole (`prompts/rules/references.md`), the plain-writing rulebook and
+  the rulebook against destroying the system. The run's record names that one rulebook under `rulebooks`, so
+  `research/rulebook` answers it and no search rulebook binds the run.
 - **A branch's system prompt** is the branch instructions (`prompts/search/branch.md`) with the same listing,
   and the rulebook against destroying the system. Agency puts the platform's harness opening before each.
 - **The request** is the line's request template filled with the ask: a search's the question, who asked,
-  when, the options, the depth, the branches it may open and its budget line; a browse's the task. Neither
-  names a span of time: nothing of a run is bounded by a clock (「Nothing of a run is clocked」).
+  when, the options, the depth, the branches it may open and its budget line; a browse's the task; a
+  references run's the subject, its key and kind, who asked, when, the dossier's language, the candidate
+  limit, the image engines and its budget line. None of them names a span of time: nothing of a run is
+  bounded by a clock (「Nothing of a run is clocked」).
 
 ## One run, step by step
 
@@ -126,11 +136,12 @@ run is this unit's.
    the task as the run was given it and the answer written last (「The rounds」). The last answer is the run's
    result. A rounds' session that does not start leaves the first answer standing as the result, on the
    session the slot is still bound to.
-9. **The whole document and the narration:** in the session that wrote the result — the rounds' session,
-   else the first answer's where the key has no rounds, started on the run's slot for them where the run asked
-   no first turn — a deep dive's result short of its shape is asked
-   once more for the whole document (「The deep dive's page」), and any result that carries no `LISTEN:`
-   script is asked for one (「The narration」).
+9. **The whole document, the dossier and the narration:** in the session that wrote the result — the rounds'
+   session, else the first answer's where the key has no rounds, started on the run's slot for them where the
+   run asked no first turn — a deep dive's result short of its shape is asked once more for the whole
+   document (「The deep dive's page」), a references run's answer whose last fenced block is not the dossier
+   is asked once more whole (「The references dossier」), and any result that carries no `LISTEN:` script is
+   asked for one (「The narration」). A references run carries no narration.
 10. **The end:** the slot is given back (`finished`, its outcome `answered`, `skipped` or `failed: <why>`) and
    the session it is bound to then ended (`DELETE /sessions/{id}`), every session before it ended already (「The
    slots' children」); the result is drawn into its document and filed (「The document」; a deep dive's held to
@@ -189,7 +200,8 @@ run is this unit's.
 - **Each key's list** stands in `prompts/runner.toml`: at the basic depth only the final question, at the
   deeper ones and for a browse every question in turn — what the task must establish, the sources it needs,
   the facts checked against a second source, the coverage of the question, the facts written into the brain,
-  and the final answer. A list ends in `final` and holds it nowhere else.
+  and the final answer. A references run asks every question but the brain's, since the subject record its
+  dossier leads is the drawing service's to write. A list ends in `final` and holds it nowhere else.
 - **A round's prompt** is its question, then the task as the run was given it under a heading of its own, then
   the answer written last under another. Each round is a fresh turn: the session carries nothing between them.
 - **A round that does not answer** leaves the answer written last standing as the result.
@@ -258,11 +270,70 @@ run is this unit's.
     run told to its room has it attached at the document's head (「The narration's sound」), a deep dive's
     page beside its page (「The deep dive's page」).
 
+## The references dossier
+
+A `references` run builds one reference dossier for drawing one subject: what the subject looks like, the
+features a drawing must keep, what must not be drawn, and the licensed pictures a drawing may be built from.
+It is asked by the drawing service through `POST /research-runs` and is filed in the archive for bmo-paint to
+read. No room is told and no narration is made; the run's row answers its end and its document.
+
+- **The ask** names `key` `references` and a `query` naming the subject, and names its `options` as an object
+  (or the same JSON as a string): `subjectKey` (the subject's key in the brain, which the drawing service
+  builds), `kind` (`character`, `person`, `place`, `object`, `style`, `work` or `other`), `language` (`ko`
+  or `en`, the language of the person who asked for the draw), `candidateLimit` (1 to 24, 12 where none is
+  named), `imageEngines` (a subset of the three below, all where none is named) and `requireLicence` (only
+  `true` where it is named). An ask without its options, an unknown kind, language or engine, a limit
+  outside the bound and `requireLicence` `false` are refused 400. The options stay on the run's row.
+- **Its sources are the web namespace's image engines,** the three the design names: Openverse, Wikimedia
+  Commons and Unsplash. The run asks them through the images category of the web tools, and reads each
+  candidate's fields from the source's own API or page. No `sources` registration is added and the daemon's
+  scan (`docs/sources.md`) answers its categories, not this key; a fourth engine is added to the web
+  namespace's roster and to the key's list together, in the change that adds it.
+- **The answer is the dossier as JSON,** in one fenced code block, and the body filed is the dossier drawn
+  from it. Its object holds `subject` (`name`, `aliases`, `kind`), `description` (a short, factual account of
+  the appearance), `features` (what a drawing must keep), `constraints` (what must not be drawn, and why),
+  `candidates`, `sources` (`url` and what it supports) and `unresolved` (what could not be found, and why).
+  Each candidate holds `url` (the picture's own address, never the page), `pageUrl` (the page it came from,
+  null where none stands), `title`, `creator`, `publisher`, `retrievedAt`, `licence` (`id`, `url` and
+  `attribution`), `mediaType`, `width`, `height` and `note`.
+- **Nothing is invented.** A candidate without an address that reads, a media type, both pixel dimensions or
+  a licence this use accepts is dropped, and the reason stands under `unresolved` in the dossier's language.
+  A candidate whose dimensions, media type or licence a source does not state is not guessed at. The run's
+  own moment stands as `retrievedAt` where the answer names none. Candidates are deduplicated by their direct
+  address, and the list is cut at the ask's `candidateLimit`, with the count left out said under
+  `unresolved`.
+- **The licence this use accepts** is the design's: public domain, `CC0-1.0`, `PDM-1.0`, `CC-BY-*`,
+  `CC-BY-SA-*`, the Unsplash licence and the owner's own picture (`owner-supplied`). A `CC-BY-NC-*`, a
+  `CC-BY-ND-*`, an unknown licence, all rights reserved and no licence line are not candidates; they may
+  inform the written description and never the list. Written permission is the drawing service's to add with
+  its filed permission record, never this run's. A dossier with no licensed picture stands with its
+  description and an empty candidate list, and says so under `unresolved`.
+- **The language** is the ask's `language`, else the language the question is asked in. The JSON's keys stay
+  English; the description, the features, the constraints, the notes, the sources' words and the unresolved
+  lines are written in the dossier's language. Names, aliases, licence ids, addresses and figures stand as
+  their sources write them. A Korean dossier whose description, features and constraints hold no Hangul is
+  asked again whole.
+- **A result that is not the dossier** is asked once more for the whole answer, in one more turn of the same
+  session named `research-<run>-whole`, the question naming what the block lacks. An answer still short of
+  the dossier after that turn is not filed: the run closes `failed` with the reason, and the drawing service
+  reads it from the run's row.
+- **The filing** is a `search` document. Its title names the subject, its description is the dossier's, and
+  its body holds the sections what the subject is, its appearance and the features that must survive, its
+  aliases, the constraints, the candidate table, the sources, what stayed unresolved, and the candidate JSON
+  as the body's last fenced block, which bmo-paint parses. Its labels are `research` (the run), `key` and
+  `category` (`references`), `query`, `languages` (the dossier's), `paint.subject-key` and `paint.schema`
+  (`references-v1`). No candidate picture is attached: bmo-paint fetches the bytes itself. A share link is
+  opened where the archive gives one, and nothing of the dossier waits on it.
+
+The dossier is a lead, never a permission: bmo-paint re-reads every address and every licence line before it
+trusts a candidate.
+
 ## The narration
 
-- **Every run's result carries a script for the ear,** a run told to its room's and a deep dive's alike.
-  Where the result its last turn wrote has no `LISTEN:` block, or an empty one, the same session is asked one
-  more turn, named `research-<run>-narration`, for the narration alone: the narration question
+- **Every run's result carries a script for the ear,** a run told to its room's and a deep dive's alike; a
+  references run is the one that carries none. Where the result its last turn wrote has no `LISTEN:` block,
+  or an empty one, the same session is asked one more turn, named `research-<run>-narration`, for the
+  narration alone: the narration question
   (`prompts/runner.toml`, `[narration]`), the search-kinds rulebook's section on the narration, the task as
   the run was given it and the answer written last. The narration says what the thing is, the verdict and
   the one thing to know, in plain spoken sentences in the question's language, with no heading, list or

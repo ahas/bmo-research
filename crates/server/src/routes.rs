@@ -543,7 +543,12 @@ async fn create_research_run(State(app): Shared, bytes: Bytes) -> Response {
     Ok(a) => a,
     Err(r) => return bad(r),
   };
-  match crate::runner::launch(app, ask, crate::runner::Filing::Room, None).await {
+  let filing = if ask.key == crate::references::KEY {
+    crate::runner::Filing::References
+  } else {
+    crate::runner::Filing::Room
+  };
+  match crate::runner::launch(app, ask, filing, None).await {
     Ok(run) => (StatusCode::ACCEPTED, Json(run)).into_response(),
     Err(Launch::Ask(why)) => bad(why),
     Err(Launch::Unavailable(why)) => failure(StatusCode::SERVICE_UNAVAILABLE, "unavailable", why),

@@ -3,7 +3,7 @@
 //! them. The markdown is read by `pulldown-cmark`; a reading reads words and judges nothing, and matches
 //! them without regard to case.
 
-use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
+use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::words::{AdvisoryWords, BriefWords, ManualWords};
@@ -49,6 +49,33 @@ fn headings(content: &str) -> Vec<Heading> {
     }
   }
   found
+}
+
+/// The last fenced code block of a markdown text: its info string and the text it holds. An indented block
+/// is not a fenced one and is passed over.
+pub fn last_fenced(text: &str) -> Option<(String, String)> {
+  let mut found = None;
+  let mut open: Option<(String, String)> = None;
+  for event in Parser::new_ext(text, Options::empty()) {
+    match event {
+      Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(info))) => {
+        open = Some((info.trim().to_owned(), String::new()));
+      }
+      Event::Start(Tag::CodeBlock(CodeBlockKind::Indented)) => open = None,
+      Event::Text(code) => {
+        if let Some((_, held)) = open.as_mut() {
+          held.push_str(&code);
+        }
+      }
+      Event::End(TagEnd::CodeBlock) => {
+        if let Some(block) = open.take() {
+          found = Some(block);
+        }
+      }
+      _ => {}
+    }
+  }
+  found.map(|(info, code)| (info, code.trim_end().to_owned()))
 }
 
 /// Where each heading of the document starts in its text, in order.

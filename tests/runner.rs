@@ -697,7 +697,7 @@ async fn the_research_settings_are_read_changed_and_refused_where_they_do_not_st
     ("default", "voyager", "direct-then-browser")
   );
   let keys: Vec<&str> = read.keys.iter().map(|k| k.key.as_str()).collect();
-  assert_eq!(keys, ["search:basic", "search:thorough", "search:exhaustive", "browse"]);
+  assert_eq!(keys, ["search:basic", "search:thorough", "search:exhaustive", "browse", "references"]);
   assert_eq!(read.engines.unwrap()[0].name, "example-engine");
   let issued = &ground.asked_path("tool-host", "POST", "/tool-sessions")[0].body;
   assert_eq!(issued["namespaces"], json!(["explorer"]));

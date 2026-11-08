@@ -634,13 +634,14 @@ pub struct Run {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ResearchRunAsk {
-  /// `search:basic`, `search:thorough`, `search:exhaustive` or `browse`
+  /// `search:basic`, `search:thorough`, `search:exhaustive`, `browse` or `references`
   pub key: String,
   pub query: String,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub asker: Option<String>,
+  /// the search's options as text, or a `references` run's as an object (or the same JSON as a string)
   #[serde(default, skip_serializing_if = "Option::is_none")]
-  pub options: Option<String>,
+  pub options: Option<serde_json::Value>,
   /// the room the result is told to; the owner's private room where none is named
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub room_id: Option<i64>,

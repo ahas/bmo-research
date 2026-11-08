@@ -87,8 +87,10 @@ What every research run is held to where the owner changed nothing through `PUT 
 | `search:thorough` | 2 | 8 | 4 |
 | `search:exhaustive` | 5 | 20 | 6 |
 | `browse` | 0 | none | none |
+| `references` | 0 | 30 | none |
 
-A file naming `keys` names every key it keeps; the four above are the research keys.
+A file naming `keys` names every key it keeps; the five above are the research keys, and a key a file leaves
+out keeps the default here.
 
 ## The tool host: `[tool_host]`
 

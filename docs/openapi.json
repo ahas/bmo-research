@@ -1415,7 +1415,7 @@
             ]
           },
           "key": {
-            "description": "`search:basic`, `search:thorough`, `search:exhaustive` or `browse`",
+            "description": "`search:basic`, `search:thorough`, `search:exhaustive`, `browse` or `references`",
             "type": "string"
           },
           "model": {
@@ -1426,10 +1426,7 @@
             ]
           },
           "options": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "description": "the search's options as text, or a `references` run's as an object (or the same JSON as a string)"
           },
           "provider": {
             "description": "the provider the run goes out on, named only with its model; where a model alone is named, the one its\nrole's order holds that model under; its slot's where none is named",

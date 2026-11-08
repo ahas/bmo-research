@@ -247,6 +247,7 @@ impl Default for ResearchDefaults {
         ("search:thorough".to_string(), key(2, Some(8), Some(4))),
         ("search:exhaustive".to_string(), key(5, Some(20), Some(6))),
         ("browse".to_string(), key(0, None, None)),
+        ("references".to_string(), key(0, Some(30), None)),
       ]),
     }
   }

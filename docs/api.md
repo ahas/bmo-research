@@ -307,16 +307,26 @@ the one to read.
 | GET | `/research-runs/{runId}/log-lines` | A research run's log, oldest first. |
 | POST | `/branches` | Open a branch of a research run and answer once it ends. |
 
-- **An ask** (`docs/runner.md`) names `key` (`search:basic`, `search:thorough`, `search:exhaustive` or
-  `browse`) and `query`, and may name `asker`, `options`, `roomId` (the room the result is told to; the
-  owner's private room where none is named), `provider` and `model` (the road it goes out on: a `model`
-  alone goes out on the provider its role's order holds it under, and where neither is named the run goes
-  out on its slot's road, its role's order's; `docs/runner.md`, 「One run, step by step」). A key that is no
-  research key, an empty query or a `provider` named without a `model` is 400 `bad-request`. Where agency
-  cannot be reached for the slot or the role's order, or answers either with a failure of its own (5xx), or
-  a search's web listing cannot be had, it is 503 `unavailable`; where agency refuses the slot or the role
-  for what it asks, or answers the slot with no token, it is 502 `upstream-failed`. Either carries the
-  sentence, and nothing is left standing.
+- **An ask** (`docs/runner.md`) names `key` (`search:basic`, `search:thorough`, `search:exhaustive`,
+  `browse` or `references`) and `query`, and may name `asker`, `options` (text for a search, an object for a
+  `references` run; 「The references dossier」), `roomId` (the room the result is told to; the owner's private
+  room where none is named), `provider` and `model` (the road it goes out on: a `model` alone goes out on
+  the provider its role's order holds it under, and where neither is named the run goes out on its slot's
+  road, its role's order's; `docs/runner.md`, 「One run, step by step」). A key that is no research key, an
+  empty query, a `provider` named without a `model` or a `references` ask whose options do not stand is 400
+  `bad-request`. Where agency cannot be reached for the slot or the role's order, or answers either with a
+  failure of its own (5xx), or a search's or a references run's web listing cannot be had, it is 503
+  `unavailable`; where agency refuses the slot or the role for what it asks, or answers the slot with no
+  token, it is 502 `upstream-failed`. Either carries the sentence, and nothing is left standing.
+- **A `references` ask** is the drawing service's, and its `options` object holds `subjectKey` (the
+  subject's key in the brain), `kind` (`character`, `person`, `place`, `object`, `style`, `work` or
+  `other`), `language` (`ko` or `en`, the language of the person who asked for the draw), `candidateLimit`
+  (1 to 24, 12 where none), `imageEngines` (a subset of `openverse`, `wikicommons.images` and `unsplash`,
+  all where none) and `requireLicence` (only `true` where it is named). The same JSON as a string is taken.
+  The run is filed as a `search` document whose body's last fenced block is the candidate dossier
+  (`docs/runner.md`, 「The references dossier」); its labels are `research`, `key` and `category`
+  (`references`), `query`, `languages`, `paint.subject-key` and `paint.schema` `references-v1`, and no room
+  is told.
 - **The ask is answered at once,** 202 with `runId`, `key`, `state` (`waiting` while its slot waits for its
   place, `running` once let in), `provider` and `model`, the road its slot stands on as it is answered — the
   one the ask named, else the one it was let in on where it is let in at once — each empty while a slot

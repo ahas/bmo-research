@@ -13,6 +13,7 @@ mod page;
 mod personal_data;
 mod pull;
 mod reading;
+mod references;
 mod review;
 mod routes;
 mod runner;

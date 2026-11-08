@@ -35,6 +35,12 @@ rounds = ["what", "sources", "facts", "coverage", "establish", "final"]
 [rounds.browse]
 rounds = ["what", "sources", "facts", "coverage", "establish", "final"]
 
+# A reference dossier is held to the licence this use accepts and to fields read from each source, and the
+# subject record it leads is the drawing service's to write, so the run checks coverage and writes the
+# dossier without writing the brain.
+[rounds.references]
+rounds = ["what", "sources", "facts", "coverage", "final"]
+
 # What an advisory's run is asked before its research begins (docs/runner.md, "The deep dive's page"): the
 # vendor's fixed builds judged against the platform age floor the task names. The answer is one line, the
 # marker alone, so the daemon can skip the run without a document or a notice.
@@ -54,6 +60,11 @@ section = "The narration"
 # dive's page」): the question, `{missing}` set to what the result lacks.
 [whole]
 question = "The answer you wrote last is not the whole document: {missing}. Write the whole result again from its head, every section in order: the ANSWERED and TITLE lines and the rest of the head, the narration where the task asks for one, VERDICT with the answer, then every section the task's shape asks for, through UNCONFIRMED and the sources. Write it whole in this one answer, never as a continuation of what you wrote before: this turn's text is taken whole as the result."
+
+# What a references run's session is asked where its answer is not the dossier JSON (docs/runner.md, 「The
+# references dossier」): the question, `{problems}` set to what the answer lacks.
+[references]
+whole = "The answer you wrote last is not the reference dossier: {problems}. Write the whole answer again, in the dossier's language, as one fenced code block holding the JSON object and nothing else: every field the task and the references rulebook ask for, every candidate read from its source, every licence as the source states it, and the reasons under `unresolved` for what was left out. Write no prose before or after the block."
 
 # What a deep dive's page is reviewed with once it is whole (docs/runner.md, 「The review」): the question, and
 # the rulebook and its section the review is held to, which stand as the review session's instructions.

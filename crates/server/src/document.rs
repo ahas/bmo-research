@@ -32,8 +32,14 @@ pub const SHARE_LIFE: Duration = Duration::from_secs(24 * 3_600);
 /// The language a question is asked in, as the words file names it: `ko` where it is written in Hangul, `en`
 /// otherwise.
 pub fn language_of(question: &str) -> &'static str {
-  let hangul = |c: char| ('\u{AC00}'..='\u{D7A3}').contains(&c) || ('\u{1100}'..='\u{11FF}').contains(&c);
-  if question.chars().any(hangul) { "ko" } else { "en" }
+  if has_hangul(question) { "ko" } else { "en" }
+}
+
+/// Whether a text holds Hangul, the mark of the Korean a document is written in.
+pub fn has_hangul(text: &str) -> bool {
+  text
+    .chars()
+    .any(|c| ('\u{AC00}'..='\u{D7A3}').contains(&c) || ('\u{1100}'..='\u{11FF}').contains(&c))
 }
 
 /// The source entry a picture belongs to: its mark, the page it links and the words saying what it supports.

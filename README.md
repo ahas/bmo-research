@@ -4,7 +4,8 @@ The platform's research unit: a daemon that keeps a queue of things to research 
 ones on the sources the owner registers (the Hugging Face Hub, arXiv, GitHub releases, feeds), has each one
 researched by its own research runner in its category's shape, and tells the category's recipients the
 share link of the document the run filed. The runner (`docs/runner.md`) also answers every research the chat
-agent asks with `research/run`, on slots and role sessions agency supplies. `it` asks for a manual or an investigation, and a manual saying the
+agent asks with `research/run`, and the drawing service's `references` runs, on slots and role sessions agency
+supplies. `it` asks for a manual or an investigation, and a manual saying the
 thing fits one of the lab's cards asks the owner's word; `security` asks for an advisory judged against
 the platform's stack, and one that touches it asks whether to patch; `economy` gathers a day's items into
 one brief and keeps its figures. The daemon researches and notifies: the work a report calls for is the

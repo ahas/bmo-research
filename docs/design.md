@@ -203,8 +203,8 @@ A source is a registration: a category, a kind, an address and, where the kind t
 
 ## Where the runner lives
 
-- **The research runner is this unit's** (`docs/runner.md`): the search and browse instructions, the
-  rulebooks, the request, the research settings, the rounds, the branch allowance, the filing of the
+- **The research runner is this unit's** (`docs/runner.md`): the search, browse and reference instructions,
+  the rulebooks, the request, the research settings, the rounds, the branch allowance, the filing of the
   document and the room's instruction, and the run's ledger and log. Agency supplies a slot of the role a
   run holds — `voyager` on its search line, `seeker` on its browse line — whose road is that role's order's,
   and sessions of that role, whose system prompt this unit hands in whole and whose record carries the run's
@@ -213,7 +213,8 @@ A source is a registration: a category, a kind, an address and, where the kind t
   `POST /research-runs`, and the daemon's own deep dive, which asks it on the road its settings name,
   kakia's: provider `registered`, model `flash-next`. The deep dive reads the run's end from the runner's
   ledger and the document from the run's row, and sends its own line to its rooms; a run it asks tells no
-  room itself.
+  room itself. The drawing service's `references` run is asked the same way and files a dossier for it, with
+  no room told (`docs/runner.md`, 「The references dossier」).
 
 ## The bench lock
 
