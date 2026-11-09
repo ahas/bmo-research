@@ -1,0 +1,9 @@
+repository = "bmo-research"
+base = false
+
+[coverage]
+# Every Cargo package's src/, and no other folder: the tests, the prompts and the documents stand outside it.
+layout = "bmo-next"
+extensions = ["rs"]
+# The root package's crate root, which holds no code and only names the tests.
+unindexed = ["src/lib.rs"]
