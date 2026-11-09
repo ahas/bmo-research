@@ -311,10 +311,10 @@ the one to read.
   `browse` or `references`) and `query`, and may name `asker`, `options` (text for a search, an object for a
   `references` run; 「The references dossier」), `roomId` (the room the result is told to; the owner's private
   room where none is named), `provider` and `model` (the road it goes out on: a `model` alone goes out on
-  the provider its role's order holds it under, and where neither is named the run goes out on its slot's
-  road, its role's order's; `docs/runner.md`, 「One run, step by step」). A key that is no research key, an
+  the provider an agent of its role holds it under, and where neither is named the run goes out on its slot's
+  road, that of the agent of its role it is let in on; `docs/runner.md`, 「One run, step by step」). A key that is no research key, an
   empty query, a `provider` named without a `model` or a `references` ask whose options do not stand is 400
-  `bad-request`. Where agency cannot be reached for the slot or the role's order, or answers either with a
+  `bad-request`. Where agency cannot be reached for the slot or the role's agents, or answers either with a
   failure of its own (5xx), or a search's or a references run's web listing cannot be had, it is 503
   `unavailable`; where agency refuses the slot or the role for what it asks, or answers the slot with no
   token, it is 502 `upstream-failed`. Either carries the sentence, and nothing is left standing.
@@ -906,8 +906,8 @@ of these units, and reads each one's address and token from that unit's own file
   the session still runs: `GET /sessions/{id}` is then read every two seconds until its `run` is null, and the
   turn sent again (`docs/runner.md`, 「A turn's send」). `DELETE /sessions/{id}`, the session ended, answered
   409 while its turn runs. `GET /roles`, the roles a branch role is checked against; `GET /roles/{roleName}`,
-  the order a run naming a model alone reads its provider off, and the `maxConcurrent` a pull reads the
-  search line's role's cap from; `GET /repositories/{repositoryName}`, the
+  the `agents` a run naming a model alone reads its provider off, and the `maxConcurrent` a pull reads the
+  search line's role's cap from, the count of its agents that are switched on; `GET /repositories/{repositoryName}`, the
   checkout a notice to an agent runs at. No call of the slot and session routes carries a clock of this
   unit's, a turn's send among them: each is waited on until agency answers, however long a card it waits on
   takes and however long the turn writes. `POST /translation-runs` with `purpose`, `language`, `text`, `note`

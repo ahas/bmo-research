@@ -574,7 +574,7 @@ pub async fn give_back_held(
 
 /// What a slot is asked with (`docs/runner.md`, 「One run, step by step」): the request key, the run that
 /// owns it, its role and its line, and the road it is let in on where one is named, its provider and model
-/// together; where none is, its role's order gives it.
+/// together; where none is, the agent of its role it is let in on gives it.
 pub fn slot_ask(request_key: &str, run: i64, role: &str, line: &str, road: Option<(&str, &str)>) -> Value {
   let mut asked = json!({
     "requestKey": request_key,
@@ -763,9 +763,9 @@ pub fn ask_fault(ask: &ResearchRunAsk) -> Option<String> {
 }
 
 /// The road a run's slot is asked on (`docs/runner.md`, 「One run, step by step」): the ask's provider and
-/// model where it names both; where it names a model alone, that model on the provider the role's order holds
-/// it under, read off agency's role; none where it names no model, its role's order choosing as it lets the
-/// slot in.
+/// model where it names both; where it names a model alone, that model on the provider an agent of the role
+/// holds it under, read off agency's role; none where it names no model, the agent the slot is let in on
+/// giving it.
 pub async fn named_road(
   app: &App,
   role: &str,
@@ -781,17 +781,17 @@ pub async fn named_road(
   Ok(Some((provider_holding(&held, model).unwrap_or_default(), model.to_owned())))
 }
 
-/// The provider a role holds a model under: the first member of its order naming that model, else the
-/// provider the role stands on now, else its order's first.
+/// The provider a role holds a model under: that of the first of its agents that is switched on and names
+/// that model, else the provider the role stands on now, else its first switched-on agent's.
 pub fn provider_holding(role: &Value, model: &str) -> Option<String> {
-  let order = role["order"].as_array().map(Vec::as_slice).unwrap_or_default();
-  let provider = |member: &Value| member["provider"].as_str().filter(|p| !p.is_empty()).map(str::to_owned);
-  order
-    .iter()
-    .find(|member| member["model"].as_str() == Some(model))
+  let agents = role["agents"].as_array().map(Vec::as_slice).unwrap_or_default();
+  let seated = || agents.iter().filter(|agent| agent["enabled"].as_bool() != Some(false));
+  let provider = |agent: &Value| agent["provider"].as_str().filter(|p| !p.is_empty()).map(str::to_owned);
+  seated()
+    .find(|agent| agent["model"].as_str() == Some(model))
     .and_then(provider)
     .or_else(|| role["provider"].as_str().filter(|p| !p.is_empty()).map(str::to_owned))
-    .or_else(|| order.first().and_then(provider))
+    .or_else(|| seated().find_map(provider))
 }
 
 fn note(app: &App, run: i64, kind: &str, text: &str) {

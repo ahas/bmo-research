@@ -1045,7 +1045,7 @@ fn a_search_is_told_its_title_names_its_subject_in_a_bounded_noun_phrase() {
 }
 
 #[tokio::test]
-async fn a_run_naming_a_model_alone_asks_its_slot_on_the_provider_its_role_s_order_holds_it_under() {
+async fn a_run_naming_a_model_alone_asks_its_slot_on_the_provider_an_agent_of_its_role_holds_it_under() {
   let (ground, _base, client) = served().await;
   let asked = client
     .ask_research(&ResearchRunAsk {
@@ -1057,16 +1057,20 @@ async fn a_run_naming_a_model_alone_asks_its_slot_on_the_provider_its_role_s_ord
     .await
     .unwrap();
   assert_eq!((asked.provider.as_str(), asked.model.as_str()), ("deepseek", "deepseek-flash"));
-  assert_eq!(ground.asked_path("agency", "GET", "/roles/seeker").len(), 1, "the role's order is read");
+  assert_eq!(
+    ground.asked_path("agency", "GET", "/roles/seeker").len(),
+    1,
+    "the role's agents are read"
+  );
   let slot = &ground.run_slots()[0];
   assert_eq!(
     (slot["provider"].as_str(), slot["model"].as_str()),
     (Some("deepseek"), Some("deepseek-flash")),
-    "the slot is asked on the order's member naming that model"
+    "the slot is asked on the switched-on agent naming that model, never the one switched off"
   );
   closed(&ground, asked.run_id).await;
 
-  // A model no member of the order names goes out on the provider the role stands on now.
+  // A model no agent of the role names goes out on the provider the role stands on now.
   let other = client
     .ask_research(&ResearchRunAsk {
       key: "browse".into(),

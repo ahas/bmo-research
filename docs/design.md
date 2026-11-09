@@ -206,7 +206,7 @@ A source is a registration: a category, a kind, an address and, where the kind t
 - **The research runner is this unit's** (`docs/runner.md`): the search, browse and reference instructions,
   the rulebooks, the request, the research settings, the rounds, the branch allowance, the filing of the
   document and the room's instruction, and the run's ledger and log. Agency supplies a slot of the role a
-  run holds — `voyager` on its search line, `seeker` on its browse line — whose road is that role's order's,
+  run holds — `voyager` on its search line, `seeker` on its browse line — whose road is that of the agent of that role it is let in on,
   and sessions of that role, whose system prompt this unit hands in whole and whose record carries the run's
   settings under the labels this unit names; it runs nothing of research on its own.
 - **Every research goes through the one runner:** the chat agent's `research/run`, any caller of

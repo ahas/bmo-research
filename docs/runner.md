@@ -82,12 +82,12 @@ run is this unit's.
 3. **The slot:** a deep dive's run takes the slot it was handed, let in already, as its own hold, and goes
    on to its session at once; any other run asks agency's `POST /slot-requests` with `requestKey` and `owner` `research:<run>`, `role` the role
    of the run's line, `source` the line, and `provider` and `model` where the ask names a model: the road the
-   slot is let in on in place of its role's order. An ask naming both names them; an ask naming a model alone
-   names that model on the provider the role's order holds it under — the first member of the order naming
-   that model, else the provider the role stands on now, else the order's first — read off agency's
-   `GET /roles/{role}`, since a slot's road names its provider and its model together. It is answered with its
-   token and its state; the road of a slot whose ask names none is its role's order's, chosen as the slot is
-   let in. A request key names one request for good, and once that request is given back agency refuses any
+   slot is let in on, an agent of the role that stands on it. An ask naming both names them; an ask naming a
+   model alone names that model on the provider an agent of the role holds it under — the first of the role's
+   agents that is switched on and names that model, else the provider the role stands on now, else its first
+   switched-on agent's — read off agency's `GET /roles/{role}`, its `agents`, since a slot's road names its
+   provider and its model together. It is answered with its token and its state; the road of a slot whose ask
+   names none is that of the agent of its role it is let in on, chosen as the slot is let in. A request key names one request for good, and once that request is given back agency refuses any
    ask under it, so every slot this unit asks goes under a key none of its slots was asked under before: a
    run's under its run, asked once; a branch's under its run and its index, which the allowance counts once
    each (「Branches」); and a review's under its run and the count of its asks (「The review」). A slot or a

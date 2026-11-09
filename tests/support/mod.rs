@@ -279,11 +279,13 @@ pub const ROLES: [&str; 3] = ["voyager", "seeker", "scout"];
 /// The role a repository's worker runs as, which the stand-in agency holds beside the research roles.
 pub const WORKER_ROLE: &str = "worker";
 
-/// Each role's order in the stand-in agency: the slot's own road first, then a second provider.
-pub fn role_order() -> Value {
+/// Each role's agents in the stand-in agency: one on the slot's own road, one switched off on a model of its
+/// own, then one on a second provider.
+pub fn role_agents() -> Value {
   json!([
-    {"provider": "registered", "model": "slot-model"},
-    {"provider": "deepseek", "model": "deepseek-flash"},
+    {"name": "seat-01", "provider": "registered", "model": "slot-model", "enabled": true},
+    {"name": "seat-02", "provider": "codex", "model": "deepseek-flash", "enabled": false},
+    {"name": "seat-03", "provider": "deepseek", "model": "deepseek-flash", "enabled": true},
   ])
 }
 
@@ -624,7 +626,7 @@ async fn agency_role(
       .into_response();
   }
   let cap = w.lock().unwrap().role_cap;
-  axum::Json(json!({"name": name, "order": role_order(), "provider": "registered", "maxConcurrent": cap}))
+  axum::Json(json!({"name": name, "agents": role_agents(), "provider": "registered", "maxConcurrent": cap}))
     .into_response()
 }
 

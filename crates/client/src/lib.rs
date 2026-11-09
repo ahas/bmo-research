@@ -645,8 +645,8 @@ pub struct ResearchRunAsk {
   /// the room the result is told to; the owner's private room where none is named
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub room_id: Option<i64>,
-  /// the provider the run goes out on, named only with its model; where a model alone is named, the one its
-  /// role's order holds that model under; its slot's where none is named
+  /// the provider the run goes out on, named only with its model; where a model alone is named, the one an
+  /// agent of its role holds that model under; its slot's where none is named
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub provider: Option<String>,
   /// the model the run goes out on; its slot's where none is named
