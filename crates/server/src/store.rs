@@ -6,9 +6,9 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use bmo_research_client::{
-  Category, CategoryChange, CategoryShape, CategoryState, DaemonState, Fact, Filter, Item, ItemState,
-  NewCategory, NewSource, NewStackRow, Origin, OriginKind, Page, Recipient, RecipientKind, ResearchLogLine,
-  ResearchRunState, ResearchRunView, Run, Running, Shape, Source, SourceChange, StackRow,
+  CalendarTarget, Category, CategoryChange, CategoryShape, CategoryState, DaemonState, Fact, Filter, Item,
+  ItemState, NewCategory, NewSource, NewStackRow, Origin, OriginKind, Page, Recipient, RecipientKind,
+  ResearchLogLine, ResearchRunState, ResearchRunView, Run, Running, Shape, Source, SourceChange, StackRow,
 };
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
@@ -240,6 +240,11 @@ const MIGRATIONS: &[&str] = &[
   "
   alter table categories drop column cap;
 ",
+  "
+  alter table categories add column instruction text;
+  alter table categories add column calendar_realm text;
+  alter table categories add column calendar_id text;
+",
 ];
 
 /// A page's one review (`docs/store.md`, `page_reviews`): what it wrote, the indices of its fixes applied or
@@ -282,7 +287,8 @@ pub fn now_ms() -> i64 {
 }
 
 const CATEGORY_COLUMNS: &str =
-  "name, purpose, shape, cadence_minutes, gather_minutes, provider, model, state, state_at, created_at";
+  "name, purpose, shape, cadence_minutes, gather_minutes, provider, model, state, state_at,
+  created_at, instruction, calendar_realm, calendar_id";
 
 const ITEM_COLUMNS: &str =
   "id, category, key, name, maker, address, kind, shape, source_id, asked, priority,
@@ -460,6 +466,7 @@ pub fn item_shape(category: CategoryShape, kind: Option<ItemKind>) -> Shape {
     CategoryShape::ManualOrInvestigation => kind.map(ItemKind::shape).unwrap_or(Shape::Manual),
     CategoryShape::Advisory => Shape::Advisory,
     CategoryShape::Brief => Shape::Brief,
+    CategoryShape::Topic => Shape::Topic,
   }
 }
 
@@ -519,13 +526,12 @@ impl Store {
   }
 
   pub fn add_category(&self, new: &NewCategory) -> Result<Category, Refusal> {
-    let gather = match new.shape {
-      CategoryShape::Brief => Some(new.gather_minutes.unwrap_or(1440)),
-      _ => None,
-    };
+    let gather = new.shape.gathers().then(|| new.gather_minutes.unwrap_or(1440));
+    let topic = new.shape == CategoryShape::Topic;
+    let calendar = new.calendar.as_ref().filter(|_| topic);
     let n = self.lock().execute(
       "insert or ignore into categories (name, purpose, shape, cadence_minutes, gather_minutes, provider, model,
-         created_at) values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+         created_at, instruction, calendar_realm, calendar_id) values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
       params![
         new.name,
         new.purpose,
@@ -534,7 +540,10 @@ impl Store {
         gather,
         new.provider.clone().filter(|p| !p.is_empty()),
         new.model.clone().filter(|m| !m.is_empty()),
-        now_ms()
+        now_ms(),
+        new.instruction.clone().filter(|_| topic),
+        calendar.map(|calendar| calendar.realm.clone()),
+        calendar.map(|calendar| calendar.calendar_id.clone())
       ],
     )?;
     if n == 0 {
@@ -560,8 +569,15 @@ impl Store {
     if let Some(model) = &change.model {
       category.model = Some(model.clone()).filter(|m| !m.is_empty());
     }
+    if let Some(instruction) = &change.instruction {
+      category.instruction = Some(instruction.clone());
+    }
+    if let Some(calendar) = &change.calendar {
+      category.calendar = calendar.clone();
+    }
     self.lock().execute(
-      "update categories set purpose = ?2, cadence_minutes = ?3, gather_minutes = ?4, provider = ?5, model = ?6
+      "update categories set purpose = ?2, cadence_minutes = ?3, gather_minutes = ?4, provider = ?5, model = ?6,
+         instruction = ?7, calendar_realm = ?8, calendar_id = ?9
          where name = ?1",
       params![
         name,
@@ -569,7 +585,10 @@ impl Store {
         category.cadence_minutes,
         category.gather_minutes,
         category.provider,
-        category.model
+        category.model,
+        category.instruction,
+        category.calendar.as_ref().map(|calendar| calendar.realm.clone()),
+        category.calendar.as_ref().map(|calendar| calendar.calendar_id.clone())
       ],
     )?;
     self.category(name)
@@ -2635,6 +2654,11 @@ fn read_category(r: &rusqlite::Row<'_>) -> rusqlite::Result<Category> {
     state: Running::parse(&state).unwrap_or(Running::Running),
     state_at: r.get(8)?,
     created_at: r.get(9)?,
+    instruction: r.get(10)?,
+    calendar: match (r.get::<_, Option<String>>(11)?, r.get::<_, Option<String>>(12)?) {
+      (Some(realm), Some(calendar_id)) => Some(CalendarTarget { realm, calendar_id }),
+      _ => None,
+    },
   })
 }
 

@@ -1252,6 +1252,25 @@ pub fn job(world: Shared) -> Router {
   Router::new().route("/items", post(job_items)).with_state(world)
 }
 
+async fn calendar_events(State(w): State<Shared>, method: Method, uri: Uri, body: Bytes) -> Response {
+  keep(&w, "calendar", &method, &uri, &body);
+  let event: Value = serde_json::from_slice(&body).unwrap_or_default();
+  // A row the test marks refused is refused as the calendar refuses an event it does not take.
+  if event["title"].as_str().is_some_and(|title| title.contains("refused")) {
+    return (
+      StatusCode::UNPROCESSABLE_ENTITY,
+      axum::Json(json!({"code": "unknown-calendar", "error": "refused"})),
+    )
+      .into_response();
+  }
+  (StatusCode::CREATED, axum::Json(event)).into_response()
+}
+
+/// A stand-in for the calendar unit: the events written to a realm.
+pub fn calendar(world: Shared) -> Router {
+  Router::new().route("/{realm}/events", post(calendar_events)).with_state(world)
+}
+
 /// The issuer token the stand-in tool host takes.
 pub const ISSUER: &str = "issuer-test";
 
@@ -1526,6 +1545,7 @@ pub async fn ground(change: impl FnOnce(&mut Settings)) -> Ground {
   let arbiter = serve(arbiter(world.clone())).await;
   let voice = serve(voice(world.clone())).await;
   let job = serve(job(world.clone())).await;
+  let calendar = serve(calendar(world.clone())).await;
   let sources = serve(sources(world.clone())).await;
   let root = scratch();
   let port = agency.rsplit(':').next().unwrap();
@@ -1555,6 +1575,14 @@ pub async fn ground(change: impl FnOnce(&mut Settings)) -> Ground {
   )
   .unwrap();
   std::fs::write(root.join("env/job.token"), "job-test\n").unwrap();
+  std::fs::write(
+    root.join("env/calendar.toml"),
+    format!(
+      "[server]\nlisten = \"{}\"\ntoken = \"calendar-test\"\ndata_root = \"unused\"\n\n[console]\ntoken = \"console-test\"\n",
+      calendar.trim_start_matches("http://")
+    ),
+  )
+  .unwrap();
   std::fs::create_dir_all(root.join("tool-host")).unwrap();
   std::fs::write(root.join("tool-host/issuer-token"), format!("{ISSUER}\n")).unwrap();
   let socket = root.join("mcp-host.sock");

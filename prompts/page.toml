@@ -42,9 +42,11 @@ manual = "{name} manual"
 investigation = "{name} investigation"
 advisory = "{name} security advisory"
 brief = "Economy brief: {name}"
+topic = "{name}"
 
 [titles.ko]
 manual = "{name} 사용설명서"
 investigation = "{name} 조사"
 advisory = "{name} 보안 권고"
 brief = "경제 브리핑: {name}"
+topic = "{name}"

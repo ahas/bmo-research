@@ -142,6 +142,15 @@ pub async fn answer(handed: Value) -> Value {
   }
 }
 
+/// The calendar a topic's arguments name: `calendar` with its `realm` and `calendarId`, the realm the owner's
+/// own where none is named.
+fn calendar_of(arguments: &Value) -> Option<CalendarTarget> {
+  let named = arguments.get("calendar")?.as_object()?;
+  Some(CalendarTarget {
+    realm: named.get("realm").and_then(Value::as_str).unwrap_or("mine").to_owned(),
+    calendar_id: named.get("calendarId").and_then(Value::as_str)?.to_owned(),
+  })
+}
 fn text(arguments: &Value, key: &str) -> Option<String> {
   arguments[key].as_str().map(str::trim).filter(|v| !v.is_empty()).map(String::from)
 }
@@ -363,6 +372,8 @@ async fn categories(client: &ResearchClient, arguments: &Value, is_owner: bool) 
           gather_minutes: arguments["gatherMinutes"].as_i64(),
           provider: text(arguments, "provider"),
           model: text(arguments, "model"),
+          instruction: text(arguments, "instruction"),
+          calendar: calendar_of(arguments),
         })
         .await?;
       Ok(format!("Category {} stands, as {}.", category.name, category.shape.as_str()))
@@ -376,6 +387,12 @@ async fn categories(client: &ResearchClient, arguments: &Value, is_owner: bool) 
         gather_minutes: arguments["gatherMinutes"].as_i64(),
         provider: arguments["provider"].as_str().map(String::from),
         model: arguments["model"].as_str().map(String::from),
+        instruction: text(arguments, "instruction"),
+        // A calendar named is set, `calendar: null` takes it away, and one left out is kept.
+        calendar: match &arguments["calendar"] {
+          Value::Null if arguments.get("calendar").is_some() => Some(None),
+          _ => calendar_of(arguments).map(Some),
+        },
       };
       let category = client.change_category(&name, &change).await?;
       Ok(format!(

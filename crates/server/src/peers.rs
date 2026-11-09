@@ -111,6 +111,18 @@ struct JobServer {
   token_file: Option<String>,
 }
 
+/// The calendar unit's own settings file, the parts the daemon reads: where it listens and its token.
+#[derive(Deserialize)]
+struct CalendarFile {
+  server: CalendarServer,
+}
+
+#[derive(Deserialize)]
+struct CalendarServer {
+  listen: String,
+  token: String,
+}
+
 /// The voice unit's own settings file, the parts the daemon reads: where it answers and the file under `env/`
 /// its token stands in.
 #[derive(Deserialize)]
@@ -274,6 +286,22 @@ impl Peers {
       name: "the job service",
       address,
       token,
+    })
+  }
+
+  pub fn calendar(&self) -> Result<Peer, String> {
+    let path = self.settings.env_file(&self.settings.calendar.settings);
+    let text = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let file: CalendarFile = toml::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+    let listen = file.server.listen.trim();
+    let address = match listen.rsplit_once(':') {
+      Some(("0.0.0.0" | "[::]", port)) => format!("http://127.0.0.1:{port}"),
+      _ => format!("http://{listen}"),
+    };
+    Ok(Peer {
+      name: "the calendar",
+      address,
+      token: Some(file.server.token),
     })
   }
 
@@ -877,6 +905,16 @@ impl Peers {
   }
 
   /// One call of the artifact service's routes with a JSON body: its answer.
+  /// One event written to a calendar of the calendar unit, in the realm named, as this unit acting for the
+  /// owner; the same `id` written again is answered as the event stands (`docs/api.md`, 「Calls this unit
+  /// makes」).
+  pub async fn write_event(&self, realm: &str, event: &Value) -> Result<Value, String> {
+    let calendar = self.calendar()?;
+    let path = format!("/{}/events?holderName=bmo-research", segment(realm));
+    let request = self.request(&calendar, reqwest::Method::POST, &path).json(event);
+    self.call(&calendar, request, &format!("POST {path}")).await
+  }
+
   pub async fn artifact_send(
     &self,
     method: reqwest::Method,

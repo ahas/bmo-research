@@ -122,6 +122,7 @@ Every peer's address and token are read from the files that peer already keeps u
 | `[artifact] address` | `http://127.0.0.1:3230` | The artifact service's address |
 | `[artifact] token` | `artifact.token` | The file whose text is the artifact service's token |
 | `[voice] settings` | `voice.toml` | The voice unit's own settings file, whose `address` is where it answers and whose `token_file` names the file under `env/` holding its token |
+| `[calendar] settings` | `calendar.toml` | The calendar unit's own settings file, whose `[server] listen` is where it answers and whose `[server] token` is its token |
 | `[job] settings` | `bmo-job.toml` | The job service's own settings file, whose `[server] listen` is where it answers (on the loopback where it listens on every address) and whose `[server] token_file` names the file holding its token, under `env/` where the name is not absolute |
 | `[job] queue` | `todo` | The job queue a stuck item's repair is filed in (`docs/api.md`, 「The repair」) |
 | `[job] assignee` | `bmo-research` | The worker a repair is filed for: the research unit's own worker, since the cause lies in what the research asked or wrote |

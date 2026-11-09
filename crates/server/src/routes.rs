@@ -188,8 +188,18 @@ async fn create_category(State(app): Shared, bytes: Bytes) -> Response {
   if [new.cadence_minutes, new.gather_minutes].into_iter().flatten().any(|n| n < 1) {
     return bad("a category's numbers are 1 or more");
   }
-  if new.gather_minutes.is_some() && new.shape != CategoryShape::Brief {
-    return bad("only a brief category gathers");
+  if new.gather_minutes.is_some() && !new.shape.gathers() {
+    return bad("only a brief or a topic category gathers");
+  }
+  let topic = new.shape == CategoryShape::Topic;
+  if topic && new.instruction.as_deref().is_none_or(|instruction| instruction.trim().is_empty()) {
+    return bad("a topic category needs its instruction: what to look for and how to report it");
+  }
+  if !topic && (new.instruction.is_some() || new.calendar.is_some()) {
+    return bad("only a topic category takes an instruction or a calendar");
+  }
+  if let Some(why) = new.calendar.as_ref().and_then(calendar_fault) {
+    return bad(why);
   }
   let category = match app.store.add_category(&new) {
     Ok(c) => c,
@@ -197,6 +207,14 @@ async fn create_category(State(app): Shared, bytes: Bytes) -> Response {
   };
   crate::dive::give_owner_room(&app).await;
   (StatusCode::CREATED, Json(category)).into_response()
+}
+
+// Why a calendar a topic names does not stand, or none where it does.
+fn calendar_fault(calendar: &CalendarTarget) -> Option<&'static str> {
+  if !["mine", "organization"].contains(&calendar.realm.as_str()) {
+    return Some("a calendar's realm is mine or organization");
+  }
+  calendar.calendar_id.trim().is_empty().then_some("a calendar names its calendarId")
 }
 
 async fn get_category(State(app): Shared, Path(name): Path<String>) -> Response {
@@ -211,11 +229,22 @@ async fn patch_category(State(app): Shared, Path(name): Path<String>, bytes: Byt
   if [change.cadence_minutes, change.gather_minutes].into_iter().flatten().any(|n| n < 1) {
     return bad("a category's numbers are 1 or more");
   }
-  if change.gather_minutes.is_some()
-    && let Ok(category) = app.store.category(&name)
-    && category.shape != CategoryShape::Brief
+  if let Ok(category) = app.store.category(&name) {
+    if change.gather_minutes.is_some() && !category.shape.gathers() {
+      return bad("only a brief or a topic category gathers");
+    }
+    if category.shape != CategoryShape::Topic && (change.instruction.is_some() || change.calendar.is_some())
+    {
+      return bad("only a topic category takes an instruction or a calendar");
+    }
+  }
+  if change.instruction.as_deref().is_some_and(|instruction| instruction.trim().is_empty()) {
+    return bad("a topic's instruction is never emptied");
+  }
+  if let Some(why) =
+    change.calendar.as_ref().and_then(|calendar| calendar.as_ref()).and_then(calendar_fault)
   {
-    return bad("only a brief category gathers");
+    return bad(why);
   }
   let changed = app.store.change_category(&name, &change);
   app.places.wake();

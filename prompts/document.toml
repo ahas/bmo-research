@@ -58,6 +58,39 @@ unit = "단위"
 as_of = "기준일"
 source = "출처"
 
+# The column words of a topic's events table, and what its question says of the table and of the items its
+# sources turned up (docs/design.md, "Categories"). In `items`, {items} is a line an item, its name and its
+# address.
+[[events]]
+language = "en"
+title = "Title"
+start = "Start"
+end = "End"
+place = "Place"
+source = "Source"
+
+[[events]]
+language = "ko"
+title = "제목"
+start = "시작"
+end = "종료"
+place = "장소"
+source = "출처"
+
+[topic]
+items = """
+These items came in from the topic's sources since its last report. Read each one yourself and take it into the report.
+
+{items}
+"""
+events = """
+Close the document with a section `Events` holding one table of every dated thing the report found: an event, a deadline, a release date. The table's header row is exactly these five columns.
+
+| Title | Start | End | Place | Source |
+
+Write Start and End as `YYYY-MM-DD`, or as `YYYY-MM-DD HH:MM` where the page states the time, in the local time of the place it happens. Leave End empty where it ends the day it starts. In the Source column, write the address of the page the date was read on, as a link. Leave out anything whose date the page does not state; where nothing dated was found, write the section with the header row alone.
+"""
+
 # A reference dossier's headings, table columns and the reasons a candidate is left out, in the language of
 # the person who asked for the draw (docs/runner.md, "The references dossier"). The title takes `{name}`,
 # the subject's, and the past-limit line `{count}`.
@@ -167,6 +200,7 @@ brief = [
   "오늘의 항목",
   "수치표",
 ]
+topic = []
 
 # The headings of the opening section a deep dive's result holds by its item's shape, saying what the subject
 # is and what it is for (the research rulebook's 「The opening」; docs/runner.md, "The deep dive's page"): the
@@ -178,3 +212,4 @@ manual = ["What it is and what it is for", "무엇이고 어디에 쓰나"]
 investigation = ["What it is and what it is for", "무엇이고 어디에 쓰나"]
 advisory = []
 brief = []
+topic = []

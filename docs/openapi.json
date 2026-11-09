@@ -193,6 +193,23 @@
         ],
         "type": "string"
       },
+      "CalendarTarget": {
+        "description": "The calendar a topic's dated findings are written to.",
+        "properties": {
+          "calendarId": {
+            "type": "string"
+          },
+          "realm": {
+            "description": "`mine` or `organization`",
+            "type": "string"
+          }
+        },
+        "required": [
+          "realm",
+          "calendarId"
+        ],
+        "type": "object"
+      },
       "Category": {
         "description": "A category (`docs/design.md`, 「Categories」).",
         "properties": {
@@ -200,15 +217,33 @@
             "format": "int64",
             "type": "integer"
           },
+          "calendar": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CalendarTarget"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "the calendar a `topic` category's dated findings are written to; null where it writes none"
+          },
           "createdAt": {
             "format": "int64",
             "type": "integer"
           },
           "gatherMinutes": {
-            "description": "for a `brief` category, how often its items are gathered into one run",
+            "description": "for a `brief` or a `topic` category, how often it is gathered into one run",
             "format": "int64",
             "type": [
               "integer",
+              "null"
+            ]
+          },
+          "instruction": {
+            "description": "a `topic` category's own question; null for another shape",
+            "type": [
+              "string",
               "null"
             ]
           },
@@ -253,6 +288,8 @@
           "gatherMinutes",
           "provider",
           "model",
+          "instruction",
+          "calendar",
           "state",
           "stateAt",
           "createdAt"
@@ -260,7 +297,7 @@
         "type": "object"
       },
       "CategoryChange": {
-        "description": "A change of a category; a field left out keeps what it holds, and an empty road gives the settings' back.",
+        "description": "A change of a category; a field left out keeps what it holds, an empty road gives the settings' back, and\na calendar given as null stops a topic writing to one.",
         "properties": {
           "cadenceMinutes": {
             "format": "int64",
@@ -269,10 +306,27 @@
               "null"
             ]
           },
+          "calendar": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CalendarTarget"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "left out keeps the calendar, null takes it away"
+          },
           "gatherMinutes": {
             "format": "int64",
             "type": [
               "integer",
+              "null"
+            ]
+          },
+          "instruction": {
+            "type": [
+              "string",
               "null"
             ]
           },
@@ -302,7 +356,8 @@
         "enum": [
           "manual-or-investigation",
           "advisory",
-          "brief"
+          "brief",
+          "topic"
         ],
         "type": "string"
       },
@@ -870,10 +925,26 @@
               "null"
             ]
           },
+          "calendar": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CalendarTarget"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "gatherMinutes": {
             "format": "int64",
             "type": [
               "integer",
+              "null"
+            ]
+          },
+          "instruction": {
+            "type": [
+              "string",
               "null"
             ]
           },
@@ -1835,7 +1906,8 @@
           "manual",
           "investigation",
           "advisory",
-          "brief"
+          "brief",
+          "topic"
         ],
         "type": "string"
       },

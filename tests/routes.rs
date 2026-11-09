@@ -53,6 +53,8 @@ async fn categories_are_listed_added_with_the_owner_s_room_changed_and_taken_awa
     gather_minutes: None,
     provider: Some("claude-code".into()),
     model: None,
+    instruction: None,
+    calendar: None,
   };
   let made = client.add_category(&new).await.unwrap();
   assert_eq!((made.cadence_minutes, made.provider.as_deref()), (30, Some("claude-code")));
@@ -472,4 +474,127 @@ async fn recipients_stack_runs_and_facts_answer_their_shapes() {
   assert!(client.runs(None, None, None, 10).await.unwrap().items.is_empty());
   assert!(client.run(5).await.unwrap_err().starts_with("404"));
   assert!(client.facts(None, None, 10).await.unwrap().items.is_empty());
+}
+
+// A topic is a category whose question is the owner's own (docs/design.md, 「Categories」): it names its
+// instruction, gathers on its own period and may name the calendar its dated findings are written to.
+#[tokio::test]
+async fn a_topic_is_registered_with_its_instruction_and_its_calendar_and_changed() {
+  let (_ground, base, client) = served().await;
+  let topic = NewCategory {
+    name: "ai-events".into(),
+    purpose: "AI events in the country".into(),
+    shape: CategoryShape::Topic,
+    cadence_minutes: None,
+    gather_minutes: Some(30),
+    provider: None,
+    model: None,
+    instruction: Some("Find AI conferences and meetups announced for the coming months.".into()),
+    calendar: Some(CalendarTarget {
+      realm: "mine".into(),
+      calendar_id: "work".into(),
+    }),
+  };
+  let made = client.add_category(&topic).await.unwrap();
+  assert_eq!((made.shape, made.gather_minutes), (CategoryShape::Topic, Some(30)));
+  assert_eq!(made.instruction.as_deref(), topic.instruction.as_deref());
+  assert_eq!(made.calendar, topic.calendar);
+
+  // A topic gathers daily where it names no period, and stands with no calendar where it names none.
+  let plain = client
+    .add_category(&NewCategory {
+      name: "notes".into(),
+      gather_minutes: None,
+      calendar: None,
+      ..topic.clone()
+    })
+    .await
+    .unwrap();
+  assert_eq!((plain.gather_minutes, plain.calendar), (Some(1440), None));
+
+  // What a topic may not be registered as, each refused with nothing written.
+  let refused = [
+    NewCategory {
+      name: "no-instruction".into(),
+      instruction: None,
+      ..topic.clone()
+    },
+    NewCategory {
+      name: "blank-instruction".into(),
+      instruction: Some("  ".into()),
+      ..topic.clone()
+    },
+    NewCategory {
+      name: "bad-realm".into(),
+      calendar: Some(CalendarTarget {
+        realm: "theirs".into(),
+        calendar_id: "work".into(),
+      }),
+      ..topic.clone()
+    },
+    NewCategory {
+      name: "no-calendar-id".into(),
+      calendar: Some(CalendarTarget {
+        realm: "organization".into(),
+        calendar_id: " ".into(),
+      }),
+      ..topic.clone()
+    },
+    // An instruction and a calendar are a topic's alone.
+    NewCategory {
+      name: "not-a-topic".into(),
+      shape: CategoryShape::Advisory,
+      gather_minutes: None,
+      ..topic.clone()
+    },
+  ];
+  for new in &refused {
+    assert!(
+      client.add_category(new).await.unwrap_err().starts_with("400 bad-request"),
+      "{}",
+      new.name
+    );
+    assert!(client.category(&new.name).await.is_err(), "{} was not written", new.name);
+  }
+
+  // Its instruction and its period change, its calendar is taken away by null and kept where left out.
+  let changed = client
+    .change_category(
+      "ai-events",
+      &CategoryChange {
+        instruction: Some("Find AI conferences only.".into()),
+        gather_minutes: Some(1440),
+        ..CategoryChange::default()
+      },
+    )
+    .await
+    .unwrap();
+  assert_eq!(changed.instruction.as_deref(), Some("Find AI conferences only."));
+  assert_eq!((changed.gather_minutes, changed.calendar.is_some()), (Some(1440), true));
+  let (status, body) =
+    raw(&base, reqwest::Method::PATCH, "/categories/ai-events", Some(json!({"calendar": null}))).await;
+  assert_eq!(status, StatusCode::OK);
+  assert_eq!(body["calendar"], serde_json::Value::Null);
+  assert_eq!(body["instruction"], "Find AI conferences only.");
+
+  // A topic's instruction is never emptied, and no other shape takes one.
+  let (status, _) = raw(
+    &base,
+    reqwest::Method::PATCH,
+    "/categories/ai-events",
+    Some(json!({"instruction": " "})),
+  )
+  .await;
+  assert_eq!(status, StatusCode::BAD_REQUEST);
+  let (status, _) =
+    raw(&base, reqwest::Method::PATCH, "/categories/it", Some(json!({"instruction": "x"}))).await;
+  assert_eq!(status, StatusCode::BAD_REQUEST);
+  let (status, _) = raw(
+    &base,
+    reqwest::Method::PATCH,
+    "/categories/it",
+    Some(json!({"calendar": {"realm": "mine", "calendarId": "work"}})),
+  )
+  .await;
+  assert_eq!(status, StatusCode::BAD_REQUEST);
 }

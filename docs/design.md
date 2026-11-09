@@ -145,8 +145,9 @@ sources ──scan──▶ candidates ──new?──▶ queue ──a place l
 
 Research is done by category: each source belongs to one, and the category says why the daemon reads
 it, what a deep dive of its items produces and where the report goes. A category is a registration
-(`docs/settings.md`): its name, its purpose in a line, its report shape, its cadence, its road, and its
-report rooms. Three stand at the start:
+(`docs/settings.md`): its name, its purpose in a line, its report shape, its cadence, its road, its
+report rooms and, for a topic, its own instruction and the calendar its findings are written to. The owner
+adds, changes and takes away categories freely; three stand at the start:
 
 | Category | Purpose | What a deep dive produces | What follows |
 |---|---|---|---|
@@ -157,6 +158,22 @@ report rooms. Three stand at the start:
 - **The shape is the category's, not the source's.** `it` asks the research run for a manual or an
   investigation; `security` asks for the advisory shape; `economy` gathers a day's items into one run that
   writes the brief. The question templates under `prompts/` are one per shape.
+- **A topic is a category whose question is the owner's own.** Its shape is `topic`: what to look for and how
+  to report it is the category's `instruction`, written by the owner in his own words, and no template or
+  rulebook of this repository is added for it. Like a brief it is gathered: once its `gatherMinutes` have
+  passed — thirty minutes, a day, whatever the owner sets — one run is asked the instruction, with every
+  item its sources turned up since under it where it has sources, and on the instruction alone where it has
+  none, so a topic that is only a standing search needs no source at all. Its result is filed as a document
+  and told to its recipients like any other.
+- **A topic may write what it finds to the calendar.** A topic that names a calendar asks its run to close
+  its result with a table of the dated things it found — an event's title, its start and end, its place and
+  the page it was read on — and each row is written to that calendar as an event (the calendar unit's
+  events route), the same row never twice: an event is keyed by its topic, its title and its start, so a
+  later run that finds it again changes nothing. A row whose dates do not read is left out and said in the
+  log.
+- **The four shapes are one setting set.** A category is always the same registration — what it is for,
+  where its items come from, how often, in which shape its run is asked, and what follows its result — and
+  the three that stand at the start are three fillings of it, as a topic is a fourth.
 - **The security category reads advisories and fixes, never exploits.** Its sources are vendor advisories,
   CVE feeds and distribution security lists; its deep dive judges exposure from the platform's stack
   inventory — the distributions, runtimes, libraries and programs the platform runs, kept as a registration
@@ -179,8 +196,9 @@ report rooms. Three stand at the start:
   try due, the place goes to the one whose last try was asked longest ago, one never tried first; an item's
   priority orders its own category's part of the queue and never another's. So one category's flood, or a
   string of asks in it, never starves another (`docs/api.md`, 「queue」).
-- **A category the owner adds later** needs a shape: one of the three above, or a new template under
-  `prompts/` with its rulebook under `prompts/rules/`, named in `prompts/runner.toml`.
+- **A category the owner adds later** takes one of the four shapes. One of the first three reuses that
+  shape's template and rulebook; a topic carries its own instruction and needs nothing added to this
+  repository.
 
 ## Sources
 

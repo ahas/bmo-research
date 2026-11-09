@@ -15,6 +15,7 @@ const MANUAL: &str = include_str!("../../../prompts/manual.md");
 const INVESTIGATION: &str = include_str!("../../../prompts/investigation.md");
 const ADVISORY: &str = include_str!("../../../prompts/advisory.md");
 const BRIEF: &str = include_str!("../../../prompts/brief.md");
+const TOPIC: &str = include_str!("../../../prompts/topic.md");
 const REPORT: &str = include_str!("../../../prompts/report.toml");
 const DOCUMENT: &str = include_str!("../../../prompts/document.toml");
 const TRANSLATION: &str = include_str!("../../../prompts/translation.toml");
@@ -81,6 +82,8 @@ pub struct DocumentWords {
   pub manual: Vec<ManualWords>,
   pub advisory: Vec<AdvisoryWords>,
   pub brief: Vec<BriefWords>,
+  pub events: Vec<EventWords>,
+  pub topic: TopicWords,
   pub references: Vec<ReferenceWords>,
   pub sections: Sections,
   pub opening: Sections,
@@ -142,6 +145,7 @@ pub struct Sections {
   pub investigation: Vec<String>,
   pub advisory: Vec<String>,
   pub brief: Vec<String>,
+  pub topic: Vec<String>,
 }
 
 impl Sections {
@@ -151,6 +155,7 @@ impl Sections {
       Shape::Investigation => &self.investigation,
       Shape::Advisory => &self.advisory,
       Shape::Brief => &self.brief,
+      Shape::Topic => &self.topic,
     }
   }
 }
@@ -190,6 +195,26 @@ pub struct BriefWords {
   pub unit: String,
   pub as_of: String,
   pub source: String,
+}
+
+/// A topic's events table's column words, in one language.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EventWords {
+  pub language: String,
+  pub title: String,
+  pub start: String,
+  pub end: String,
+  pub place: String,
+  pub source: String,
+}
+
+/// What a topic's question says of the items its sources turned up and of its events table.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TopicWords {
+  pub items: String,
+  pub events: String,
 }
 
 pub fn report() -> &'static ReportWords {
@@ -267,6 +292,7 @@ pub struct Titles {
   pub investigation: String,
   pub advisory: String,
   pub brief: String,
+  pub topic: String,
 }
 
 /// A deep dive's page's words: each language it may hold, in the switch's order, and the titles it falls back
@@ -296,6 +322,7 @@ impl PageWords {
       Shape::Investigation => &titles.investigation,
       Shape::Advisory => &titles.advisory,
       Shape::Brief => &titles.brief,
+      Shape::Topic => &titles.topic,
     };
     fill(template, &[("name", name)])
   }
@@ -308,13 +335,15 @@ pub fn page() -> &'static PageWords {
 }
 
 /// The question an item of this shape is asked, its values set in: `name`, `address` and `origin` for one
-/// thing, `stack` for an advisory, `items` for a brief.
+/// thing, `stack` for an advisory, `items` for a brief, and for a topic its `instruction` with what it says
+/// of its `items` and its `events`.
 pub fn question(shape: Shape, values: &[(&str, &str)]) -> String {
   let template = match shape {
     Shape::Manual => MANUAL,
     Shape::Investigation => INVESTIGATION,
     Shape::Advisory => ADVISORY,
     Shape::Brief => BRIEF,
+    Shape::Topic => TOPIC,
   };
   fill(template, values).trim().to_string()
 }

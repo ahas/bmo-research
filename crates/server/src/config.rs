@@ -32,6 +32,7 @@ pub struct Settings {
   pub receiver: Receiver,
   pub artifact: Artifact,
   pub voice: Voice,
+  pub calendar: Calendar,
   pub job: Job,
   pub stack: Stack,
   /// The data root, read from the environment as the settings are loaded; never a key of the file.
@@ -61,6 +62,7 @@ impl Default for Settings {
       receiver: Receiver::default(),
       artifact: Artifact::default(),
       voice: Voice::default(),
+      calendar: Calendar::default(),
       job: Job::default(),
       stack: Stack::default(),
       data_root: data_root(),
@@ -328,6 +330,22 @@ impl Default for Voice {
     Voice {
       settings: "voice.toml".into(),
       name: String::new(),
+    }
+  }
+}
+
+/// The calendar unit a topic's dated findings are written to: its own settings file, which names where it
+/// listens and its token.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Calendar {
+  pub settings: String,
+}
+
+impl Default for Calendar {
+  fn default() -> Self {
+    Calendar {
+      settings: "calendar.toml".into(),
     }
   }
 }

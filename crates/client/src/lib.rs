@@ -158,6 +158,7 @@ pub enum CategoryShape {
   ManualOrInvestigation,
   Advisory,
   Brief,
+  Topic,
 }
 
 impl CategoryShape {
@@ -166,14 +167,35 @@ impl CategoryShape {
       CategoryShape::ManualOrInvestigation => "manual-or-investigation",
       CategoryShape::Advisory => "advisory",
       CategoryShape::Brief => "brief",
+      CategoryShape::Topic => "topic",
     }
   }
 
   pub fn parse(word: &str) -> Option<CategoryShape> {
-    [CategoryShape::ManualOrInvestigation, CategoryShape::Advisory, CategoryShape::Brief]
-      .into_iter()
-      .find(|shape| shape.as_str() == word)
+    [
+      CategoryShape::ManualOrInvestigation,
+      CategoryShape::Advisory,
+      CategoryShape::Brief,
+      CategoryShape::Topic,
+    ]
+    .into_iter()
+    .find(|shape| shape.as_str() == word)
   }
+
+  /// Whether a category of this shape is gathered into one run on its own period, rather than run an item
+  /// at a time.
+  pub fn gathers(self) -> bool {
+    matches!(self, CategoryShape::Brief | CategoryShape::Topic)
+  }
+}
+
+/// The calendar a topic's dated findings are written to.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CalendarTarget {
+  /// `mine` or `organization`
+  pub realm: String,
+  pub calendar_id: String,
 }
 
 /// A category (`docs/design.md`, 「Categories」).
@@ -184,11 +206,15 @@ pub struct Category {
   pub purpose: String,
   pub shape: CategoryShape,
   pub cadence_minutes: i64,
-  /// for a `brief` category, how often its items are gathered into one run
+  /// for a `brief` or a `topic` category, how often it is gathered into one run
   pub gather_minutes: Option<i64>,
   /// its road; null where the settings' stands
   pub provider: Option<String>,
   pub model: Option<String>,
+  /// a `topic` category's own question; null for another shape
+  pub instruction: Option<String>,
+  /// the calendar a `topic` category's dated findings are written to; null where it writes none
+  pub calendar: Option<CalendarTarget>,
   pub state: Running,
   pub state_at: Option<i64>,
   pub created_at: i64,
@@ -209,9 +235,14 @@ pub struct NewCategory {
   pub provider: Option<String>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub model: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub instruction: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub calendar: Option<CalendarTarget>,
 }
 
-/// A change of a category; a field left out keeps what it holds, and an empty road gives the settings' back.
+/// A change of a category; a field left out keeps what it holds, an empty road gives the settings' back, and
+/// a calendar given as null stops a topic writing to one.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CategoryChange {
@@ -225,6 +256,21 @@ pub struct CategoryChange {
   pub provider: Option<String>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub model: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub instruction: Option<String>,
+  /// left out keeps the calendar, null takes it away
+  #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "named_or_null")]
+  #[schemars(with = "Option<CalendarTarget>")]
+  pub calendar: Option<Option<CalendarTarget>>,
+}
+
+// A field a change may name as null: left out is none, null is `Some(None)`.
+fn named_or_null<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+  D: serde::Deserializer<'de>,
+  T: Deserialize<'de>,
+{
+  Option::<T>::deserialize(deserializer).map(Some)
 }
 
 /// Whether a recipient is a room or an agent.
@@ -408,6 +454,7 @@ pub enum Shape {
   Investigation,
   Advisory,
   Brief,
+  Topic,
 }
 
 impl Shape {
@@ -417,11 +464,12 @@ impl Shape {
       Shape::Investigation => "investigation",
       Shape::Advisory => "advisory",
       Shape::Brief => "brief",
+      Shape::Topic => "topic",
     }
   }
 
   pub fn parse(word: &str) -> Option<Shape> {
-    [Shape::Manual, Shape::Investigation, Shape::Advisory, Shape::Brief]
+    [Shape::Manual, Shape::Investigation, Shape::Advisory, Shape::Brief, Shape::Topic]
       .into_iter()
       .find(|shape| shape.as_str() == word)
   }

@@ -231,7 +231,8 @@ pub async fn tick(app: &Arc<App>) -> Vec<JoinHandle<()>> {
 }
 
 /// The next try a place on `road` takes: in each running category on that road, its next waiting item whose
-/// retry is due, or a brief's whole gathering once it is due; among them, the category whose last try was
+/// retry is due, or a brief's or a topic's whole gathering once it is due, a topic given its standing item
+/// first so it runs on its instruction where nothing waits; among them, the category whose last try was
 /// asked longest ago, one never tried first, so the categories take turns and an item's priority orders its
 /// own category alone.
 pub fn next(app: &App, road: &Road) -> Option<(Category, Vec<Item>)> {
@@ -242,9 +243,12 @@ pub fn next(app: &App, road: &Road) -> Option<(Category, Vec<Item>)> {
       continue;
     }
     let last = app.store.last_try_at(&category.name).ok()?;
-    let items = if category.shape == CategoryShape::Brief {
+    let items = if category.shape.gathers() {
       if !gathering_due(app, &category, now)? {
         continue;
+      }
+      if category.shape == CategoryShape::Topic {
+        stand_topic(app, &category, now);
       }
       app.store.waiting(&category.name, now, -1).ok()?
     } else {
@@ -264,7 +268,34 @@ pub fn next(app: &App, road: &Road) -> Option<(Category, Vec<Item>)> {
   best.map(|(_, category, items)| (category, items))
 }
 
-/// Whether a brief's gathering is due: its `gather_minutes` passed since the last of its tries that filed its
+// The key a topic's standing items are queued under.
+fn standing_key(category: &str) -> String {
+  format!("topic:{category}:")
+}
+
+/// A topic's standing item, the one its gathered run is led by and named after (docs/design.md,
+/// 「Categories」): queued as the topic's gathering comes due where none waits, under the topic's purpose, so
+/// a topic with no source runs on its instruction alone and one with sources is still reported under its own
+/// name. One whose try failed waits on and leads the next try, so no second one joins it.
+fn stand_topic(app: &App, category: &Category, now: i64) {
+  let prefix = standing_key(&category.name);
+  let waits = app
+    .store
+    .waiting(&category.name, i64::MAX, -1)
+    .is_ok_and(|items| items.iter().any(|item| item.key.starts_with(&prefix)));
+  if waits {
+    return;
+  }
+  if let Err(why) =
+    app
+      .store
+      .ask(&category.name, &format!("{prefix}{now}"), &category.purpose, "", Shape::Topic)
+  {
+    eprintln!("bmo-research: topic {}'s standing item was not queued: {why:?}", category.name);
+  }
+}
+
+/// Whether a brief's or a topic's gathering is due: its `gather_minutes` passed since the last of its tries that filed its
 /// document was asked, or none has, so a try interrupted or failed since leaves it due; and no item of it still
 /// waiting on a retry still to come, so a failed try's items are gathered whole.
 pub fn gathering_due(app: &App, category: &Category, now: i64) -> Option<bool> {
@@ -311,6 +342,33 @@ fn question(app: &App, items: &[Item]) -> String {
         .map(|i| format!("- {} — {}", i.name, i.address.clone().unwrap_or_default()))
         .collect();
       words::question(Shape::Brief, &[("items", &lines.join("\n"))])
+    }
+    Shape::Topic => {
+      let category = app.store.category(&lead.category_name).ok();
+      let instruction = category
+        .as_ref()
+        .and_then(|category| category.instruction.clone())
+        .unwrap_or_else(|| lead.name.clone());
+      // The standing item is the topic itself; every other item is something its sources turned up.
+      let prefix = standing_key(&lead.category_name);
+      let lines: Vec<String> = items
+        .iter()
+        .filter(|i| !i.key.starts_with(&prefix))
+        .map(|i| format!("- {} — {}", i.name, i.address.clone().unwrap_or_default()))
+        .collect();
+      let topic = &words::document().topic;
+      let found = match lines.is_empty() {
+        true => String::new(),
+        false => words::fill(&topic.items, &[("items", &lines.join("\n"))]),
+      };
+      let dated = match category.as_ref().is_some_and(|category| category.calendar.is_some()) {
+        true => topic.events.clone(),
+        false => String::new(),
+      };
+      words::question(
+        Shape::Topic,
+        &[("instruction", instruction.trim()), ("items", &found), ("events", &dated)],
+      )
     }
     Shape::Advisory => {
       let inventory = crate::stack::inventory(app);
@@ -623,6 +681,7 @@ async fn carried(app: Arc<App>, run: i64, asked: Option<i64>, handed: Option<Han
         );
       }
     }
+    Shape::Topic => write_events(&app, &category, &content).await,
     Shape::Investigation => {}
   }
   // The page is opened first, so what it lacks is asked again on its retry wait where the daemon stops
@@ -650,6 +709,55 @@ async fn carried(app: Arc<App>, run: i64, asked: Option<i64>, handed: Option<Han
 }
 
 /// What an advisory's document says it touches; nothing for another shape.
+// The calendar event's id a topic's dated finding is written under: its topic and a digest of its title and
+// its start, so the same finding written by a later run is the same event. The digest is FNV-1a over the
+// bytes, the same on every machine and every build.
+fn event_id(category: &str, title: &str, start: &str) -> String {
+  let mut digest: u64 = 0xcbf2_9ce4_8422_2325;
+  for byte in title.bytes().chain(*b"\n").chain(start.bytes()) {
+    digest ^= u64::from(byte);
+    digest = digest.wrapping_mul(0x0000_0100_0000_01b3);
+  }
+  format!("topic-{category}-{digest:016x}")
+}
+
+/// A topic's dated findings written to the calendar it names (docs/design.md, 「Categories」): each row of
+/// its report's events table one event, keyed so a finding written again changes nothing. A row whose dates
+/// do not read, and a write the calendar refuses, is said in the log; neither fails the run, whose document
+/// stands whatever the calendar took.
+async fn write_events(app: &App, category: &Category, content: &str) {
+  let Some(calendar) = &category.calendar else { return };
+  let (events, unread) = reading::events(content, &words::document().events);
+  for title in unread {
+    eprintln!(
+      "bmo-research: topic {}: the dates of {title} do not read, so it was not written",
+      category.name
+    );
+  }
+  for event in events {
+    let description = [event.place.clone(), event.source.clone()]
+      .into_iter()
+      .flatten()
+      .collect::<Vec<_>>()
+      .join("\n");
+    let body = serde_json::json!({
+      "id": event_id(&category.name, &event.title, &event.start),
+      "calendarId": calendar.calendar_id,
+      "title": event.title,
+      "description": description,
+      "start": event.start,
+      "end": event.end,
+      "allDay": event.all_day,
+    });
+    if let Err(why) = app.peers.write_event(&calendar.realm, &body).await {
+      eprintln!(
+        "bmo-research: topic {}: {} was not written to the calendar: {why}",
+        category.name, event.title
+      );
+    }
+  }
+}
+
 fn exposure_of(lead: &Item, source: &Source) -> Exposure {
   match lead.shape {
     Shape::Advisory => reading::exposure(&source.drawn.body, &words::document().advisory),

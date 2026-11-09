@@ -6,7 +6,7 @@
 use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::words::{AdvisoryWords, BriefWords, ManualWords};
+use crate::words::{AdvisoryWords, BriefWords, EventWords, ManualWords};
 
 /// One heading of the document: its level, its text, and where its section starts and ends in the text.
 #[derive(Debug, Clone)]
@@ -436,6 +436,107 @@ pub fn figures(content: &str, languages: &[BriefWords]) -> Vec<Figure> {
       })
     })
     .collect()
+}
+
+/// One dated thing a topic's report found: its title, when it starts and ends as the calendar writes a moment
+/// (`YYYY-MM-DDTHH:mm:ss`, local), whether it takes whole days, its place and the page it was read on.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Dated {
+  pub title: String,
+  pub start: String,
+  pub end: String,
+  pub all_day: bool,
+  pub place: Option<String>,
+  pub source: Option<String>,
+}
+
+// A cell's moment: a day, or a day and a time of it, as the topic's question asks them written.
+fn moment(text: &str) -> Option<(chrono::NaiveDate, Option<chrono::NaiveTime>)> {
+  let text = text.trim().replace('T', " ");
+  let (day, time) = match text.split_once(' ') {
+    Some((day, time)) => (day, Some(time.trim())),
+    None => (text.as_str(), None),
+  };
+  let day = chrono::NaiveDate::parse_from_str(day, "%Y-%m-%d").ok()?;
+  let time = match time.filter(|time| !time.is_empty()) {
+    Some(time) => Some(
+      chrono::NaiveTime::parse_from_str(time, "%H:%M:%S")
+        .or_else(|_| chrono::NaiveTime::parse_from_str(time, "%H:%M"))
+        .ok()?,
+    ),
+    None => None,
+  };
+  Some((day, time))
+}
+
+/// A topic's report read for its events, by the first language whose events table the document holds: every
+/// row naming a title and a start that reads. A row whose start or end does not read as a date is left out,
+/// and answered beside the events so its run can say so. An event with no time takes whole days, to the
+/// start of the day after its last; one with a time and no end takes an hour.
+pub fn events(content: &str, languages: &[EventWords]) -> (Vec<Dated>, Vec<String>) {
+  const SHAPE: &str = "%Y-%m-%dT%H:%M:%S";
+  let all = tables(content);
+  let Some((words, table)) = languages.iter().find_map(|words| {
+    all
+      .iter()
+      .find(|t| t.column(&words.title).is_some() && t.column(&words.start).is_some())
+      .map(|table| (words, table))
+  }) else {
+    return (Vec::new(), Vec::new());
+  };
+  let (title, start, end, place, source) = (
+    table.column(&words.title),
+    table.column(&words.start),
+    table.column(&words.end),
+    table.column(&words.place),
+    table.column(&words.source),
+  );
+  let text = |row: &[Cell], column| {
+    Table::cell(row, column).map(|c| c.text.trim().to_string()).filter(|t| !t.is_empty())
+  };
+  let mut found = Vec::new();
+  let mut unread = Vec::new();
+  for row in &table.rows {
+    let Some(name) = text(row, title) else { continue };
+    let began = text(row, start).as_deref().and_then(moment);
+    let ended = match text(row, end) {
+      Some(written) => moment(&written).map(Some),
+      None => Some(None),
+    };
+    let (Some((day, time)), Some(ended)) = (began, ended) else {
+      unread.push(name);
+      continue;
+    };
+    let midnight = chrono::NaiveTime::MIN;
+    let (from, to, all_day) = match time {
+      Some(time) => {
+        let from = day.and_time(time);
+        let to = match ended {
+          Some((last, Some(at))) => last.and_time(at),
+          Some((last, None)) => last.and_time(midnight) + chrono::Duration::days(1),
+          None => from + chrono::Duration::hours(1),
+        };
+        (from, to, false)
+      }
+      None => {
+        let last = ended.map(|(last, _)| last).unwrap_or(day);
+        (day.and_time(midnight), last.and_time(midnight) + chrono::Duration::days(1), true)
+      }
+    };
+    if to <= from {
+      unread.push(name);
+      continue;
+    }
+    found.push(Dated {
+      title: name,
+      start: from.format(SHAPE).to_string(),
+      end: to.format(SHAPE).to_string(),
+      all_day,
+      place: text(row, place),
+      source: Table::cell(row, source).and_then(|c| c.link.clone()).or_else(|| text(row, source)),
+    });
+  }
+  (found, unread)
 }
 
 /// The first sentence of a text, as Unicode's sentence rules find it.

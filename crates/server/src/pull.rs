@@ -82,9 +82,13 @@ fn due(app: &App) -> Vec<(Road, i64)> {
       continue;
     }
     let items = app.store.due_count(&category.name, now).unwrap_or(0);
+    // A brief is one try once it is due and something waits; a topic is one try once it is due, whether
+    // anything waits or not, since it runs on its own instruction.
+    let due = || dive::gathering_due(app, &category, now) == Some(true);
     let tries = match category.shape {
-      CategoryShape::Brief if items > 0 && dive::gathering_due(app, &category, now) == Some(true) => 1,
-      CategoryShape::Brief => 0,
+      CategoryShape::Brief if items > 0 && due() => 1,
+      CategoryShape::Topic if due() => 1,
+      CategoryShape::Brief | CategoryShape::Topic => 0,
       _ => items,
     };
     let road = dive::road(app, &category);

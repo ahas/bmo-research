@@ -3234,3 +3234,128 @@ async fn an_investigation_with_no_earlier_report_says_none_stands_and_proceeds()
   let written = ground.app.store.research_run(1).unwrap().written.unwrap();
   assert!(written.contains(none), "the document says none stands: {written}");
 }
+
+/// A topic's report holding its events table: one day-long event with its place and page, one with a time,
+/// one over several days, one the stand-in calendar refuses and one whose date does not read.
+fn topic_document() -> String {
+  let w = &words::document().events[0];
+  format!(
+    "# AI events\n\nWhat was found.\n\n## Events\n\n| {} | {} | {} | {} | {} |\n|---|---|---|---|---|\n\
+     | Summit A | 2026-11-20 | | Hall 1 | [page](https://example.org/a) |\n\
+     | Meetup B | 2026-11-21 19:00 | | Cafe | [page](https://example.org/b) |\n\
+     | Week C | 2026-12-01 | 2026-12-03 | | [page](https://example.org/c) |\n\
+     | Day refused | 2026-12-05 | | | [page](https://example.org/d) |\n\
+     | Someday | soon | | | [page](https://example.org/e) |\n",
+    w.title, w.start, w.end, w.place, w.source
+  )
+}
+
+fn topic(store: &Store, name: &str, calendar: bool) {
+  store
+    .add_category(&bmo_research_client::NewCategory {
+      name: name.into(),
+      purpose: "AI events in the country".into(),
+      shape: bmo_research_client::CategoryShape::Topic,
+      cadence_minutes: None,
+      gather_minutes: Some(30),
+      provider: None,
+      model: None,
+      instruction: Some("Find AI conferences and meetups announced for the coming months.".into()),
+      calendar: calendar.then(|| bmo_research_client::CalendarTarget {
+        realm: "mine".into(),
+        calendar_id: "work".into(),
+      }),
+    })
+    .unwrap();
+}
+
+#[tokio::test]
+async fn a_topic_with_no_source_runs_on_its_instruction_and_writes_its_dated_findings_to_its_calendar() {
+  let ground = support::ground(|_| {}).await;
+  let store = &ground.app.store;
+  topic(store, "ai-events", true);
+  give_owner_room(&ground.app).await;
+  file(&ground, 1, 300, topic_document());
+
+  settle(&ground).await;
+
+  // Nothing waited, so the topic's own standing item led the run, asked the instruction and the events
+  // table, and nothing of a source.
+  assert_eq!(ground.run_slots().len(), 1, "one run for the topic");
+  let prompt = ground.turns_named("research-1")[0]["prompt"].as_str().unwrap().to_owned();
+  assert!(prompt.contains("Find AI conferences and meetups announced for the coming months."));
+  assert!(prompt.contains("| Title | Start | End | Place | Source |"));
+  assert!(!prompt.contains("came in from the topic's sources"));
+  let items = store.queue(Some("ai-events"), &[], None, 10).unwrap().items;
+  assert_eq!(items.len(), 1);
+  assert_eq!(
+    (items[0].name.as_str(), items[0].shape, items[0].state),
+    ("AI events in the country", Shape::Topic, ItemState::Reported)
+  );
+  assert_eq!(orders(&ground).len(), 1, "the report is told once");
+
+  // Each row whose dates read is one event of the calendar the topic names, as this unit acting for the
+  // owner: a day with no time takes the whole day, a time with no end an hour, a span its last day whole.
+  let written = ground.asked_path("calendar", "POST", "/mine/events?holderName=bmo-research");
+  let events: Vec<(&str, &str, &str, bool)> = written
+    .iter()
+    .map(|asked| {
+      (
+        asked.body["title"].as_str().unwrap(),
+        asked.body["start"].as_str().unwrap(),
+        asked.body["end"].as_str().unwrap(),
+        asked.body["allDay"].as_bool().unwrap(),
+      )
+    })
+    .collect();
+  assert_eq!(
+    events,
+    [
+      ("Summit A", "2026-11-20T00:00:00", "2026-11-21T00:00:00", true),
+      ("Meetup B", "2026-11-21T19:00:00", "2026-11-21T20:00:00", false),
+      ("Week C", "2026-12-01T00:00:00", "2026-12-04T00:00:00", true),
+      // The calendar refused this one; the run's document stands all the same.
+      ("Day refused", "2026-12-05T00:00:00", "2026-12-06T00:00:00", true),
+    ]
+  );
+  assert_eq!(written[0].body["calendarId"], "work");
+  assert_eq!(written[0].body["description"], "Hall 1\nhttps://example.org/a");
+  // An event is keyed by its topic, its title and its start, so the same finding is the same event.
+  let ids: Vec<&str> = written.iter().map(|asked| asked.body["id"].as_str().unwrap()).collect();
+  assert!(ids.iter().all(|id| id.starts_with("topic-ai-events-") && id.len() <= 64));
+  assert_eq!(ids.iter().collect::<std::collections::BTreeSet<_>>().len(), 4);
+
+  // The next gathering waits the topic's own period: nothing runs again at once.
+  settle(&ground).await;
+  assert_eq!(ground.run_slots().len(), 1);
+}
+
+#[tokio::test]
+async fn a_topic_gathers_what_its_sources_turned_up_under_its_instruction_and_writes_no_calendar_it_names_none()
+ {
+  let ground = support::ground(|_| {}).await;
+  let store = &ground.app.store;
+  topic(store, "ai-news", false);
+  give_owner_room(&ground.app).await;
+  let found = store
+    .ask("ai-news", "example.org/n1", "N1", "https://example.org/n1", Shape::Topic)
+    .unwrap();
+  file(&ground, 1, 300, topic_document());
+
+  settle(&ground).await;
+
+  let prompt = ground.turns_named("research-1")[0]["prompt"].as_str().unwrap().to_owned();
+  assert!(prompt.contains("came in from the topic's sources"));
+  assert!(prompt.contains("- N1 — https://example.org/n1"));
+  // It names no calendar, so its question asks no events table and nothing is written to one.
+  assert!(!prompt.contains("| Title | Start | End | Place | Source |"));
+  assert!(ground.asked("calendar").is_empty());
+  // The standing item led the run, and what the source turned up is reported with it.
+  let items = store.queue(Some("ai-news"), &[], None, 10).unwrap().items;
+  assert_eq!(items.len(), 2);
+  assert_eq!(store.item(found.id).unwrap().state, ItemState::Reported);
+  assert!(
+    !prompt.contains("- AI events in the country"),
+    "the standing item is the topic, never an item of it"
+  );
+}

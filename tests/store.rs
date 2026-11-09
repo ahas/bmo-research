@@ -28,12 +28,24 @@ fn candidate(name: &str, kind: ItemKind) -> Candidate {
   }
 }
 
-/// What undoes the step that takes the categories' cap away: the column back, each category holding one.
-const UNDO_CAP: &str = "alter table categories add column cap integer not null default 5;";
+/// What undoes the step that gives a category its topic: its instruction and its calendar gone.
+const UNDO_TOPIC: &str = "alter table categories drop column instruction;
+  alter table categories drop column calendar_realm;
+  alter table categories drop column calendar_id;";
+
+/// What undoes the step that takes the categories' cap away, and the step after it: the column back, each
+/// category holding one, and the topic's columns gone.
+const UNDO_CAP: &str = "alter table categories drop column instruction;
+  alter table categories drop column calendar_realm;
+  alter table categories drop column calendar_id;
+  alter table categories add column cap integer not null default 5;";
 
 /// What undoes the step that keeps a page by its document, and every step after it: its table dropped, the
-/// item's columns back and the categories' cap back.
-const UNDO_PAGES: &str = "alter table categories add column cap integer not null default 5;
+/// item's columns back, the categories' cap back and the topic's columns gone.
+const UNDO_PAGES: &str = "alter table categories drop column instruction;
+  alter table categories drop column calendar_realm;
+  alter table categories drop column calendar_id;
+  alter table categories add column cap integer not null default 5;
   drop table pages;
   alter table queue add column languages text not null default '[]';
   alter table queue add column narrations text not null default '[]';
@@ -408,6 +420,8 @@ fn a_category_with_sources_is_not_taken_away_and_stopping_one_leaves_the_others(
       gather_minutes: None,
       provider: None,
       model: None,
+      instruction: None,
+      calendar: None,
     })
     .unwrap();
   store.add_recipient("health", RecipientKind::Room, Some(3), None, "added").unwrap();
@@ -719,7 +733,7 @@ fn the_step_that_names_slots_takes_every_hold_of_a_seat_request_as_a_slot() {
        alter table pages drop column gone_at;
        {UNDO_CAP}
        pragma user_version = {};",
-      schema_version() - 3
+      schema_version() - 4
     ))
     .unwrap();
   drop(conn);
@@ -744,7 +758,7 @@ fn the_step_that_takes_the_cap_away_keeps_every_category_and_its_items() {
   // The store as it stood one step before: every category holding a cap.
   let conn = rusqlite::Connection::open(dir.join("research.db")).unwrap();
   conn
-    .execute_batch(&format!("{UNDO_CAP} pragma user_version = {};", schema_version() - 1))
+    .execute_batch(&format!("{UNDO_CAP} pragma user_version = {};", schema_version() - 2))
     .unwrap();
   drop(conn);
 
@@ -762,4 +776,53 @@ fn the_step_that_takes_the_cap_away_keeps_every_category_and_its_items() {
     .collect::<Result<_, _>>()
     .unwrap();
   assert!(!columns.contains(&"cap".to_string()), "{columns:?}");
+}
+
+#[test]
+fn the_step_that_gives_a_category_its_topic_keeps_every_category_and_takes_a_topic_afterwards() {
+  let dir = support::scratch().join("research");
+  drop(Store::open(&dir).unwrap());
+  // The store as it stood one step before: no category holding an instruction or a calendar.
+  let conn = rusqlite::Connection::open(dir.join("research.db")).unwrap();
+  conn
+    .execute_batch(&format!("{UNDO_TOPIC} pragma user_version = {};", schema_version() - 1))
+    .unwrap();
+  drop(conn);
+
+  let store = Store::open(&dir).unwrap();
+  assert_eq!(store.version().unwrap(), schema_version());
+  let before = store.categories().unwrap();
+  assert_eq!(before.len(), 3);
+  assert!(
+    before
+      .iter()
+      .all(|category| category.instruction.is_none() && category.calendar.is_none())
+  );
+
+  let topic = store
+    .add_category(&NewCategory {
+      name: "ai-events".into(),
+      purpose: "AI events".into(),
+      shape: CategoryShape::Topic,
+      cadence_minutes: None,
+      gather_minutes: None,
+      provider: None,
+      model: None,
+      instruction: Some("Find AI events.".into()),
+      calendar: Some(bmo_research_client::CalendarTarget {
+        realm: "organization".into(),
+        calendar_id: "shared".into(),
+      }),
+    })
+    .unwrap();
+  assert_eq!(
+    (topic.gather_minutes, topic.instruction.as_deref()),
+    (Some(1440), Some("Find AI events."))
+  );
+  assert_eq!(
+    topic.calendar.map(|calendar| (calendar.realm, calendar.calendar_id)),
+    Some(("organization".into(), "shared".into()))
+  );
+  // A topic's items take its shape.
+  assert_eq!(research_server::store::item_shape(CategoryShape::Topic, None), Shape::Topic);
 }

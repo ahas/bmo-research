@@ -92,26 +92,34 @@ the one to read.
 | GET | `/categories` | The categories by name. |
 | POST | `/categories` | Register a category; 201 with the category, its first recipient the owner's private room. |
 | GET | `/categories/{categoryName}` | One category. |
-| PATCH | `/categories/{categoryName}` | Change `purpose`, `cadenceMinutes`, `gatherMinutes`, `provider` or `model`. |
+| PATCH | `/categories/{categoryName}` | Change `purpose`, `cadenceMinutes`, `gatherMinutes`, `provider`, `model`, `instruction` or `calendar`. |
 | DELETE | `/categories/{categoryName}` | Take a category away with its recipients; 204. |
 
 - **A category** (`docs/design.md`, 「Categories」) is `name`, `purpose` (a line), `shape`,
   `cadenceMinutes` (how often its sources are read where a source names no cadence of its own),
-  `gatherMinutes` (for a `brief` category, how often its items are gathered into one run; null for the
-  others), `provider` and `model` (its road, null where the settings' `road` stands), `state`
-  (`running` or `stopped`), `stateAt` and `createdAt`.
+  `gatherMinutes` (for a `brief` or a `topic` category, how often it is gathered into one run; null for the
+  others), `provider` and `model` (its road, null where the settings' `road` stands), `instruction` (a
+  `topic` category's own question, null for another shape), `calendar` (the calendar a `topic` category's
+  dated findings are written to, `realm` — `mine` or `organization` — and `calendarId`; null where it
+  writes none), `state` (`running` or `stopped`), `stateAt` and `createdAt`.
 - **Its shape** says what a run of its items is asked for (「The questions」): `manual-or-investigation`,
   each item as a manual or an investigation by its kind; `advisory`, each item as a security advisory
   judged against the stack (「stack」); `brief`, every waiting item of the category gathered into one brief
-  once `gatherMinutes` have passed since the last.
+  once `gatherMinutes` have passed since the last; `topic`, one run asked the category's own `instruction`
+  once `gatherMinutes` have passed since the last, with every waiting item of the category under it, and on
+  the instruction alone where none waits (`docs/design.md`, 「Categories」).
 - **Three stand from the store's first start:** `it` (`manual-or-investigation`), `security`
   (`advisory`) and `economy` (`brief`, gathered every 1440 minutes), each read every 60
   minutes, on the settings' road, with no source. A category taken away is not brought back.
 - **A new category** names `name` (a lower-case letter, then lower-case letters, digits and `-`, at most 32),
   `purpose` and `shape`, and may name `cadenceMinutes` (60), `gatherMinutes`
-  (1440 for a `brief` category, refused for another), `provider` and `model`. A name taken is 409
-  `conflict`; a shape outside the three, or a number below 1, is 400 `bad-request`.
-- **A change** leaves out what it keeps; an empty `provider` or `model` gives the settings' road back.
+  (1440 for a `brief` or a `topic` category, refused for another), `provider` and `model`. A `topic`
+  category names its `instruction` and may name its `calendar`; either named for another shape, a `topic`
+  with no instruction, or a `calendar` whose realm is neither `mine` nor `organization` or whose
+  `calendarId` is empty, is 400 `bad-request`. A name taken is 409
+  `conflict`; a shape outside the four, or a number below 1, is 400 `bad-request`.
+- **A change** leaves out what it keeps; an empty `provider` or `model` gives the settings' road back, and
+  a `calendar` given as null stops a topic writing to one. A topic's instruction is never emptied.
 - **A category a source or an item waiting or running still names** is not taken away: 409 `conflict`.
 
 ### sources
@@ -910,7 +918,10 @@ of these units, and reads each one's address and token from that unit's own file
   search line's role's cap from, the count of its agents that are switched on; `GET /repositories/{repositoryName}`, the
   checkout a notice to an agent runs at. No call of the slot and session routes carries a clock of this
   unit's, a turn's send among them: each is waited on until agency answers, however long a card it waits on
-  takes and however long the turn writes. `POST /translation-runs` with `purpose`, `language`, `text`, `note`
+  takes and however long the turn writes. The calendar unit, for a topic that names a calendar
+  (`docs/design.md`, 「Categories」): `POST /{realm}/events?holderName=bmo-research` with `id`, `calendarId`,
+  `title`, `description`, `start`, `end` and `allDay`, one call an event, the `id` a digest of the topic, the
+  title and the start, so the same event written again is answered as it stands. `POST /translation-runs` with `purpose`, `language`, `text`, `note`
   and `terms` (each a `source` alone, kept as written), one part of a page's Korean side or its narration;
   answered 200 with `text`, 413 `too-large` or 503 `no-login-open`. A translation's call carries no clock of
   this unit's either: it is waited on until agency answers, however long the card the translations share takes

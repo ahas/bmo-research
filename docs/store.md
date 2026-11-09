@@ -13,9 +13,11 @@ milliseconds; lists are JSON arrays.
 |---|---|
 | `name` | The category's name; the primary key |
 | `purpose` | Its purpose, a line |
-| `shape` | `manual-or-investigation`, `advisory` or `brief` |
+| `shape` | `manual-or-investigation`, `advisory`, `brief` or `topic` |
 | `cadence_minutes` | How often its sources are read where a source names no cadence |
-| `gather_minutes` | How often a brief category's items are gathered, or null |
+| `gather_minutes` | How often a brief or a topic category is gathered, or null |
+| `instruction` | A topic category's own question, or null |
+| `calendar_realm`, `calendar_id` | The calendar a topic's dated findings are written to, or null |
 | `provider`, `model` | Its road, or null for the settings' |
 | `state`, `state_at` | `running` or `stopped`, and when it was last changed, or null |
 | `created_at` | When it was registered |
