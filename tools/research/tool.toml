@@ -63,7 +63,7 @@ order = 4
 namespace = "research"
 name = "categories"
 title = "Research categories"
-description = "List the research categories, or, on the owner's word, add, change or remove one."
+description = "List the research categories, or, on the owner's word, add, change or remove one. A category of the shape topic is gathered every gatherMinutes under its own instruction, and may name the calendar its dated findings are written to."
 input = "categories.json"
 capabilities = ["research.ask"]
 

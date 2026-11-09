@@ -42,6 +42,42 @@ fn the_manifest_names_exactly_the_executable_s_entries_with_their_schemas() {
   }
 }
 
+#[test]
+fn the_categories_entry_declares_every_field_a_category_is_added_with() {
+  let folder = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tools/research");
+  let schema: Value =
+    serde_json::from_str(&std::fs::read_to_string(folder.join("categories.json")).unwrap()).unwrap();
+
+  // The entry takes no argument it does not declare, so a field the executable reads and the declaration
+  // leaves out could never be handed.
+  assert_eq!(schema["additionalProperties"], false);
+
+  for field in [
+    "action",
+    "name",
+    "shape",
+    "purpose",
+    "provider",
+    "model",
+    "cadenceMinutes",
+    "gatherMinutes",
+    "instruction",
+    "calendar",
+  ] {
+    assert!(schema["properties"].get(field).is_some(), "{field}");
+  }
+
+  let shapes: Vec<&str> = schema["properties"]["shape"]["enum"]
+    .as_array()
+    .unwrap()
+    .iter()
+    .map(|one| one.as_str().unwrap())
+    .collect();
+
+  assert_eq!(shapes, ["manual-or-investigation", "advisory", "brief", "topic"]);
+  assert_eq!(schema["properties"]["calendar"]["required"], json!(["realm", "calendarId"]));
+}
+
 /// A served daemon, its settings and token written under a data root the way the deployment writes them.
 async fn daemon() -> (support::Ground, PathBuf) {
   let ground = support::ground(|_| {}).await;

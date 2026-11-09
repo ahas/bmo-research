@@ -14,9 +14,34 @@
       "minimum": 1,
       "type": "integer"
     },
+    "calendar": {
+      "description": "The calendar a topic's dated findings are written to; null takes it away on a change.",
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "realm": {
+          "type": "string"
+        },
+        "calendarId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "realm",
+        "calendarId"
+      ]
+    },
     "gatherMinutes": {
       "minimum": 1,
-      "type": "integer"
+      "type": "integer",
+      "description": "How often a topic is gathered, or a category's sources are read."
+    },
+    "instruction": {
+      "description": "A topic's own instruction: what to gather and how to write it up.",
+      "type": "string"
     },
     "model": {
       "description": "Empty gives the settings' road back.",
@@ -36,7 +61,8 @@
       "enum": [
         "manual-or-investigation",
         "advisory",
-        "brief"
+        "brief",
+        "topic"
       ],
       "type": "string"
     }
