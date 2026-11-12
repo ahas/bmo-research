@@ -14,16 +14,27 @@ use crate::engine;
 use crate::routes;
 use crate::runner;
 
-/// Whether a stop was asked.
+/// Whether a stop was asked, and how many tells are in hand, which the stop waits for since each is told once.
 pub struct Stop {
   asked: watch::Sender<bool>,
+  telling: watch::Sender<usize>,
 }
 
 impl Default for Stop {
   fn default() -> Self {
     Stop {
       asked: watch::Sender::new(false),
+      telling: watch::Sender::new(0),
     }
+  }
+}
+
+/// One tell in hand, counted until it is dropped.
+pub struct Telling<'a>(&'a Stop);
+
+impl Drop for Telling<'_> {
+  fn drop(&mut self) {
+    self.0.telling.send_modify(|count| *count -= 1);
   }
 }
 
@@ -42,6 +53,18 @@ impl Stop {
   pub async fn wait(&self) {
     let mut asked = self.asked.subscribe();
     let _ = asked.wait_for(|asked| *asked).await;
+  }
+
+  /// A tell to a room taken in hand: the stop does not end the process while it is held.
+  pub fn tell(&self) -> Telling<'_> {
+    self.telling.send_modify(|count| *count += 1);
+    Telling(self)
+  }
+
+  /// Ends once no tell is in hand.
+  async fn told(&self) {
+    let mut telling = self.telling.subscribe();
+    let _ = telling.wait_for(|count| *count == 0).await;
   }
 }
 
@@ -89,7 +112,8 @@ impl Signals {
 }
 
 /// The routes answered on `listener` until the stop is asked; then no connection is accepted, the calls being
-/// answered and the runs under way are given `stop_seconds` to end, and what has not ended is handed back.
+/// answered and the runs under way are given `stop_seconds` to end, what has not ended is handed back, and
+/// every tell to a room still in hand is waited on to its answer.
 pub async fn serve(app: Arc<App>, listener: TcpListener) -> Result<(), String> {
   let asked = {
     let app = app.clone();
@@ -123,6 +147,7 @@ pub async fn serve(app: Arc<App>, listener: TcpListener) -> Result<(), String> {
     eprintln!("bmo-research: what was in flight did not end within {}s of the stop", bound.as_secs());
   }
   hand_back(&app).await;
+  app.stop.told().await;
   Ok(())
 }
 

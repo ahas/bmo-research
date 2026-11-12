@@ -1947,6 +1947,7 @@ pub async fn tell_by_run(
 
 /// One notice to every recipient of the category, each kept as a report row.
 async fn notify(app: &App, category: &Category, lead: &Item, notice: &str, kind: &str) {
+  let _telling = app.stop.tell();
   let recipients = app.store.recipients(&category.name).unwrap_or_default();
   let summary = format!("research {kind}: {}", lead.name);
   for recipient in recipients {

@@ -7,6 +7,7 @@
 //! sound at its head before its room is told.
 
 use crate::support;
+use crate::support::running;
 
 use std::time::Duration;
 
@@ -14,7 +15,7 @@ use bmo_research_client::*;
 use reqwest::StatusCode;
 use research_server::document::draw;
 use research_server::runner::{finish_told, written};
-use research_server::store::{NewResearchRun, now_ms};
+use research_server::store::now_ms;
 use research_server::words;
 use serde_json::{Value, json};
 
@@ -473,29 +474,6 @@ async fn a_turn_sent_into_a_session_still_in_a_turn_waits_for_its_end_and_is_sen
   );
   let log = ground.app.store.research_log(1).unwrap();
   assert!(log.iter().all(|line| !line.text.contains("session-busy")), "no turn failed busy");
-}
-
-/// A running run allowed `branches`.
-fn running(ground: &support::Ground, branches: i64) -> i64 {
-  let store = &ground.app.store;
-  let run = store
-    .open_research_run(&NewResearchRun {
-      key: "search:thorough",
-      line: "search",
-      query: "Q",
-      asker: None,
-      options: None,
-      room_id: Some(5),
-      provider: "registered",
-      model: "flash-next",
-      branches_allowed: branches,
-      tells: true,
-    })
-    .unwrap();
-  let record = json!({"run": run, "source": "search", "role": "voyager", "branches": branches, "pages": 8, "branchPages": 4, "branchesAt": "http://x", "branchesToken": "t"});
-  store.keep_research_road(run, "registered", "flash-next", &record).unwrap();
-  store.research_running(run).unwrap();
-  run
 }
 
 #[tokio::test]

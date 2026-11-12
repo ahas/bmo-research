@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 pub mod branches;
 pub mod config;
+pub mod daemon;
 pub mod dive;
 pub mod document;
 pub mod engine;

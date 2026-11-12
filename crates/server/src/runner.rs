@@ -1941,6 +1941,7 @@ fn cut_error(why: &str, loss: &str) -> String {
 }
 
 async fn tell(app: &App, run: i64, told: &Value) {
+  let _telling = app.stop.tell();
   match app.peers.instruct_end(told).await {
     Ok(()) => note(app, run, "told", "The room was told."),
     Err(why) => note(app, run, "told", &format!("The room was not told: {why}")),

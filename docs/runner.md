@@ -631,7 +631,9 @@ daemon finishes, held first to the shape the deep dive asked for.
   store holds is given back. A run is closed before what it held is given back, so its own work, which goes
   on until the process ends, finds it closed and tells no room a second time. A session agency did not end
   with its owner's release, and a notice to an agent under way, stay held in the store, and the next start
-  ends them once their turns are over. The process then ends, and a call still open ends with it.
+  ends them once their turns are over. A tell to a room already sent, the hand-back's own or one a run or a
+  deep dive's notice sent as it ended, is waited on to its answer, since a room is told once. The process
+  then ends, and a call still open ends with it.
 - **What the store keeps is taken up by the next start, not waited for:** a try whose run was cut is asked
   again uncounted (`docs/design.md`, 「Nothing is given up」), and a page's missing part is asked again on
   its retry wait.

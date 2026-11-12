@@ -106,6 +106,10 @@ pub struct World {
   pub held_runs: BTreeSet<i64>,
   /// How long a branch's turn takes, in milliseconds.
   pub branch_wait_ms: u64,
+  /// While set, every branch's turn waits.
+  pub branch_holding: bool,
+  /// While set, the receiver holds every instruction it is sent before it answers.
+  pub receiver_holding: bool,
   /// How many ends of a session are answered busy before one is answered.
   pub busy_ends: u32,
   /// How many sends of a turn are answered busy, the session in a turn an earlier send lost, before one is
@@ -694,6 +698,9 @@ async fn research_turn(w: &Shared, name: &str) -> Response {
   };
   let branch = name.contains("-branch-");
   if branch {
+    while w.lock().unwrap().branch_holding {
+      tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
     let wait = w.lock().unwrap().branch_wait_ms;
     tokio::time::sleep(std::time::Duration::from_millis(wait)).await;
     return axum::Json(json!({"outcome": "answered", "answer": format!("notes of {name}")}))
@@ -1023,6 +1030,9 @@ async fn receiver_owner(State(w): State<Shared>, method: Method, uri: Uri, body:
 
 async fn receiver_instruction(State(w): State<Shared>, method: Method, uri: Uri, body: Bytes) -> Response {
   keep(&w, "receiver", &method, &uri, &body);
+  while w.lock().unwrap().receiver_holding {
+    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+  }
   let n = w.lock().unwrap().asked.len() as i64;
   (StatusCode::CREATED, axum::Json(json!({"id": n}))).into_response()
 }
@@ -1533,6 +1543,29 @@ impl Ground {
       .map(|a| a.body["text"].as_str().unwrap_or_default().to_string())
       .collect()
   }
+}
+
+/// A running run allowed `branches`.
+pub fn running(ground: &Ground, branches: i64) -> i64 {
+  let store = &ground.app.store;
+  let run = store
+    .open_research_run(&research_server::store::NewResearchRun {
+      key: "search:thorough",
+      line: "search",
+      query: "Q",
+      asker: None,
+      options: None,
+      room_id: Some(5),
+      provider: "registered",
+      model: "flash-next",
+      branches_allowed: branches,
+      tells: true,
+    })
+    .unwrap();
+  let record = json!({"run": run, "source": "search", "role": "voyager", "branches": branches, "pages": 8, "branchPages": 4, "branchesAt": "http://x", "branchesToken": "t"});
+  store.keep_research_road(run, "registered", "flash-next", &record).unwrap();
+  store.research_running(run).unwrap();
+  run
 }
 
 /// The stand-ins served, their addresses and tokens written into the data root's `env/` files the way each
