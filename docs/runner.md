@@ -160,8 +160,8 @@ run is this unit's.
   waited for however long the role's line and the arbiter take.
 - **A turn whose agent never ends is stopped, never timed out:** the owner interrupts it through agency, by
   the run name it goes out under (「One run, step by step」), and the turn answers with what it wrote by then,
-  the run going on from there as from any turn that answered; the daemon's restart cuts the whole run
-  (「A restart」).
+  the run going on from there as from any turn that answered; the daemon's stop or restart cuts the whole
+  run (「A stop」, 「A restart」).
 
 ## The slots' children
 
@@ -608,14 +608,33 @@ daemon finishes, held first to the shape the deep dive asked for.
   the run's slot stood, agency refusing a call for what it asked (another 4xx), a result short of its shape,
   or a filing that did not go through. A deep dive's try reads the outcome: a cut run's try is not counted,
   a failed one's is (`docs/api.md`, 「The deep dive」).
-- **A cut run asked for a room tells it as a cut run** (「The room」), and the restart's cut is the same
-  outcome (「A restart」).
+- **A cut run asked for a room tells it as a cut run** (「The room」), and the cut of a stop or a restart
+  is the same outcome (「A stop」, 「A restart」).
 
 ## Ending a session
 
 - **A session is ended once its turn has answered.** Agency answers the end 409 while a turn of the session
   runs — one whose send was lost on the way — and does not interrupt it. An end answered 409 is asked again
   every two seconds until the turn is over, however long that takes.
+
+## A stop
+
+- **A stop drains the daemon, whichever signal asks it:** SIGTERM, which a deployment's stop sends, and an
+  interrupt alike. The routes accept no connection from then on, the loop starts no scan, pass or pull again,
+  no place is asked, a place waiting gives itself back, and a place let in takes no try and is given back.
+- **What is in flight is given `stop_seconds` to end** (`docs/settings.md`): a call the routes are
+  answering is answered, a branch's ask among them, and a run under way goes on towards its close.
+- **What has not ended by then is handed back before the process ends,** as a start would hand it back
+  (「A restart」): each open run is closed `cut`, its error saying the unit stopped while the run was under
+  way, and its room told what it had written; then everything each open run and each closed run's review
+  held of agency is given back by its owner, every place by the places' owner, and every arbiter demand the
+  store holds is given back. A run is closed before what it held is given back, so its own work, which goes
+  on until the process ends, finds it closed and tells no room a second time. A session agency did not end
+  with its owner's release, and a notice to an agent under way, stay held in the store, and the next start
+  ends them once their turns are over. The process then ends, and a call still open ends with it.
+- **What the store keeps is taken up by the next start, not waited for:** a try whose run was cut is asked
+  again uncounted (`docs/design.md`, 「Nothing is given up」), and a page's missing part is asked again on
+  its retry wait.
 
 ## A restart
 

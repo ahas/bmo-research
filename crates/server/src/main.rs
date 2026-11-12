@@ -203,15 +203,17 @@ async fn serve() -> Result<(), String> {
   if given > 0 {
     eprintln!("bmo-research: {given} arbiter demands left held were given back");
   }
+  let mut signals = research_server::stop::Signals::take()?;
   let listener = tokio::net::TcpListener::bind(&listen).await.map_err(|e| format!("{listen}: {e}"))?;
   eprintln!("bmo-research: serving on http://{listen}");
   tokio::spawn(research_server::dive::daemon(app.clone()));
-  axum::serve(listener, research_server::routes::router(app))
-    .with_graceful_shutdown(async {
-      let _ = tokio::signal::ctrl_c().await;
-    })
-    .await
-    .map_err(|e| e.to_string())
+  let stopping = app.clone();
+  tokio::spawn(async move {
+    let signal = signals.next().await;
+    eprintln!("bmo-research: {signal} asked a stop; draining");
+    stopping.stop.ask();
+  });
+  research_server::stop::serve(app, listener).await
 }
 
 fn migrate() -> Result<(), String> {

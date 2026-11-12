@@ -17,6 +17,7 @@ the daemon does not know is refused, naming it. A path may open with `~/`, the h
 | `retry_minutes` | 5 | How long a failed try, or what a page still lacks, waits before it is tried again; what a page lacks is asked on every such wait until it is had, and an interrupted try waits for none |
 | `restore_wait_minutes` | 20 | How long a run's demand for its engine waits before the owner's private room is told, once, that the engine has not come back; the demand goes on waiting |
 | `poll_seconds` | 30 | How long the daemon waits between two readings of a run under way |
+| `stop_seconds` | 20 | How long a stop waits for the calls being answered and the runs under way to end before it hands back what is left (`docs/runner.md`, 「A stop」); a bound on the stop alone, never on a run while the daemon runs |
 | `user_agent` | `bmo-research` | The `User-Agent` the daemon reads the sources with |
 
 What differs by category — its shape, its cadence, its road and its recipients — is no setting but

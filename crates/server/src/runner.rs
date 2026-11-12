@@ -2063,40 +2063,16 @@ async fn release_owner(peers: &Peers, owner: &str) -> Vec<String> {
 }
 
 /// A daemon's start (`docs/runner.md`, 「A restart」): every run its store holds open closed as cut, what it
-/// held of agency given back by its owner, and its room told. Answers how many were cut.
+/// held of agency given back by its owner, and its room told; each session agency did not end with the release
+/// ended once its turn is over, and each notice to an agent left under way given back the same way. Answers
+/// how many were cut.
 pub async fn sweep(app: &Arc<App>) -> usize {
-  let open = match app.store.open_research_runs() {
-    Ok(open) => open,
-    Err(why) => {
-      eprintln!("bmo-research: the open research runs could not be read: {why}");
-      return 0;
-    }
-  };
-  // Each run held open, and each closed run whose review held something at the restart, is given back by its
-  // owner: its slots and the sessions agency bound them to. A session agency did not end — the rounds' beside
-  // the first, or one still in a turn — is ended once its turn is over; the review is asked again on its
-  // page's retry wait.
-  let mut owned: BTreeMap<i64, Vec<(String, String)>> = BTreeMap::new();
-  for (run, kind, value) in app.store.closed_holds().unwrap_or_default() {
-    owned.entry(run).or_default().push((kind, value));
-  }
-  for row in &open {
-    owned.entry(row.id).or_default().extend(app.store.holds(row.id).unwrap_or_default());
-  }
-  // Every place the daemon had asked, waiting or let in, is given back by the places' owner
-  // (`docs/design.md`, 「A node pulls」): a run that held one is closed below.
-  let places = release_owner(&app.peers, crate::pull::OWNER).await;
-  for (run, held) in owned {
-    let mut ended = release_owner(&app.peers, &format!("research:{run}")).await;
-    ended.extend(places.iter().cloned());
-    for (kind, value) in held {
-      if kind == SESSION && !ended.contains(&value) {
-        let app = app.clone();
-        tokio::spawn(async move { end_session(&app, run, &value).await });
-      } else {
-        let _ = app.store.let_go(run, &kind, &value);
-      }
-    }
+  let (cut, left) = give_back_runs(app, "the research unit restarted while the run was under way").await;
+  // A session agency did not end — the rounds' beside the first, or one still in a turn — is ended once its
+  // turn is over; the review is asked again on its page's retry wait.
+  for (run, session) in left {
+    let app = app.clone();
+    tokio::spawn(async move { end_session(&app, run, &session).await });
   }
   // A notice to an agent under way holds a slot and a session under its item: the session is ended once its
   // turn is over, and only then is everything its owner holds given back, so the checkout is not let go under
@@ -2118,15 +2094,59 @@ pub async fn sweep(app: &Arc<App>) -> usize {
       }
     });
   }
+  cut
+}
+
+/// A daemon's stop once its drain has ended (`docs/runner.md`, 「A stop」): every run its store still holds
+/// open closed as cut and its room told, then what it held of agency given back by its owner. A session agency
+/// did not end with the release, and a notice to an agent under way, stay held for the next start, since no
+/// turn's end is waited for past the drain. Answers how many were cut.
+pub async fn hand_back(app: &Arc<App>) -> usize {
+  give_back_runs(app, "the research unit stopped while the run was under way").await.0
+}
+
+/// Every run held open closed as cut for `why`, its room told, then everything each one and each closed run's
+/// review held of agency given back by its owner, and every place by the places' owner. A run is closed
+/// before what it held is given back, so its own task, where one still goes, finds it closed and tells no
+/// room again. Answers how many were cut, and the sessions agency did not end, by run, still held.
+async fn give_back_runs(app: &Arc<App>, why: &str) -> (usize, Vec<(i64, String)>) {
+  let open = match app.store.open_research_runs() {
+    Ok(open) => open,
+    Err(why) => {
+      eprintln!("bmo-research: the open research runs could not be read: {why}");
+      return (0, Vec::new());
+    }
+  };
+  // What each run held is read before any is closed, so a run closed here is counted once.
+  let mut owned: BTreeMap<i64, Vec<(String, String)>> = BTreeMap::new();
+  for (run, kind, value) in app.store.closed_holds().unwrap_or_default() {
+    owned.entry(run).or_default().push((kind, value));
+  }
   for row in &open {
-    let run = row.id;
-    let why = "the research unit restarted while the run was under way";
-    if app.store.close_research_run(run, "cut", Some(why), None).unwrap_or(false) {
-      note(app, run, "ended", "The research was cut: the research unit restarted.");
+    owned.entry(row.id).or_default().extend(app.store.holds(row.id).unwrap_or_default());
+  }
+  for row in &open {
+    if app.store.close_research_run(row.id, "cut", Some(why), None).unwrap_or(false) {
+      note(app, row.id, "ended", &format!("The research was cut: {why}."));
       if row.tells {
-        tell(app, run, &cut_instruction(row)).await;
+        tell(app, row.id, &cut_instruction(row)).await;
       }
     }
   }
-  open.len()
+  // Every place the daemon had asked, waiting or let in, is given back by the places' owner
+  // (`docs/design.md`, 「A node pulls」).
+  let places = release_owner(&app.peers, crate::pull::OWNER).await;
+  let mut left = Vec::new();
+  for (run, held) in owned {
+    let mut ended = release_owner(&app.peers, &format!("research:{run}")).await;
+    ended.extend(places.iter().cloned());
+    for (kind, value) in held {
+      if kind == SESSION && !ended.contains(&value) {
+        left.push((run, value));
+      } else {
+        let _ = app.store.let_go(run, &kind, &value);
+      }
+    }
+  }
+  (open.len(), left)
 }

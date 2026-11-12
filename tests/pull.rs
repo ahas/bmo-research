@@ -1,7 +1,7 @@
 //! A node pulls (`docs/design.md`, 「A node pulls」) against a stand-in agency whose line lets in no more of a
 //! role's slots than its cap: three queued items under a cap of two run two and leave one waiting, a slot
-//! given back pulls the third, a stopped category's items are taken by no place, and no cap is answered
-//! anywhere.
+//! given back pulls the third, a stopped category's items are taken by no place, a daemon asked to stop asks
+//! no place, and no cap is answered anywhere.
 
 use crate::support;
 
@@ -64,6 +64,17 @@ fn places(ground: &Ground) -> Vec<Value> {
     .map(|a| a.body)
     .filter(|b| b["requestKey"].as_str().is_some_and(|key| key.starts_with("research:place:")))
     .collect()
+}
+
+#[tokio::test]
+async fn a_daemon_asked_to_stop_asks_no_place_and_leaves_its_items_waiting() {
+  let ground = support::ground(|_| {}).await;
+  let item = ask(&ground, "it", "a", Shape::Investigation);
+  ground.app.stop.ask();
+  assert!(tick(&ground.app).await.is_empty());
+  assert!(places(&ground).is_empty(), "no place is asked once a stop is");
+  assert_eq!(ground.app.store.item(item).unwrap().tries, 0);
+  assert_eq!(state_of(&ground, item), ItemState::Waiting);
 }
 
 #[tokio::test]

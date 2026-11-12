@@ -154,16 +154,19 @@ fn source(app: &App, run_id: i64) -> Result<Source, String> {
 
 /// The daemon's loop: the tries it left running taken up, every filed page drawn as this binary draws it, the
 /// owner's room given to every category holding no recipient, the pull woken by what changes it, then a scan
-/// and a pull every `tick_seconds`.
+/// and a pull every `tick_seconds`, until a stop is asked (`docs/runner.md`, 「A stop」).
 pub async fn daemon(app: Arc<App>) {
   take_up(&app);
   let drawing = app.clone();
   tokio::spawn(async move { redraw_filed(&drawing).await });
   give_owner_room(&app).await;
   tokio::spawn(pull::wakes(app.clone()));
-  loop {
+  while !app.stop.asked() {
     let _ = tick(&app).await;
-    tokio::time::sleep(Duration::from_secs(app.settings.tick_seconds.max(1))).await;
+    tokio::select! {
+      () = tokio::time::sleep(Duration::from_secs(app.settings.tick_seconds.max(1))) => {}
+      () = app.stop.wait() => {}
+    }
   }
 }
 
@@ -234,8 +237,11 @@ pub async fn tick(app: &Arc<App>) -> Vec<JoinHandle<()>> {
 /// retry is due, or a brief's or a topic's whole gathering once it is due, a topic given its standing item
 /// first so it runs on its instruction where nothing waits; among them, the category whose last try was
 /// asked longest ago, one never tried first, so the categories take turns and an item's priority orders its
-/// own category alone.
+/// own category alone. None once a stop is asked, so a place let in then takes no try.
 pub fn next(app: &App, road: &Road) -> Option<(Category, Vec<Item>)> {
+  if app.stop.asked() {
+    return None;
+  }
   let now = now_ms();
   let mut best: Option<(Option<i64>, Category, Vec<Item>)> = None;
   for category in app.store.categories().ok()? {

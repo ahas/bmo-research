@@ -22,6 +22,7 @@ pub mod runner;
 pub mod scan;
 pub mod sources;
 pub mod stack;
+pub mod stop;
 pub mod store;
 pub mod structure;
 pub mod tool_host;
@@ -44,6 +45,8 @@ pub struct App {
   pub pages: dive::Pages,
   /// The last failure to file a stuck item's repair.
   pub repairs: dive::Repairs,
+  /// Whether a stop was asked, which every part that starts work reads.
+  pub stop: stop::Stop,
 }
 
 impl App {
@@ -63,6 +66,7 @@ impl App {
       places: pull::Places::default(),
       pages: dive::Pages::default(),
       repairs: dive::Repairs::default(),
+      stop: stop::Stop::default(),
     })
   }
 }

@@ -15,8 +15,9 @@ Environment=BMO_DATA_DIR=%h/.local/share/bmo/data
 Environment=PATH=%h/.local/bin:%h/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 Restart=always
 RestartSec=2
-# The daemon takes no handler for SIGTERM, so a stop ends it at once and is waited for to its end, never
-# escalated to a kill after a span.
+# SIGTERM drains the daemon: what is in flight is given its settings' stop_seconds to end and the rest is
+# handed back before it exits (docs/runner.md, A stop), so a stop is waited for to its end, never escalated
+# to a kill after a span.
 TimeoutStopSec=infinity
 
 [Install]

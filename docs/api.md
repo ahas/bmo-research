@@ -433,7 +433,7 @@ the one to read.
   no document or notice standing, and no retry due.
 - **An interrupted try** is one that ended because something the run needs could not be reached or was
   taken away, not because of what it asked or wrote: the runner refusing the ask 503 (`docs/runner.md`,
-  「One run, step by step」), a run that closed `cut` (this unit's restart, or agency failing or no longer
+  「One run, step by step」), a run that closed `cut` (this unit's stop or restart, or agency failing or no longer
   holding the run's slot or session, `docs/runner.md`, 「A cut run」), or a try of a watched road whose card
   was taken or no longer stands (「The engine」). It is not counted toward `retries`, and its items go back
   as they stood — `waiting`, or `stuck` — with no retry wait (`retryAt` null), and a pull is made, so the

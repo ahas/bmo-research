@@ -21,6 +21,8 @@ pub struct Settings {
   pub retry_minutes: i64,
   pub restore_wait_minutes: i64,
   pub poll_seconds: u64,
+  /// How long a stop waits for what is in flight before it hands back the rest (`docs/runner.md`, 「A stop」).
+  pub stop_seconds: u64,
   pub user_agent: String,
   pub road: Road,
   pub translation: Translation,
@@ -51,6 +53,7 @@ impl Default for Settings {
       retry_minutes: 5,
       restore_wait_minutes: 20,
       poll_seconds: 30,
+      stop_seconds: 20,
       user_agent: "bmo-research".into(),
       road: Road::default(),
       translation: Translation::default(),

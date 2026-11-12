@@ -207,8 +207,8 @@ pub async fn give_back_try(app: &App, try_id: i64) {
   }
 }
 
-/// Every demand the store holds given back, at the daemon's start, when no run it asked is still under way.
-/// Answers how many were.
+/// Every demand the store holds given back, at the daemon's start and at its stop once every run it held open
+/// is closed, when no run it asked is still under way. Answers how many were.
 pub async fn give_back_all(app: &App) -> usize {
   let held = app.store.demands().unwrap_or_default();
   for id in &held {

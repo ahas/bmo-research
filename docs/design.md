@@ -137,8 +137,8 @@ sources ──scan──▶ candidates ──new?──▶ queue ──a place l
   keeps its cadence, which paces the reading of the sources and bounds nothing.
 - **A room's research asks its own slot** when it is asked and waits in agency's line beside the daemon's
   places (`docs/runner.md`, 「One run, step by step」); the daemon counts no room's run among its places.
-- **A restart gives every place back:** the daemon releases everything its places' owner holds of agency
-  as it starts, and every demand its store holds (「The engine a run needs」), so each item stands `waiting`
+- **A stop and a restart give every place back:** the daemon releases everything its places' owner holds
+  of agency as it stops and again as it starts, and every demand its store holds (「The engine a run needs」), so each item stands `waiting`
   or as its try left it (「Nothing is given up」).
 
 ## Categories
@@ -310,7 +310,7 @@ A source is a registration: a category, a kind, an address and, where the kind t
 
 - **Nothing is parked on a clock while what it waits for is away.** A try that ends because something it
   needs could not be reached or was taken away — agency down or restarted under the run, the run's slot or
-  session no longer held, the arbiter's card taken or the master restarted, this unit's own restart — is
+  session no longer held, the arbiter's card taken or the master restarted, this unit's own stop or restart — is
   interrupted: uncounted, its items back in the queue `waiting` as they stood, where the next place let in
   takes them up, however long that takes. The evidence is the source of the failure — a call that did not reach its unit, a status
   a unit answered, a demand's answer, the slot's finish — never the words of an error (`docs/api.md`, 「The

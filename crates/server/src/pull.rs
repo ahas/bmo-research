@@ -73,8 +73,12 @@ pub fn categories_on(app: &App, road: &Road) -> Vec<String> {
 }
 
 /// The tries due on each road the running categories go out on, in the order the categories stand: each
-/// waiting or stuck item whose retry is due, and a brief's whole gathering once it is due.
+/// waiting or stuck item whose retry is due, and a brief's whole gathering once it is due. None once a stop is
+/// asked, so no place is asked and a place waiting gives itself back.
 fn due(app: &App) -> Vec<(Road, i64)> {
+  if app.stop.asked() {
+    return Vec::new();
+  }
   let now = now_ms();
   let mut roads: Vec<(Road, i64)> = Vec::new();
   for category in app.store.categories().unwrap_or_default() {
@@ -143,10 +147,13 @@ pub async fn pull(app: &Arc<App>) -> Vec<JoinHandle<()>> {
   started
 }
 
-/// The pull, made each time it is woken, however long that takes.
+/// The pull, made each time it is woken, however long that takes, until a stop is asked.
 pub async fn wakes(app: Arc<App>) {
   loop {
-    app.places.wake.notified().await;
+    tokio::select! {
+      () = app.places.wake.notified() => {}
+      () = app.stop.wait() => return,
+    }
     drop(pull(&app).await);
   }
 }
