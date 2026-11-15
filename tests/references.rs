@@ -266,7 +266,8 @@ async fn a_references_run_is_asked_filed_as_a_dossier_and_told_to_no_room() {
         "subjectKey": "chiikawa-1a2b3c4d",
         "kind": "character",
         "language": "en",
-        "candidateLimit": 12
+        "candidateLimit": 12,
+        "requireLicence": false
       })),
       ..ResearchRunAsk::default()
     })
@@ -301,8 +302,20 @@ async fn a_references_run_is_asked_filed_as_a_dossier_and_told_to_no_room() {
   let (_, block) = reading::last_fenced(body).expect("the dossier closes with its JSON");
   let dossier: Value = serde_json::from_str(&block).unwrap();
   assert_eq!(dossier["subject"]["kind"], "character");
-  assert_eq!(dossier["candidates"].as_array().unwrap().len(), 3);
-  assert_eq!(dossier["candidates"][0]["licence"]["id"], "CC-BY-4.0");
+  let licences: Vec<(&str, &str)> = dossier["candidates"]
+    .as_array()
+    .unwrap()
+    .iter()
+    .map(|candidate| {
+      let licence = &candidate["licence"];
+      (licence["id"].as_str().unwrap(), licence["attribution"].as_str().unwrap())
+    })
+    .collect();
+  assert_eq!(
+    licences,
+    [("CC-BY-4.0", "A maker, CC BY 4.0"), ("CC-BY-NC-4.0", "Another maker"), ("", "")],
+    "an ask naming requireLicence false is run, and the filed dossier keeps every licence line as metadata"
+  );
   assert!(
     document["body"]
       .as_str()
