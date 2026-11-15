@@ -1,6 +1,6 @@
 //! The `references` research key (`docs/runner.md`, 「The references dossier」): the options it takes, the
-//! licence it accepts, the dossier its answer must be, the language of the person who asked for the draw, and
-//! a run end to end filed in the archive and told to no room.
+//! dossier its answer must be with each licence line kept as metadata that drops no candidate, the language of
+//! the person who asked for the draw, and a run end to end filed in the archive and told to no room.
 
 use crate::support;
 
@@ -49,7 +49,7 @@ const DOSSIER: &str = r#"
       "mediaType": "image/jpeg",
       "width": 800,
       "height": 800,
-      "note": "Not for this use"
+      "note": "A side view"
     },
     {
       "url": "https://upload.example.org/no-size.jpg",
@@ -74,6 +74,18 @@ const DOSSIER: &str = r#"
       "width": 1200,
       "height": 1200,
       "note": "A duplicate"
+    },
+    {
+      "url": "https://upload.example.org/chiikawa-unstated.png",
+      "pageUrl": "https://example.org/unstated",
+      "title": "Chiikawa, no licence stated",
+      "creator": "",
+      "publisher": "Example",
+      "retrievedAt": 0,
+      "mediaType": "image/png",
+      "width": 1024,
+      "height": 768,
+      "note": "A view from behind"
     }
   ],
   "sources": [{"url": "https://example.org/character", "what": "The character's appearance"}],
@@ -93,38 +105,6 @@ fn ask(language: &str) -> ReferenceAsk {
 }
 
 #[test]
-fn the_licence_this_use_accepts_is_the_one_the_design_lists() {
-  for id in [
-    "CC0-1.0",
-    "CC0",
-    "public domain",
-    "Public Domain Mark 1.0",
-    "PDM-1.0",
-    "CC-BY-4.0",
-    "CC BY 4.0",
-    "CC-BY-SA-3.0",
-    "by",
-    "by-sa",
-    "Unsplash License",
-    "owner-supplied",
-  ] {
-    assert!(references::accepted_licence(id), "{id} is accepted");
-  }
-  for id in [
-    "CC-BY-NC-4.0",
-    "CC BY-NC-SA 4.0",
-    "CC-BY-ND-4.0",
-    "by-nc",
-    "by-nd",
-    "all rights reserved",
-    "unknown",
-    "",
-  ] {
-    assert!(!references::accepted_licence(id), "{id} is not accepted");
-  }
-}
-
-#[test]
 fn the_options_name_the_subject_the_kind_the_language_the_limit_and_the_engines() {
   let ask = references::ask(&ResearchRunAsk {
     key: "references".into(),
@@ -134,7 +114,7 @@ fn the_options_name_the_subject_the_kind_the_language_the_limit_and_the_engines(
       "kind": "character",
       "language": "ko",
       "candidateLimit": 8,
-      "requireLicence": true,
+      "requireLicence": false,
       "imageEngines": ["openverse", "unsplash"]
     })),
     ..ResearchRunAsk::default()
@@ -167,7 +147,6 @@ fn the_options_name_the_subject_the_kind_the_language_the_limit_and_the_engines(
     Some(json!({"subjectKey": "chiikawa-1a2b3c4d", "kind": "character", "candidateLimit": 0})),
     Some(json!({"subjectKey": "chiikawa-1a2b3c4d", "kind": "character", "candidateLimit": 25})),
     Some(json!({"subjectKey": "chiikawa-1a2b3c4d", "kind": "character", "language": "fr"})),
-    Some(json!({"subjectKey": "chiikawa-1a2b3c4d", "kind": "character", "requireLicence": false})),
     Some(json!({"subjectKey": "chiikawa-1a2b3c4d", "kind": "character", "imageEngines": ["flickr"]})),
     Some(json!({"subjectKey": "chiikawa-1a2b3c4d", "kind": "character", "imageEngines": []})),
   ] {
@@ -185,37 +164,52 @@ fn the_options_name_the_subject_the_kind_the_language_the_limit_and_the_engines(
 }
 
 #[test]
-fn the_dossier_is_the_last_fenced_block_held_to_its_fields_and_its_licence() {
+fn the_dossier_is_the_last_fenced_block_held_to_its_fields_and_no_licence_drops_a_candidate() {
   let now = 1_700_000_000_000;
   let dossier = references::dossier(DOSSIER, &ask("en"), now).expect("the dossier reads");
   assert_eq!(
     (dossier.subject.name.as_str(), dossier.subject.kind.as_str()),
     ("Chiikawa", "character")
   );
-  assert_eq!(dossier.candidates.len(), 1, "only the licensed candidate with every field stands");
+  let urls: Vec<&str> = dossier.candidates.iter().map(|candidate| candidate.url.as_str()).collect();
+  assert_eq!(
+    urls,
+    [
+      "https://upload.example.org/chiikawa.png",
+      "https://upload.example.org/chiikawa-nc.jpg",
+      "https://upload.example.org/chiikawa-unstated.png"
+    ],
+    "a non-commercial licence and no licence line drop no candidate; a missing dimension and a repeat do"
+  );
   let candidate = &dossier.candidates[0];
-  assert_eq!(candidate.url, "https://upload.example.org/chiikawa.png");
   assert_eq!(candidate.licence.id, "CC-BY-4.0");
   assert_eq!((candidate.width, candidate.height), (1200, 1200));
   assert_eq!(candidate.retrieved_at, now, "the run's read moment where the answer names none");
-  assert!(
-    dossier.unresolved.iter().any(|line| line.contains("no licence this use accepts")),
-    "{:?}",
-    dossier.unresolved
+  let restricted = &dossier.candidates[1].licence;
+  assert_eq!(
+    (restricted.id.as_str(), restricted.attribution.as_str()),
+    ("CC-BY-NC-4.0", "Another maker"),
+    "the licence line stands as the source states it"
   );
-  assert!(
-    dossier.unresolved.iter().any(|line| line.contains("pixel dimensions")),
-    "{:?}",
-    dossier.unresolved
+  let unstated = &dossier.candidates[2].licence;
+  assert_eq!(
+    (unstated.id.as_str(), unstated.url.as_deref(), unstated.attribution.as_str()),
+    ("", None, "")
   );
+  assert_eq!(dossier.unresolved.len(), 1, "{:?}", dossier.unresolved);
+  assert!(dossier.unresolved[0].contains("pixel dimensions"), "{:?}", dossier.unresolved);
 
   let words = words::document().reference("en");
   let body = references::render(&dossier, words);
   assert!(body.contains(&format!("## {}", words.candidates)));
+  assert!(body.contains("| CC-BY-NC-4.0 (Another maker) |"), "the table reports the licence line");
+  assert!(body.contains(&format!("| {} |\n", words.none)), "an unstated licence reads as none");
   let (_, block) = reading::last_fenced(&body).expect("the body closes with its JSON");
   let parsed: Value = serde_json::from_str(&block).expect("the last block is JSON");
   assert_eq!(parsed["subject"]["name"], "Chiikawa");
-  assert_eq!(parsed["candidates"].as_array().unwrap().len(), 1);
+  assert_eq!(parsed["candidates"].as_array().unwrap().len(), 3);
+  assert_eq!(parsed["candidates"][1]["licence"]["id"], "CC-BY-NC-4.0");
+  assert_eq!(parsed["candidates"][2]["licence"]["id"], "");
   assert_eq!(parsed["candidates"][0]["pageUrl"], "https://commons.example.org/wiki/File:Chiikawa.png");
   assert_eq!(parsed["candidates"][0]["licence"]["id"], "CC-BY-4.0");
 }
@@ -235,7 +229,7 @@ fn a_korean_dossier_is_written_in_korean_and_an_answer_with_no_dossier_is_not_on
     &format!("{} is a small round white character with round ears and a tiny face.", korean()),
   );
   let dossier = references::dossier(&korean, &ask("ko"), 1).expect("the Korean dossier reads");
-  assert!(dossier.candidates.len() == 1);
+  assert_eq!(dossier.candidates.len(), 3);
 
   assert!(references::dossier("prose alone, no block", &ask("en"), 1).is_err());
 }
@@ -307,7 +301,7 @@ async fn a_references_run_is_asked_filed_as_a_dossier_and_told_to_no_room() {
   let (_, block) = reading::last_fenced(body).expect("the dossier closes with its JSON");
   let dossier: Value = serde_json::from_str(&block).unwrap();
   assert_eq!(dossier["subject"]["kind"], "character");
-  assert_eq!(dossier["candidates"].as_array().unwrap().len(), 1);
+  assert_eq!(dossier["candidates"].as_array().unwrap().len(), 3);
   assert_eq!(dossier["candidates"][0]["licence"]["id"], "CC-BY-4.0");
   assert!(
     document["body"]
@@ -385,5 +379,5 @@ async fn a_korean_dossier_whose_answer_is_english_is_asked_again_whole() {
   let (_, block) = reading::last_fenced(body).expect("the dossier closes with its JSON");
   let dossier: Value = serde_json::from_str(&block).unwrap();
   assert_eq!(dossier["subject"]["name"], "Chiikawa");
-  assert_eq!(dossier["candidates"].as_array().unwrap().len(), 1);
+  assert_eq!(dossier["candidates"].as_array().unwrap().len(), 3);
 }

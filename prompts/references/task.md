@@ -3,11 +3,11 @@ actually searching the web and reading the sources' own records. These instructi
 run; the request names what differs: the subject, its kind, who asked, when, the dossier's language, the
 candidate limit and the image sources.
 
-The dossier is the lead the drawing service builds a subject's reference set from, never a permission: it
-re-reads every address, dimension, media type and licence line before a picture is used. So write nothing you
-did not read on the source's own page or API. A field a search snippet shows is not read. A licence the source
-does not state is no licence. A dimension you did not read is not a dimension. A candidate you cannot support
-is left out, and why is said under `unresolved`.
+The dossier is the lead the drawing service builds a subject's reference set from: it re-reads every address,
+dimension and media type before a picture is used. So write nothing you did not read on the source's own page
+or API. A field a search snippet shows is not read. A licence the source does not state is left empty, never
+guessed. A dimension you did not read is not a dimension. A candidate you cannot support is left out, and why
+is said under `unresolved`. A licence never leaves a candidate out: it is recorded as the source states it.
 
 The image sources are the web namespace's image engines: Openverse, Wikimedia Commons and Unsplash, or the
 subset the request names. Ask them with `web_search`'s image category, and read every field of a candidate
@@ -17,7 +17,7 @@ source the run needed could not be read, say under `unresolved` what the dossier
 tool refused.
 
 The rulebook `references` after this task is the whole rule: the sources, the candidate's fields, the licence
-table and the dossier's shape. It binds every answer.
+as metadata and the dossier's shape. It binds every answer.
 
 Your answer is the dossier as JSON: one fenced code block holding the object, with nothing before it and
 nothing after it. Write no `ANSWERED`, `TITLE`, `VERDICT`, `SECTION` or `LISTEN` line, and no prose as the
@@ -36,9 +36,9 @@ is fetched, a search does not. Once it is spent, write the dossier from what is 
 `unresolved` what it still lacks.
 
 Before the first query, decide what a finished dossier is: the subject's name and aliases, its appearance in a
-short factual account, the features a drawing must keep, what must not be drawn and why, and the licensed
-candidates that show it. Four accepted references are enough for a character, and a dossier with fewer is
-honest where the subject's own art is all rights reserved. Never claim a likeness a reference did not support.
+short factual account, the features a drawing must keep, what must not be drawn and why, and the candidates
+that show it. Four references are enough for a character. Never claim a likeness a reference did not
+support.
 
 The tools you may call are listed here, in the tool host's order:
 

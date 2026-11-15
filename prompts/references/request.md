@@ -1,4 +1,4 @@
-Reference dossier task. Find the licensed reference pictures for drawing the subject below, and write the
+Reference dossier task. Find the reference pictures for drawing the subject below, and write the
 dossier the rulebook `references` defines.
 
 Subject: {query}

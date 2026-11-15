@@ -273,7 +273,7 @@ run is this unit's.
 ## The references dossier
 
 A `references` run builds one reference dossier for drawing one subject: what the subject looks like, the
-features a drawing must keep, what must not be drawn, and the licensed pictures a drawing may be built from.
+features a drawing must keep, what must not be drawn, and the pictures a drawing may be built from.
 It is asked by the drawing service through `POST /research-runs` and is filed in the archive for bmo-paint to
 read. No room is told and no narration is made; the run's row answers its end and its document.
 
@@ -281,9 +281,9 @@ read. No room is told and no narration is made; the run's row answers its end an
   (or the same JSON as a string): `subjectKey` (the subject's key in the brain, which the drawing service
   builds), `kind` (`character`, `person`, `place`, `object`, `style`, `work` or `other`), `language` (`ko`
   or `en`, the language of the person who asked for the draw), `candidateLimit` (1 to 24, 12 where none is
-  named), `imageEngines` (a subset of the three below, all where none is named) and `requireLicence` (only
-  `true` where it is named). An ask without its options, an unknown kind, language or engine, a limit
-  outside the bound and `requireLicence` `false` are refused 400. The options stay on the run's row.
+  named) and `imageEngines` (a subset of the three below, all where none is named); an option the key does
+  not name is not read. An ask without its options, an unknown kind, language or engine and a limit outside
+  the bound are refused 400. The options stay on the run's row.
 - **Its sources are the web namespace's image engines,** the three the design names: Openverse, Wikimedia
   Commons and Unsplash. The run asks them through the images category of the web tools, and reads each
   candidate's fields from the source's own API or page. No `sources` registration is added and the daemon's
@@ -296,18 +296,17 @@ read. No room is told and no narration is made; the run's row answers its end an
   Each candidate holds `url` (the picture's own address, never the page), `pageUrl` (the page it came from,
   null where none stands), `title`, `creator`, `publisher`, `retrievedAt`, `licence` (`id`, `url` and
   `attribution`), `mediaType`, `width`, `height` and `note`.
-- **Nothing is invented.** A candidate without an address that reads, a media type, both pixel dimensions or
-  a licence this use accepts is dropped, and the reason stands under `unresolved` in the dossier's language.
-  A candidate whose dimensions, media type or licence a source does not state is not guessed at. The run's
+- **Nothing is invented.** A candidate without an address that reads, a media type or both pixel dimensions
+  is dropped, and the reason stands under `unresolved` in the dossier's language. A candidate whose
+  dimensions, media type or licence a source does not state is not guessed at. The run's
   own moment stands as `retrievedAt` where the answer names none. Candidates are deduplicated by their direct
   address, and the list is cut at the ask's `candidateLimit`, with the count left out said under
   `unresolved`.
-- **The licence this use accepts** is the design's: public domain, `CC0-1.0`, `PDM-1.0`, `CC-BY-*`,
-  `CC-BY-SA-*`, the Unsplash licence and the owner's own picture (`owner-supplied`). A `CC-BY-NC-*`, a
-  `CC-BY-ND-*`, an unknown licence, all rights reserved and no licence line are not candidates; they may
-  inform the written description and never the list. Written permission is the drawing service's to add with
-  its filed permission record, never this run's. A dossier with no licensed picture stands with its
-  description and an empty candidate list, and says so under `unresolved`.
+- **The licence decides nothing.** No picture is left out of the candidate list, or kept from a drawing,
+  because of its licence, and the run controls nothing by it. The licence is metadata: its `id`, its `url`
+  and its `attribution` are recorded as the source states them, beside the candidate's `creator`,
+  `publisher` and `pageUrl`, and reported in the candidate table and the JSON. Where the source states no
+  licence, the candidate stands with an empty `id` and `attribution` and a null `url`.
 - **The language** is the ask's `language`, else the language the question is asked in. The JSON's keys stay
   English; the description, the features, the constraints, the notes, the sources' words and the unresolved
   lines are written in the dossier's language. Names, aliases, licence ids, addresses and figures stand as
@@ -325,8 +324,8 @@ read. No room is told and no narration is made; the run's row answers its end an
   (`references-v1`). No candidate picture is attached: bmo-paint fetches the bytes itself. A share link is
   opened where the archive gives one, and nothing of the dossier waits on it.
 
-The dossier is a lead, never a permission: bmo-paint re-reads every address and every licence line before it
-trusts a candidate.
+The dossier is a lead: bmo-paint fetches every candidate itself and checks its address, dimensions and media
+type before it uses one.
 
 ## The narration
 

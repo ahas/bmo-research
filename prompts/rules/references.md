@@ -1,9 +1,9 @@
 # References for a drawing
 
 A reference dossier says what a subject looks like, which of its features a drawing must keep, and which
-licensed pictures of it a drawing may be built from. The drawing service reads the dossier, fetches each
-candidate itself, and checks every address, dimension, media type and licence line again before it uses one.
-The dossier is a lead, never a permission.
+pictures of it a drawing may be built from. The drawing service reads the dossier, fetches each candidate
+itself, and checks every address, dimension and media type again before it uses one. The dossier is a
+lead.
 
 ## The dossier
 
@@ -37,8 +37,9 @@ The answer is one JSON object, in a single fenced code block and nothing else:
 
 Write every key the object names and no other. `kind` is the kind the request names. `retrievedAt` is when
 you read the page in epoch milliseconds; write 0 where you cannot tell. A field the source does not state is
-not invented: a candidate without a direct address, a media type, both pixel dimensions or a licence this
-use accepts is left out of `candidates`, and the reason is said under `unresolved`.
+not invented: a candidate without a direct address, a media type or both pixel dimensions is left out of
+`candidates`, and the reason is said under `unresolved`. A licence the source does not state is not guessed
+either: the candidate stays, its `id` and `attribution` empty and its `url` null.
 
 The description is a short, factual account of the subject's appearance. The features are the ones a drawing
 must keep: the silhouette, the markings, the proportions, the clothing, whatever makes the subject itself.
@@ -65,24 +66,13 @@ check.
 
 ## The licence
 
-A picture is injected into a drawing only where its licence permits this use. The rest may inform the written
-description but never the candidate list.
+A picture's licence decides nothing here. No picture is left out of the candidate list, or kept from a
+drawing, because of its licence: public domain, any Creative Commons terms, the Unsplash licence, all rights
+reserved, an unknown licence and no licence line alike. This dossier controls nothing by a licence.
 
-| Licence | In the candidate list |
-|---|---|
-| public domain, `CC0-1.0`, `PDM-1.0` | yes |
-| `CC-BY-*` | yes |
-| `CC-BY-SA-*` | yes |
-| the Unsplash licence | yes, with the photographer's attribution |
-| the owner's own picture, `owner-supplied` | yes; the drawing service adds it, never a web search |
-| written permission | no; the drawing service adds it with the filed permission |
-| `CC-BY-NC-*` | no; the use may not be non-commercial |
-| `CC-BY-ND-*` | no; generation is a derivative |
-| unknown, all rights reserved, no licence line | no |
-
-Where no licensed picture exists, the dossier still stands with its description and an empty candidate list,
-and `unresolved` says plainly that no licensed picture was found. An official character's art is usually all
-rights reserved: it may inform the description, and it is never a candidate.
+The licence is metadata. Write it as the source states it, its `id`, its `url` and its `attribution`, so the
+dossier reports it beside the picture's creator, publisher and page. An official character's art is listed
+like any other picture of the subject, with the licence line its source gives.
 
 ## The sources
 

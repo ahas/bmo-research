@@ -35,7 +35,7 @@ rounds = ["what", "sources", "facts", "coverage", "establish", "final"]
 [rounds.browse]
 rounds = ["what", "sources", "facts", "coverage", "establish", "final"]
 
-# A reference dossier is held to the licence this use accepts and to fields read from each source, and the
+# A reference dossier is held to fields read from each source, its licence lines recorded as metadata, and the
 # subject record it leads is the drawing service's to write, so the run checks coverage and writes the
 # dossier without writing the brain.
 [rounds.references]

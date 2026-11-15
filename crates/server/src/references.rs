@@ -1,7 +1,8 @@
 //! The `references` research key (`docs/runner.md`, 「The references dossier」): the options the drawing
-//! service asks it with, the candidate list it must bring back, the licence this use accepts, and the dossier
-//! it files in the archive for bmo-paint to read. The run itself is a search run, composed and sent by the
-//! runner; this module holds what is the key's own: what it takes, what it accepts, and the document it files.
+//! service asks it with, the candidate list it must bring back with each licence line as metadata, and the
+//! dossier it files in the archive for bmo-paint to read. The run itself is a search run, composed and sent
+//! by the runner; this module holds what is the key's own: what it takes, what it accepts, and the document
+//! it files.
 
 use std::collections::BTreeSet;
 
@@ -60,8 +61,6 @@ struct ReferenceOptions {
   #[serde(default)]
   candidate_limit: Option<i64>,
   #[serde(default)]
-  require_licence: Option<bool>,
-  #[serde(default)]
   image_engines: Option<Vec<String>>,
 }
 
@@ -101,13 +100,6 @@ pub fn ask(ask: &ResearchRunAsk) -> Result<ReferenceAsk, String> {
       return Err(format!("a candidate limit of {limit} does not stand: 1 to {MOST_CANDIDATES}"));
     }
   };
-  if options.require_licence == Some(false) {
-    return Err(
-      "a reference dossier lists only candidates whose licence this use accepts, so requireLicence is never \
-       false"
-        .into(),
-    );
-  }
   let image_engines = match options.image_engines {
     None => ENGINES.iter().map(|engine| (*engine).to_owned()).collect(),
     Some(engines) => {
@@ -168,8 +160,9 @@ pub struct Candidate {
   pub note: String,
 }
 
-/// The licence a candidate carries, as its source states it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+/// The licence a candidate carries, as its source states it: metadata reported with the candidate, which
+/// decides nothing. A source that states none leaves it empty.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Licence {
   /// The licence's own identifier, such as `CC-BY-4.0`, `CC0-1.0`, `PDM-1.0` or `Unsplash`.
@@ -201,8 +194,8 @@ pub struct Dossier {
 }
 
 /// The dossier a run's result holds, or why it is not one: its last fenced block read as JSON against the
-/// key's shape, its candidates held to the licence this use accepts and to the fields the drawing service
-/// needs. A candidate it cannot support is dropped, with why said under `unresolved`.
+/// key's shape, its candidates held to the fields the drawing service needs. A candidate it cannot support is
+/// dropped, with why said under `unresolved`; a licence never drops one.
 pub fn dossier(text: &str, ask: &ReferenceAsk, now: i64) -> Result<Dossier, String> {
   let (_, block) = reading::last_fenced(text).ok_or("its answer holds no fenced block")?;
   let value: Value =
@@ -280,47 +273,7 @@ pub fn dossier(text: &str, ask: &ReferenceAsk, now: i64) -> Result<Dossier, Stri
   })
 }
 
-/// Whether a licence id is one the reference set may be injected under (`docs/runner.md`, 「The references
-/// dossier」): public domain, CC0, the public domain mark, CC-BY-*, CC-BY-SA-*, the Unsplash licence, and the
-/// owner's own picture. A non-commercial or no-derivatives term, an unknown licence or no licence at all is
-/// not.
-pub fn accepted_licence(id: &str) -> bool {
-  let id = normalized(id);
-  if id.is_empty() {
-    return false;
-  }
-  let parts: Vec<&str> = id.split('-').filter(|part| !part.is_empty()).collect();
-  if parts.contains(&"nc") || parts.contains(&"nd") {
-    return false;
-  }
-  if id.starts_with("unsplash") || id == "owner-supplied" {
-    return true;
-  }
-  if id.starts_with("cc0")
-    || id.starts_with("cc-0")
-    || id.starts_with("pdm")
-    || id.starts_with("public-domain")
-    || id.starts_with("publicdomain")
-    || parts.first() == Some(&"pd")
-  {
-    return true;
-  }
-  let after_cc = if parts.first() == Some(&"cc") { &parts[1..] } else { &parts[..] };
-  after_cc.first() == Some(&"by")
-}
-
-// A licence id as it reads for the check: trimmed, lower-cased and with its spaces and underscores as dashes.
-fn normalized(id: &str) -> String {
-  id.trim()
-    .to_lowercase()
-    .chars()
-    .map(|one| if one == ' ' || one == '_' { '-' } else { one })
-    .collect::<String>()
-    .trim_matches('-')
-    .to_owned()
-}
-
-// One candidate read from the answer's JSON, or why it is not one this use accepts.
+// One candidate read from the answer's JSON, or why it is not one the drawing service can fetch.
 fn candidate(entry: &Value, words: &ReferenceWords, now: i64) -> Result<Candidate, String> {
   let object = entry.as_object().ok_or_else(|| words.no_url.clone())?;
   let url = object
@@ -353,7 +306,7 @@ fn candidate(entry: &Value, words: &ReferenceWords, now: i64) -> Result<Candidat
     .filter(|height| *height > 0)
     .ok_or_else(|| words.no_dimensions.clone())?;
   let retrieved_at = object.get("retrievedAt").and_then(Value::as_i64).filter(|at| *at > 0).unwrap_or(now);
-  let licence = licence(object.get("licence"), words)?;
+  let licence = licence(object.get("licence"));
   let title = string(object.get("title"));
   Ok(Candidate {
     url,
@@ -370,34 +323,26 @@ fn candidate(entry: &Value, words: &ReferenceWords, now: i64) -> Result<Candidat
   })
 }
 
-// The licence a candidate's JSON names, or why it is none this use accepts.
-fn licence(value: Option<&Value>, words: &ReferenceWords) -> Result<Licence, String> {
+// The licence line a candidate's JSON names, as metadata: whatever it names, it decides nothing, and where it
+// names none its id and attribution stand empty and its page null.
+fn licence(value: Option<&Value>) -> Licence {
   match value {
-    Some(Value::String(id)) => named_licence(id.trim(), None, String::new(), words),
-    Some(Value::Object(object)) => {
-      let id = object.get("id").and_then(Value::as_str).map(str::trim).unwrap_or_default();
-      let url = object.get("url").and_then(Value::as_str).map(str::trim).filter(|url| web_url(url));
-      let attribution = string(object.get("attribution"));
-      named_licence(id, url, attribution, words)
-    }
-    _ => Err(words.no_licence.clone()),
+    Some(Value::String(id)) => Licence {
+      id: id.trim().to_owned(),
+      ..Licence::default()
+    },
+    Some(Value::Object(object)) => Licence {
+      id: string(object.get("id")),
+      url: object
+        .get("url")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|url| web_url(url))
+        .map(str::to_owned),
+      attribution: string(object.get("attribution")),
+    },
+    _ => Licence::default(),
   }
-}
-
-fn named_licence(
-  id: &str,
-  url: Option<&str>,
-  attribution: String,
-  words: &ReferenceWords,
-) -> Result<Licence, String> {
-  if id.is_empty() || !accepted_licence(id) {
-    return Err(words.no_licence.clone());
-  }
-  Ok(Licence {
-    id: id.to_owned(),
-    url: url.map(str::to_owned),
-    attribution,
-  })
 }
 
 // A source page read from the answer's JSON, none where it names no address that reads.
@@ -515,10 +460,14 @@ fn table(candidates: &[Candidate], words: &ReferenceWords) -> String {
     words.licence_column,
   );
   for candidate in candidates {
-    let licence = if candidate.licence.attribution.is_empty() {
-      candidate.licence.id.clone()
-    } else {
-      format!("{} ({})", candidate.licence.id, candidate.licence.attribution)
+    let Licence {
+      id, attribution, ..
+    } = &candidate.licence;
+    let licence = match (id.is_empty(), attribution.is_empty()) {
+      (true, true) => words.none.clone(),
+      (true, false) => attribution.clone(),
+      (false, true) => id.clone(),
+      (false, false) => format!("{id} ({attribution})"),
     };
     out.push_str(&format!(
       "| {} | {} | {} | {} | {} | {}×{} | {} | {} |\n",

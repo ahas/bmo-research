@@ -329,8 +329,9 @@ the one to read.
 - **A `references` ask** is the drawing service's, and its `options` object holds `subjectKey` (the
   subject's key in the brain), `kind` (`character`, `person`, `place`, `object`, `style`, `work` or
   `other`), `language` (`ko` or `en`, the language of the person who asked for the draw), `candidateLimit`
-  (1 to 24, 12 where none), `imageEngines` (a subset of `openverse`, `wikicommons.images` and `unsplash`,
-  all where none) and `requireLicence` (only `true` where it is named). The same JSON as a string is taken.
+  (1 to 24, 12 where none) and `imageEngines` (a subset of `openverse`, `wikicommons.images` and `unsplash`,
+  all where none); an option the key does not name is not read. The same JSON as a string is taken. No
+  candidate is left out for its licence: the licence line is recorded as metadata.
   The run is filed as a `search` document whose body's last fenced block is the candidate dossier
   (`docs/runner.md`, 「The references dossier」); its labels are `research`, `key` and `category`
   (`references`), `query`, `languages`, `paint.subject-key` and `paint.schema` `references-v1`, and no room

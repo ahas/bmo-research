@@ -119,7 +119,6 @@ pub struct ReferenceWords {
   pub json: String,
   pub none: String,
   pub unnamed: String,
-  pub no_licence: String,
   pub no_url: String,
   pub no_page: String,
   pub no_dimensions: String,
