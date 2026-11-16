@@ -1246,3 +1246,89 @@ async fn a_session_with_no_demand_of_its_own_names_the_pool_to_agency() {
   assert_eq!(started[0]["cardPool"], json!({ "key": "research", "cards": 1 }));
   assert!(started[0].get("cardRank").is_none(), "no rank is named while the setting names none");
 }
+
+fn basic_ask() -> ResearchRunAsk {
+  ResearchRunAsk {
+    key: "search:basic".into(),
+    query: "Which engine serves Thing-7B fastest?".into(),
+    ..ResearchRunAsk::default()
+  }
+}
+
+/// Agency going away while a run's slot waits for its place — its drain answering 503 `stopping`, then its
+/// process gone, every connection refused — is waited out: the same slot is asked for its place again once
+/// agency stands, never asked anew, and the run goes on to its answer (`docs/runner.md`, 「Agency away」).
+#[tokio::test]
+async fn agency_going_away_while_a_run_s_slot_waits_is_waited_out_on_the_same_slot() {
+  let (ground, _base, client) = served().await;
+  {
+    let mut world = ground.world.lock().unwrap();
+    world.slot_waits = 1;
+    world.agency_goes_away_on = Some(("PATCH".into(), "/slot-requests/slot-1".into()));
+    world.agency_away_for = 3;
+  }
+  client.ask_research(&basic_ask()).await.unwrap();
+
+  let run = closed(&ground, 1).await;
+  assert_eq!(run.outcome.as_deref(), Some("answered"), "{:?}", run.error);
+  assert_eq!(ground.asked_path("agency-away", "PATCH", "/slot-requests/slot-1").len(), 2);
+  assert_eq!(ground.asked_path("agency", "POST", "/slot-requests").len(), 1, "the slot is asked once");
+  let moved = ground.asked_path("agency", "PATCH", "/slot-requests/slot-1");
+  assert_eq!(moved.last().unwrap().body, json!({"state": "finished", "outcome": "answered"}));
+  assert!(ground.app.store.holds(1).unwrap().is_empty());
+}
+
+/// Agency going away under a run's turn is waited out: the turn is sent again under the key it was first
+/// sent with, so agency attaches it to the turn it still carries, and the run goes on to its answer on the
+/// same slot and session (`docs/runner.md`, 「Agency away」, 「A turn's send」).
+#[tokio::test]
+async fn agency_going_away_under_a_run_s_turn_sends_it_again_under_its_key() {
+  let (ground, _base, client) = served().await;
+  {
+    let mut world = ground.world.lock().unwrap();
+    world.agency_goes_away_on = Some(("POST".into(), "/sessions/".into()));
+    world.agency_away_for = 3;
+  }
+  client.ask_research(&basic_ask()).await.unwrap();
+
+  let run = closed(&ground, 1).await;
+  assert_eq!(run.outcome.as_deref(), Some("answered"), "{:?}", run.error);
+  let away = ground.asked_path("agency-away", "POST", "/sessions/");
+  assert_eq!(away.len(), 2);
+  let key = away[0].body["key"].clone();
+  assert!(key.is_string(), "a turn is sent under a key: {:?}", away[0].body);
+  let name = away[0].body["name"].as_str().unwrap();
+  let sent = ground.turns_named(name);
+  assert!(!sent.is_empty() && away.iter().map(|a| &a.body).chain(&sent).all(|b| b["key"] == key));
+  let others: Vec<Value> =
+    ground.asked_path("agency", "POST", "/sessions/").into_iter().map(|a| a.body).collect();
+  assert!(
+    others.iter().all(|b| b["name"] == name || b["key"] != key),
+    "each turn has a key of its own"
+  );
+  assert_eq!(ground.asked_path("agency", "POST", "/slot-requests").len(), 1, "the slot is asked once");
+}
+
+/// A slot's give-back that agency never answers before this unit's stop keeps its hold in the store, for the
+/// next start to give back (`docs/runner.md`, 「Agency away」, 「A restart」).
+#[tokio::test]
+async fn a_give_back_agency_never_answers_before_the_stop_keeps_its_hold() {
+  let (ground, _base, client) = served().await;
+  {
+    let mut world = ground.world.lock().unwrap();
+    world.agency_goes_away_on = Some(("PATCH".into(), "/slot-requests/slot-1".into()));
+    world.agency_away_for = u32::MAX;
+  }
+  client.ask_research(&basic_ask()).await.unwrap();
+  for _ in 0..1500 {
+    if ground.world.lock().unwrap().agency_refusing > 0 {
+      break;
+    }
+    tokio::time::sleep(Duration::from_millis(10)).await;
+  }
+  ground.app.stop.ask();
+
+  closed(&ground, 1).await;
+  let held = ground.app.store.holds(1).unwrap();
+  assert!(held.contains(&("slot".to_string(), "slot-1".to_string())), "{held:?}");
+}

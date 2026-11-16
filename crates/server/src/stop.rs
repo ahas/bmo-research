@@ -49,6 +49,11 @@ impl Stop {
     *self.asked.borrow()
   }
 
+  /// The word whether the stop was asked, for a part that waits on something outside this unit.
+  pub fn watch(&self) -> watch::Receiver<bool> {
+    self.asked.subscribe()
+  }
+
   /// Ends once the stop is asked, at once where it already was.
   pub async fn wait(&self) {
     let mut asked = self.asked.subscribe();

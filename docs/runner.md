@@ -157,7 +157,8 @@ run is this unit's.
   the web tools stay open to the run for as long as it works, held to its page budget alone; the rounds are
   asked in turn to the last; no session this unit starts names `boundMs`, so agency cuts none of its turns;
   no turn's send carries a clock of this unit's; and a slot, the run's or a branch's, and a branch's card are
-  waited for however long the role's line and the arbiter take.
+  waited for however long the role's line and the arbiter take. Agency being away is waited out the same way
+  (「Agency away」).
 - **A turn whose agent never ends is stopped, never timed out:** the owner interrupts it through agency, by
   the run name it goes out under (「One run, step by step」), and the turn answers with what it wrote by then,
   the run going on from there as from any turn that answered; the daemon's stop or restart cuts the whole
@@ -189,6 +190,10 @@ run is this unit's.
   unfinished and is not its answer: the same turn is sent again at once, whatever it wrote, and agency holds it until
   the run's demand is granted again. The run keeps the fact, so a try that later fails is the eviction's
   (`docs/design.md`, 「The engine a run needs」).
+- **Each turn is sent under a `key` of its own,** the same on every send of that turn and never given to
+  another turn: a send agency did not answer goes again under it and attaches to the turn agency still
+  carries, or is answered with that turn's end once it has ended (「Agency away」). A turn sent again for its
+  taken card is a turn of its own, under a key of its own.
 - **A send answered 409 `session-busy`** finds its session still in a turn that an earlier send of this unit
   lost on the way, which agency carries to its end all the same. It waits for that turn's end: the session's
   state (`GET /sessions/{id}`) is read every two seconds until it names no run, and the turn is then sent
@@ -592,13 +597,14 @@ daemon finishes, held first to the shape the deep dive asked for.
 
 ## A cut run
 
-- **A run is cut where what it stands on went away,** not failed. The run meets a loss where:
-  - a call into agency for its slot, its session or a turn does not reach agency, is answered with a failure
-    of agency's own (5xx), or is answered 404 for the slot or the session the call names, which agency no
+- **A run is cut where what it stands on went away,** not failed. Agency being away is no loss: the call is
+  asked again until agency answers (「Agency away」). The run meets a loss where agency answers that it went:
+  - a call into agency for its slot, its session or a turn is answered with a failure of agency's own (5xx
+    other than its drain's), or is answered 404 for the slot or the session the call names, which agency no
     longer holds;
   - agency gives its slot back before it got a place, the admission answering `released` or `cancelled`;
-  - its slot, given back at its end, is one agency no longer held (the finish answering `held` false), or the
-    finish does not reach agency.
+  - its slot, given back at its end, is one agency no longer held (the finish answering `held` false);
+  - this unit's stop ends a call still waiting for agency to come back.
 - **A run that met a loss and filed no document closes `cut`,** its error naming the first loss; one that
   filed its document all the same closes `answered`. A round, the whole document or the narration that did
   not come for a loss leaves the result as it stands, as any turn that does not answer does, and the result
@@ -609,6 +615,27 @@ daemon finishes, held first to the shape the deep dive asked for.
   a failed one's is (`docs/api.md`, 「The deep dive」).
 - **A cut run asked for a room tells it as a cut run** (「The room」), and the cut of a stop or a restart
   is the same outcome (「A stop」, 「A restart」).
+
+## Agency away
+
+- **A call into agency that agency does not answer is asked again until it does:** the call not going
+  through, its connection refused or reset, its answer breaking off, or agency answering 503 `stopping` while
+  it drains for its stop. This covers every call a run, a branch, a review, a notice and a place make for
+  their slots and sessions: a slot asked, its place asked for, a slot given back, a session started, read or
+  ended, a turn sent, and an owner's release.
+- **The waits grow:** the first is `away_first_ms`, each next twice the one before up to `away_most_ms`
+  (`docs/settings.md`, 「Peers」), for as long as agency stays away. A restart of agency during a deployment
+  therefore costs a run a few seconds and nothing else.
+- **The same call goes again, so nothing is asked twice.** A slot is asked under the same request key and
+  moved by the same token, which agency answers with the request already standing; a turn's send carries a
+  `key` of its own, the same on every send of that turn, so a send agency cut off by its drain or its
+  restart attaches to the turn still going under it (「A turn's send」).
+- **Only agency's own answer ends what waits on it.** A refusal, a 404 for a slot or a session it no longer
+  holds, or a slot it gave back ends the run as before (「A cut run」); agency being away never does. This
+  unit's own stop ends the wait: the call ends as a loss, and the run is cut as the stop cuts it (「A stop」).
+- **A hold is let go only once agency answered its give-back.** A slot's finish, a session's end or an
+  owner's release that this unit's stop cut off while agency was away leaves the hold in the store, and the
+  next start gives it back (「A restart」).
 
 ## Ending a session
 
@@ -650,6 +677,9 @@ daemon finishes, held first to the shape the deep dive asked for.
   way at the restart is given back too: its session is ended once its turn is over, and then everything its
   owner `research:notice:<itemId>` holds is given back, so the checkout is never let go under a turn still
   going (`docs/api.md`, 「The notices」); it is not told again.
+- **A start waits for agency where agency is away,** each release asked again until it is answered
+  (「Agency away」), so what the store holds is given back before the routes stand; a release still
+  unanswered at a stop keeps its holds for the start after.
 - **A closed run whose document still lacks its sound** is no open run: its synthesis stays kept, and its
   narration is followed or asked again on its retry wait, its room told once the sound is attached
   (「The narration's sound」).

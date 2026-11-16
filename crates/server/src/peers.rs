@@ -4,11 +4,12 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use serde::Deserialize;
 use serde_json::{Value, json};
-use tokio::sync::Semaphore;
+use tokio::sync::{Semaphore, watch};
 
 use crate::config::Settings;
 
@@ -17,6 +18,19 @@ const BUSY_EVERY: Duration = Duration::from_secs(2);
 
 /// The code agency answers a call with while the session it names is in a turn.
 const SESSION_BUSY: &str = "session-busy";
+
+/// The code agency answers a call with while it drains for its stop.
+const STOPPING: &str = "stopping";
+
+/// The count each turn this process sends is keyed by: a key of its own for every turn, the same for every
+/// send of it, so agency attaches a send it did not answer to the turn already standing under it.
+static TURN_KEYS: AtomicU64 = AtomicU64::new(1);
+
+/// A call's answer as agency gave it: its status and its body.
+struct Answered {
+  status: u16,
+  body: String,
+}
 
 /// A unit's address and the bearer it takes.
 #[derive(Debug, Clone)]
@@ -59,18 +73,40 @@ pub enum Untranslated {
 }
 
 /// Why a call into agency for a run's slot, its session or a turn brought no answer: the failure's
-/// sentence, and whether what the run stands on went away (`docs/runner.md`, 「A cut run」) — the call did
-/// not reach agency, agency answered with a failure of its own (5xx), or, for a call naming a slot or a
-/// session, agency answered that it no longer holds it (404).
+/// sentence, whether what the run stands on went away (`docs/runner.md`, 「A cut run」) — agency answered
+/// with a failure of its own (5xx), or, for a call naming a slot or a session, answered that it no longer
+/// holds it (404) — and whether agency never answered at all, which only a stop of this unit ends a call
+/// with (「Agency away」).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Fault {
   pub why: String,
   pub lost: bool,
+  pub away: bool,
 }
 
 impl Fault {
-  fn kept(why: String) -> Fault {
-    Fault { why, lost: false }
+  pub(crate) fn kept(why: String) -> Fault {
+    Fault {
+      why,
+      lost: false,
+      away: false,
+    }
+  }
+
+  fn lost(why: String) -> Fault {
+    Fault {
+      why,
+      lost: true,
+      away: false,
+    }
+  }
+
+  fn away(why: String) -> Fault {
+    Fault {
+      why,
+      lost: true,
+      away: true,
+    }
   }
 }
 
@@ -195,15 +231,18 @@ impl Demand {
 pub struct Peers {
   http: reqwest::Client,
   settings: Arc<Settings>,
+  /// Whether this unit's stop was asked, which ends a call's wait for agency to come back.
+  stopping: watch::Receiver<bool>,
   /// The translations out with agency's translator at once, across every page: at most
   /// `translation.parts_out_total`, every other waiting its turn here in the order it was asked.
   translating: Arc<Semaphore>,
 }
 
 impl Peers {
-  pub fn new(settings: Arc<Settings>) -> Peers {
+  pub fn new(settings: Arc<Settings>, stopping: watch::Receiver<bool>) -> Peers {
     Peers {
       http: reqwest::Client::new(),
+      stopping,
       translating: Arc::new(Semaphore::new(settings.translation.parts_out_total.max(1))),
       settings,
     }
@@ -337,11 +376,68 @@ impl Peers {
     what: &str,
     names_held: bool,
   ) -> Result<Value, Fault> {
-    let answer = request.send().await.map_err(|e| Fault {
-      why: format!("{} {what}: {e}", peer.name),
-      lost: true,
-    })?;
+    let answer = request.send().await.map_err(|e| Fault::lost(format!("{} {what}: {e}", peer.name)))?;
     held_answer(peer, answer, what, names_held).await
+  }
+
+  /// One call into agency answered as `held_call` answers it, asked again while agency is away
+  /// (`docs/runner.md`, 「Agency away」).
+  async fn agency_call(
+    &self,
+    what: &str,
+    names_held: bool,
+    request: impl Fn(&Self, &Peer) -> reqwest::RequestBuilder,
+  ) -> Result<Value, Fault> {
+    let (agency, answered) = self.agency_answer(what, request).await?;
+    judged(&agency, answered, what, names_held)
+  }
+
+  /// One call into agency, asked again for as long as agency is away — the call or its answer did not come
+  /// through, or agency answered that it drains for its stop — each wait twice the one before from
+  /// `away_first_ms` up to `away_most_ms`, until agency answers or this unit's stop is asked. The same call
+  /// goes again each time, so a slot is asked under its key and a turn sent under its key, which agency
+  /// answers with what already stands under them.
+  async fn agency_answer(
+    &self,
+    what: &str,
+    request: impl Fn(&Self, &Peer) -> reqwest::RequestBuilder,
+  ) -> Result<(Peer, Answered), Fault> {
+    let settings = &self.settings.agency;
+    let mut wait = Duration::from_millis(settings.away_first_ms);
+    let most = Duration::from_millis(settings.away_most_ms.max(settings.away_first_ms));
+    let mut was_away = false;
+    loop {
+      let agency = self.agency().map_err(Fault::kept)?;
+      let why = match request(self, &agency).send().await {
+        Ok(answer) => {
+          let status = answer.status().as_u16();
+          match answer.text().await {
+            Ok(body) if status != 503 || code_of(&body).as_deref() != Some(STOPPING) => {
+              if was_away {
+                eprintln!("bmo-research: agency answers again; {what} went through");
+              }
+              return Ok((agency, Answered { status, body }));
+            }
+            Ok(body) => format!("agency {what} answered 503: {body}"),
+            Err(e) => format!("agency {what}: the answer did not come: {e}"),
+          }
+        }
+        Err(e) => format!("agency {what}: {e}"),
+      };
+      if !was_away {
+        eprintln!("bmo-research: agency is away, {what} is asked again until it answers: {why}");
+        was_away = true;
+      }
+      let mut stopping = self.stopping.clone();
+      if *stopping.borrow() {
+        return Err(Fault::away(why));
+      }
+      tokio::select! {
+        () = tokio::time::sleep(wait) => {}
+        _ = stopping.wait_for(|asked| *asked) => return Err(Fault::away(why)),
+      }
+      wait = (wait * 2).min(most);
+    }
   }
 
   /// A demand asked of the arbiter's master, answered as it stands: granted, or waiting.
@@ -474,7 +570,7 @@ impl Peers {
   pub async fn read_synthesis(&self, id: i64) -> Result<Synthesis, Fault> {
     let voice = self.voice().map_err(Fault::kept)?;
     let path = format!("/syntheses/{id}");
-    let lost = |why: String| Fault { why, lost: true };
+    let lost = Fault::lost;
     let answer = self
       .request(&voice, reqwest::Method::GET, &path)
       .send()
@@ -490,10 +586,7 @@ impl Peers {
       .map_err(|e| lost(format!("{} GET {path}: the answer did not come: {e}", voice.name)))?;
     if !(200..300).contains(&status) {
       let why = format!("{} GET {path} answered {status}: {body}", voice.name);
-      return Err(Fault {
-        why,
-        lost: status >= 500,
-      });
+      return Err(if status >= 500 { Fault::lost(why) } else { Fault::kept(why) });
     }
     let read: Value = serde_json::from_str(&body)
       .map_err(|e| Fault::kept(format!("{} GET {path}: the answer did not read: {e}", voice.name)))?;
@@ -756,44 +849,54 @@ impl Peers {
 
   /// A slot asked of a role: the request as agency answers it.
   pub async fn ask_slot(&self, ask: &Value) -> Result<Value, Fault> {
-    let agency = self.agency().map_err(Fault::kept)?;
-    let request = self.request(&agency, reqwest::Method::POST, "/slot-requests").json(ask);
-    self.held_call(&agency, request, "POST /slot-requests", false).await
+    self
+      .agency_call("POST /slot-requests", false, |peers, agency| {
+        peers.request(agency, reqwest::Method::POST, "/slot-requests").json(ask)
+      })
+      .await
   }
 
   /// One role as agency answers it, its order among its fields.
   pub async fn role(&self, name: &str) -> Result<Value, Fault> {
-    let agency = self.agency().map_err(Fault::kept)?;
     let path = format!("/roles/{}", segment(name));
-    let request = self.request(&agency, reqwest::Method::GET, &path);
-    self.held_call(&agency, request, &format!("GET {path}"), false).await
+    self
+      .agency_call(&format!("GET {path}"), false, |peers, agency| {
+        peers.request(agency, reqwest::Method::GET, &path)
+      })
+      .await
   }
 
   /// One repository as agency answers it, the path of its checkout among its fields.
   pub async fn repository(&self, name: &str) -> Result<Value, Fault> {
-    let agency = self.agency().map_err(Fault::kept)?;
     let path = format!("/repositories/{}", segment(name));
-    let request = self.request(&agency, reqwest::Method::GET, &path);
-    self.held_call(&agency, request, &format!("GET {path}"), false).await
+    self
+      .agency_call(&format!("GET {path}"), false, |peers, agency| {
+        peers.request(agency, reqwest::Method::GET, &path)
+      })
+      .await
   }
 
   /// A slot moved: asked for its place, bound to its turn's run, or given back.
   pub async fn move_slot(&self, token: &str, change: &Value) -> Result<Value, Fault> {
-    let agency = self.agency().map_err(Fault::kept)?;
     let path = format!("/slot-requests/{}", segment(token));
-    let request = self.request(&agency, reqwest::Method::PATCH, &path).json(change);
-    self.held_call(&agency, request, &format!("PATCH {path}"), true).await
+    self
+      .agency_call(&format!("PATCH {path}"), true, |peers, agency| {
+        peers.request(agency, reqwest::Method::PATCH, &path).json(change)
+      })
+      .await
   }
 
   /// Everything an owner holds of agency given back (`docs/runner.md`, 「A restart」): each slot it asked,
   /// waiting or let in, and each session agency bound one of them to, ended. Answers the sessions agency
   /// ended.
   pub async fn release_owner(&self, owner: &str) -> Result<Vec<String>, Fault> {
-    let agency = self.agency().map_err(Fault::kept)?;
-    let request = self
-      .request(&agency, reqwest::Method::DELETE, "/slot-requests")
-      .query(&[("owner", owner)]);
-    let answer = self.held_call(&agency, request, "DELETE /slot-requests", false).await?;
+    let answer = self
+      .agency_call("DELETE /slot-requests", false, |peers, agency| {
+        peers
+          .request(agency, reqwest::Method::DELETE, "/slot-requests")
+          .query(&[("owner", owner)])
+      })
+      .await?;
     Ok(
       answer["sessionsEnded"]
         .as_array()
@@ -804,9 +907,11 @@ impl Peers {
 
   /// A role's session started: its id.
   pub async fn start_session(&self, start: &Value) -> Result<String, Fault> {
-    let agency = self.agency().map_err(Fault::kept)?;
-    let request = self.request(&agency, reqwest::Method::POST, "/sessions").json(start);
-    let answer = self.held_call(&agency, request, "POST /sessions", false).await?;
+    let answer = self
+      .agency_call("POST /sessions", false, |peers, agency| {
+        peers.request(agency, reqwest::Method::POST, "/sessions").json(start)
+      })
+      .await?;
     answer["id"]
       .as_str()
       .filter(|id| !id.is_empty())
@@ -816,39 +921,40 @@ impl Peers {
 
   /// One turn into a session, answered once it ends however long that takes: the turn's end as agency
   /// answers it. A send answered busy waits for the end of the turn the session is in, then is sent again
-  /// (`docs/runner.md`, 「A turn's send」).
+  /// (`docs/runner.md`, 「A turn's send」); a send agency did not answer goes again under the same key, which
+  /// attaches to the turn already standing under it.
   pub async fn send_turn(&self, session: &str, body: &Value) -> Result<Value, Fault> {
-    let agency = self.agency().map_err(Fault::kept)?;
     let path = format!("/sessions/{}/turns", segment(session));
     let what = format!("POST {path}");
+    let mut body = body.clone();
+    body["key"] = json!(format!("research:{}", TURN_KEYS.fetch_add(1, Ordering::Relaxed)));
+    let body = &body;
     loop {
-      let request = self.request(&agency, reqwest::Method::POST, &path).json(body);
-      let answer = request.send().await.map_err(|e| Fault {
-        why: format!("{} {what}: {e}", agency.name),
-        lost: true,
-      })?;
-      if answer.status() != reqwest::StatusCode::CONFLICT {
-        return held_answer(&agency, answer, &what, true).await;
+      let (agency, answered) = self
+        .agency_answer(&what, |peers, agency| {
+          peers.request(agency, reqwest::Method::POST, &path).json(body)
+        })
+        .await?;
+      if answered.status != 409 {
+        return judged(&agency, answered, &what, true);
       }
-      let said = answer.text().await.unwrap_or_default();
-      let code = serde_json::from_str::<Value>(&said)
-        .ok()
-        .and_then(|v| v["code"].as_str().map(str::to_owned));
-      if code.as_deref() != Some(SESSION_BUSY) {
-        return Err(Fault::kept(format!("{} {what} answered 409: {said}", agency.name)));
+      if code_of(&answered.body).as_deref() != Some(SESSION_BUSY) {
+        return Err(Fault::kept(format!("{} {what} answered 409: {}", agency.name, answered.body)));
       }
-      self.turn_over(&agency, session).await?;
+      self.turn_over(session).await?;
     }
   }
 
   /// The turn a session is in waited on until the session's state names no run.
-  async fn turn_over(&self, agency: &Peer, session: &str) -> Result<(), Fault> {
+  async fn turn_over(&self, session: &str) -> Result<(), Fault> {
     let path = format!("/sessions/{}", segment(session));
     let what = format!("GET {path}");
     loop {
       tokio::time::sleep(BUSY_EVERY).await;
-      let request = self.request(agency, reqwest::Method::GET, &path);
-      if self.held_call(agency, request, &what, true).await?["run"].is_null() {
+      let state = self
+        .agency_call(&what, true, |peers, agency| peers.request(agency, reqwest::Method::GET, &path))
+        .await?;
+      if state["run"].is_null() {
         return Ok(());
       }
     }
@@ -866,20 +972,16 @@ impl Peers {
 
   /// A session ended; `Busy` while a turn of it still runs.
   pub async fn end_session(&self, session: &str) -> Result<(), Ending> {
-    let agency = self.agency().map_err(Ending::Failed)?;
     let path = format!("/sessions/{}", segment(session));
-    let answer = self
-      .request(&agency, reqwest::Method::DELETE, &path)
-      .send()
+    let what = format!("DELETE {path}");
+    let (_, answered) = self
+      .agency_answer(&what, |peers, agency| peers.request(agency, reqwest::Method::DELETE, &path))
       .await
-      .map_err(|e| Ending::Failed(format!("agency DELETE {path}: {e}")))?;
-    match answer.status().as_u16() {
+      .map_err(|fault| if fault.away { Ending::Away(fault.why) } else { Ending::Failed(fault.why) })?;
+    match answered.status {
       200..=299 | 404 => Ok(()),
       409 => Err(Ending::Busy),
-      status => Err(Ending::Failed(format!(
-        "agency DELETE {path} answered {status}: {}",
-        answer.text().await.unwrap_or_default()
-      ))),
+      status => Err(Ending::Failed(format!("agency {what} answered {status}: {}", answered.body))),
     }
   }
 
@@ -934,21 +1036,26 @@ async fn held_answer(
   what: &str,
   names_held: bool,
 ) -> Result<Value, Fault> {
-  let lost = |why: String| Fault { why, lost: true };
   let status = answer.status().as_u16();
   let succeeded = (200..300).contains(&status);
   let body = match answer.text().await {
     Ok(body) => body,
     Err(e) if succeeded => {
-      return Err(lost(format!("{} {what}: the answer did not come: {e}", peer.name)));
+      return Err(Fault::lost(format!("{} {what}: the answer did not come: {e}", peer.name)));
     }
     Err(_) => String::new(),
   };
-  if !succeeded {
-    return Err(Fault {
-      why: format!("{} {what} answered {status}: {body}", peer.name),
-      lost: status >= 500 || (names_held && status == 404),
-    });
+  judged(peer, Answered { status, body }, what, names_held)
+}
+
+/// An answer read whole judged: a success's body as JSON; any other answer the failure, lost where the unit
+/// answered 5xx or — for a call that `names_held` — 404.
+fn judged(peer: &Peer, answered: Answered, what: &str, names_held: bool) -> Result<Value, Fault> {
+  let Answered { status, body } = answered;
+  if !(200..300).contains(&status) {
+    let why = format!("{} {what} answered {status}: {body}", peer.name);
+    let lost = status >= 500 || (names_held && status == 404);
+    return Err(if lost { Fault::lost(why) } else { Fault::kept(why) });
   }
   if body.trim().is_empty() {
     return Ok(Value::Null);
@@ -957,11 +1064,20 @@ async fn held_answer(
     .map_err(|e| Fault::kept(format!("{} {what}: the answer did not read: {e}", peer.name)))
 }
 
-/// Why a session was not ended: a turn of it still runs, or the call failed.
+/// The `code` an answer's body names, where it reads as JSON and names one.
+fn code_of(body: &str) -> Option<String> {
+  serde_json::from_str::<Value>(body)
+    .ok()
+    .and_then(|v| v["code"].as_str().map(str::to_owned))
+}
+
+/// Why a session was not ended: a turn of it still runs, the call failed, or agency never answered before
+/// this unit's stop.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Ending {
   Busy,
   Failed(String),
+  Away(String),
 }
 
 /// An identifier agency gave, written into a path as one segment: what a segment cannot hold encoded, and the

@@ -202,6 +202,17 @@ pub struct World {
   pub pictures: BTreeMap<String, (String, Vec<u8>)>,
   /// How many characters one slice of a page holds, however many were asked for.
   pub slice_chars: Option<usize>,
+  /// The call that takes the stand-in agency away, by its method and the start of its path: it is answered
+  /// 503 `stopping`, as agency's drain answers, and so is the next ask of it; then agency's process is gone
+  /// for `agency_away_for` connections, every connection open to it cut, and it then stands again.
+  pub agency_goes_away_on: Option<(String, String)>,
+  pub agency_away_for: u32,
+  /// The calls still to be answered 503 `stopping` while agency drains.
+  pub agency_draining: u32,
+  /// The connections still to be refused while agency's process is gone.
+  pub agency_refusing: u32,
+  /// Bumped to cut every connection open to the stand-in agency.
+  pub agency_cut: tokio::sync::watch::Sender<u64>,
 }
 
 pub type Shared = Arc<Mutex<World>>;
@@ -819,6 +830,82 @@ async fn agency_translation(State(w): State<Shared>, method: Method, uri: Uri, b
   axum::Json(json!({"text": answer, "provider": "registered", "model": "translator"})).into_response()
 }
 
+/// The stand-in agency's drain and its going away (`World::agency_goes_away_on`): a call answered 503
+/// `stopping` while agency drains, kept as `agency-away`, and every connection cut once the drain ends.
+async fn agency_gate(
+  State(w): State<Shared>,
+  request: axum::extract::Request,
+  next: axum::middleware::Next,
+) -> Response {
+  let draining = {
+    let mut world = w.lock().unwrap();
+    let method = request.method().to_string();
+    let path = request.uri().path().to_string();
+    let goes_away = world
+      .agency_goes_away_on
+      .as_ref()
+      .is_some_and(|(m, p)| *m == method && path.starts_with(p.as_str()));
+    if goes_away {
+      world.agency_goes_away_on = None;
+      world.agency_draining = 2;
+    }
+    let draining = world.agency_draining > 0;
+    if draining {
+      world.agency_draining -= 1;
+      if world.agency_draining == 0 {
+        world.agency_refusing = world.agency_away_for;
+        world.agency_cut.send_modify(|cut| *cut += 1);
+      }
+    }
+    draining
+  };
+  if draining {
+    let (parts, body) = request.into_parts();
+    let body = axum::body::to_bytes(body, usize::MAX).await.unwrap_or_default();
+    keep(&w, "agency-away", &parts.method, &parts.uri, &body);
+    return (
+      StatusCode::SERVICE_UNAVAILABLE,
+      [("retry-after", "1")],
+      axum::Json(json!({"code": "stopping", "error": "the server is stopping"})),
+    )
+      .into_response();
+  }
+  next.run(request).await
+}
+
+/// Serves the stand-in agency behind a gate standing for its process: a connection is refused while
+/// `agency_refusing` counts, and every open connection is cut when `agency_cut` is bumped. Its address.
+async fn serve_agency(world: Shared) -> String {
+  let inner = serve(agency(world.clone())).await;
+  let inner = inner.trim_start_matches("http://").to_string();
+  let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+  let addr = listener.local_addr().unwrap();
+  tokio::spawn(async move {
+    loop {
+      let Ok((mut outer, _)) = listener.accept().await else { return };
+      let cut = {
+        let mut w = world.lock().unwrap();
+        if w.agency_refusing > 0 {
+          w.agency_refusing -= 1;
+          None
+        } else {
+          Some(w.agency_cut.subscribe())
+        }
+      };
+      let Some(mut cut) = cut else { continue };
+      let inner = inner.clone();
+      tokio::spawn(async move {
+        let Ok(mut agency) = tokio::net::TcpStream::connect(&inner).await else { return };
+        tokio::select! {
+          _ = tokio::io::copy_bidirectional(&mut outer, &mut agency) => {}
+          _ = cut.changed() => {}
+        }
+      });
+    }
+  });
+  format!("http://{addr}")
+}
+
 pub fn agency(world: Shared) -> Router {
   Router::new()
     .route("/slot-requests", post(agency_slot).delete(agency_owner_release))
@@ -830,6 +917,7 @@ pub fn agency(world: Shared) -> Router {
     .route("/repositories/{name}", get(agency_repository))
     .route("/translation-runs", post(agency_translation))
     .route("/sessions/{session}/turns", post(agency_turn))
+    .layer(axum::middleware::from_fn_with_state(world.clone(), agency_gate))
     .with_state(world)
 }
 
@@ -1572,7 +1660,7 @@ pub fn running(ground: &Ground, branches: i64) -> i64 {
 /// unit keeps them, and the daemon's app over a fresh store.
 pub async fn ground(change: impl FnOnce(&mut Settings)) -> Ground {
   let world = world();
-  let agency = serve(agency(world.clone())).await;
+  let agency = serve_agency(world.clone()).await;
   let artifact = serve(artifact(world.clone())).await;
   let receiver = serve(receiver(world.clone())).await;
   let arbiter = serve(arbiter(world.clone())).await;
@@ -1628,6 +1716,8 @@ pub async fn ground(change: impl FnOnce(&mut Settings)) -> Ground {
   settings.engine.address = arbiter;
   settings.tool_host.socket = socket.to_string_lossy().into_owned();
   settings.poll_seconds = 0;
+  settings.agency.away_first_ms = 1;
+  settings.agency.away_most_ms = 5;
   change(&mut settings);
   let store = Store::open(&settings.store_dir()).unwrap();
   let app = App::new(settings, store, "test-token".into());

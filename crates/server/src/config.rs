@@ -279,12 +279,18 @@ impl Default for ToolHost {
 #[serde(default, deny_unknown_fields)]
 pub struct Agency {
   pub env: String,
+  /// The first wait before a call agency did not answer is asked again (`docs/runner.md`, 「Agency away」).
+  pub away_first_ms: u64,
+  /// The longest wait between two asks of a call while agency stays away; each wait doubles up to it.
+  pub away_most_ms: u64,
 }
 
 impl Default for Agency {
   fn default() -> Self {
     Agency {
       env: "agency.env".into(),
+      away_first_ms: 250,
+      away_most_ms: 10_000,
     }
   }
 }

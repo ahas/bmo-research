@@ -910,7 +910,8 @@ of these units, and reads each one's address and token from that unit's own file
   the daemon's places, `research:places`, and for the owner of each run it closes and of each run or notice
   its store still holds something under (`research:<run>`, `research:notice:<itemId>`), answered with the counts given back and `sessionsEnded`, the
   sessions agency ended (`docs/runner.md`, 「A restart」). `POST /sessions/{id}/turns` with `prompt` and the
-  turn's own parts (`resume`, `name`, `title`, `chat`, `hearsWords`, `variables`), its road, effort and folder
+  turn's own parts (`resume`, `name`, `title`, `chat`, `hearsWords`, `variables`) and `key`, the turn's own,
+  under which a send agency did not answer goes again and attaches to the turn standing under it, its road, effort and folder
   the session's, answered once the turn ends with its `answer`, or 409 `session-busy` while an earlier turn of
   the session still runs: `GET /sessions/{id}` is then read every two seconds until its `run` is null, and the
   turn sent again (`docs/runner.md`, 「A turn's send」). `DELETE /sessions/{id}`, the session ended, answered
@@ -919,7 +920,8 @@ of these units, and reads each one's address and token from that unit's own file
   search line's role's cap from, the count of its agents that are switched on; `GET /repositories/{repositoryName}`, the
   checkout a notice to an agent runs at. No call of the slot and session routes carries a clock of this
   unit's, a turn's send among them: each is waited on until agency answers, however long a card it waits on
-  takes and however long the turn writes. The calendar unit, for a topic that names a calendar
+  takes and however long the turn writes, and each is asked again, unchanged, while agency does not answer or
+  answers 503 `stopping` (`docs/runner.md`, 「Agency away」). The calendar unit, for a topic that names a calendar
   (`docs/design.md`, 「Categories」): `POST /{realm}/events?holderName=bmo-research` with `id`, `calendarId`,
   `title`, `description`, `start`, `end` and `allDay`, one call an event, the `id` a digest of the topic, the
   title and the start, so the same event written again is answered as it stands. `POST /translation-runs` with `purpose`, `language`, `text`, `note`

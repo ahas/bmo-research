@@ -57,8 +57,9 @@ impl App {
       .user_agent(format!("{}/{}", settings.user_agent, env!("CARGO_PKG_VERSION")))
       .build()
       .unwrap_or_default();
+    let stop = stop::Stop::default();
     Arc::new(App {
-      peers: peers::Peers::new(settings.clone()),
+      peers: peers::Peers::new(settings.clone(), stop.watch()),
       settings,
       store,
       http,
@@ -67,7 +68,7 @@ impl App {
       places: pull::Places::default(),
       pages: dive::Pages::default(),
       repairs: dive::Repairs::default(),
-      stop: stop::Stop::default(),
+      stop,
     })
   }
 }

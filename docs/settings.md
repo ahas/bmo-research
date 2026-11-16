@@ -119,6 +119,8 @@ Every peer's address and token are read from the files that peer already keeps u
 | Key | Default | Meaning |
 |---|---|---|
 | `[agency] env` | `agency.env` | Holds `AGENCY_CONTROL_PORT`, agency's loopback port (3220 where it names none), and `AGENCY_CONTROL_TOKEN`, its token |
+| `[agency] away_first_ms` | 250 | The first wait before a call agency did not answer is asked again (`docs/runner.md`, 「Agency away」); a pace, never a bound |
+| `[agency] away_most_ms` | 10000 | The longest wait between two asks of such a call; each wait is twice the one before up to it, for as long as agency stays away |
 | `[receiver] env` | `receiver.env` | Holds `RECEIVER_ADDRESS`, the receiver's address, and `RECEIVER_TOKEN`, its token |
 | `[artifact] address` | `http://127.0.0.1:3230` | The artifact service's address |
 | `[artifact] token` | `artifact.token` | The file whose text is the artifact service's token |

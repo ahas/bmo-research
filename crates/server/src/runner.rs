@@ -542,8 +542,10 @@ pub fn runs(app: &App, run: i64) -> bool {
   app.store.research_run(run).is_ok_and(|row| row.state == ResearchRunState::Running)
 }
 
-/// A slot given back with what its work came to; cancelled where it never ran. Answers whether agency still
-/// held it: false where its finish says it was no longer held, or the finish was lost on the way.
+/// A slot given back with what its work came to; cancelled where it never ran, asked again while agency is
+/// away (`docs/runner.md`, 「Agency away」). Answers whether agency still held it: false where its finish says
+/// it was no longer held, or the finish was lost on the way. Its hold is let go once agency answered the
+/// finish; one this unit's stop cut off while agency was away stays held, for the next start to give back.
 pub async fn give_back(app: &App, run: i64, token: &str, outcome: &str, cancel: bool) -> bool {
   give_back_held((&app.peers, &app.store), (run, SLOT), token, outcome, cancel).await
 }
@@ -565,6 +567,9 @@ pub async fn give_back_held(
     Ok(said) => said["held"].as_bool() != Some(false),
     Err(fault) => {
       eprintln!("bmo-research: the {kind} {token} held under {run} was not given back: {fault}");
+      if fault.away {
+        return false;
+      }
       !fault.lost
     }
   };
@@ -592,10 +597,8 @@ pub fn slot_ask(request_key: &str, run: i64, role: &str, line: &str, road: Optio
 /// A slot asked and kept as the run's hold: the slot, or why agency gave none.
 pub async fn take_slot(app: &App, run: i64, asked: &Value) -> Result<Slot, Fault> {
   let said = app.peers.ask_slot(asked).await?;
-  let slot = Slot::of(&said).ok_or_else(|| Fault {
-    why: "agency answered the slot with no token".to_string(),
-    lost: false,
-  })?;
+  let slot =
+    Slot::of(&said).ok_or_else(|| Fault::kept("agency answered the slot with no token".to_string()))?;
   let _ = app.store.hold(run, SLOT, &slot.token);
   Ok(slot)
 }
@@ -615,6 +618,11 @@ pub async fn end_session_held((peers, store): (&Peers, &Store), (run, kind): (i6
       Err(Ending::Failed(why)) => {
         eprintln!("bmo-research: the {kind} {session} held under {run} was not ended: {why}");
         break;
+      }
+      // Agency never answered before this unit's stop: the hold stays for the next start to end.
+      Err(Ending::Away(why)) => {
+        eprintln!("bmo-research: the {kind} {session} held under {run} was not ended: {why}");
+        return;
       }
     }
   }
@@ -2051,14 +2059,14 @@ pub fn cut_instruction(row: &ResearchRunRow) -> Value {
   instruction(row.id, row.room_id, said, format!("The research {} was cut", row.id))
 }
 
-/// Everything an owner held of agency given back by the owner's release; the sessions agency ended with it,
+/// Everything an owner held of agency given back by the owner's release; the sessions agency ended with it, or
 /// none where the release did not go through.
-async fn release_owner(peers: &Peers, owner: &str) -> Vec<String> {
+async fn release_owner(peers: &Peers, owner: &str) -> Option<Vec<String>> {
   match peers.release_owner(owner).await {
-    Ok(ended) => ended,
+    Ok(ended) => Some(ended),
     Err(fault) => {
       eprintln!("bmo-research: what {owner} held of agency was not given back: {fault}");
-      vec![]
+      None
     }
   }
 }
@@ -2089,7 +2097,9 @@ pub async fn sweep(app: &Arc<App>) -> usize {
       for (kind, session) in held.iter().filter(|(kind, _)| kind == dive::NOTICE_SESSION) {
         end_session_held(ground, (item, kind), session).await;
       }
-      release_owner(&app.peers, &format!("research:notice:{item}")).await;
+      if release_owner(&app.peers, &format!("research:notice:{item}")).await.is_none() {
+        return;
+      }
       for (kind, token) in held.iter().filter(|(kind, _)| kind == dive::NOTICE_SLOT) {
         let _ = app.store.let_go(item, kind, token);
       }
@@ -2136,10 +2146,13 @@ async fn give_back_runs(app: &Arc<App>, why: &str) -> (usize, Vec<(i64, String)>
   }
   // Every place the daemon had asked, waiting or let in, is given back by the places' owner
   // (`docs/design.md`, 「A node pulls」).
-  let places = release_owner(&app.peers, crate::pull::OWNER).await;
+  let places = release_owner(&app.peers, crate::pull::OWNER).await.unwrap_or_default();
   let mut left = Vec::new();
   for (run, held) in owned {
-    let mut ended = release_owner(&app.peers, &format!("research:{run}")).await;
+    // A release that did not go through keeps what the run held, for the next start to give back.
+    let Some(mut ended) = release_owner(&app.peers, &format!("research:{run}")).await else {
+      continue;
+    };
     ended.extend(places.iter().cloned());
     for (kind, value) in held {
       if kind == SESSION && !ended.contains(&value) {
