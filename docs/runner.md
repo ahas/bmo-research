@@ -134,8 +134,8 @@ run is this unit's.
    and `web.rulebooks`; its start moves the slot onto it, and the first answer's session is then ended
    (「The slots' children」). One turn each, named `research-<run>-<round>`, each prompt the round's question,
    the task as the run was given it and the answer written last (「The rounds」). The last answer is the run's
-   result. A rounds' session that does not start leaves the first answer standing as the result, on the
-   session the slot is still bound to.
+   result. A rounds' session that does not start, on the run's slot or on one taken again (「A seat taken
+   again」), leaves the first answer standing as the result, on the session the slot is still bound to.
 9. **The whole document, the dossier and the narration:** in the session that wrote the result — the rounds'
    session, else the first answer's where the key has no rounds, started on the run's slot for them where the
    run asked no first turn — a deep dive's result short of its shape is asked once more for the whole
@@ -598,10 +598,12 @@ daemon finishes, held first to the shape the deep dive asked for.
 ## A cut run
 
 - **A run is cut where what it stands on went away,** not failed. Agency being away is no loss: the call is
-  asked again until agency answers (「Agency away」). The run meets a loss where agency answers that it went:
+  asked again until agency answers (「Agency away」). Nor is a slot or a session agency dropped under the run
+  once it was let in: the run takes its seat again and goes on (「A seat taken again」). The run meets a loss
+  where agency answers that it went and the run could not take its seat again:
   - a call into agency for its slot, its session or a turn is answered with a failure of agency's own (5xx
     other than its drain's), or is answered 404 for the slot or the session the call names, which agency no
-    longer holds;
+    longer holds, and the turn sent once more on a seat taken again does not come back either;
   - agency gives its slot back before it got a place, the admission answering `released` or `cancelled`;
   - its slot, given back at its end, is one agency no longer held (the finish answering `held` false);
   - this unit's stop ends a call still waiting for agency to come back.
@@ -630,12 +632,34 @@ daemon finishes, held first to the shape the deep dive asked for.
   moved by the same token, which agency answers with the request already standing; a turn's send carries a
   `key` of its own, the same on every send of that turn, so a send agency cut off by its drain or its
   restart attaches to the turn still going under it (「A turn's send」).
-- **Only agency's own answer ends what waits on it.** A refusal, a 404 for a slot or a session it no longer
-  holds, or a slot it gave back ends the run as before (「A cut run」); agency being away never does. This
-  unit's own stop ends the wait: the call ends as a loss, and the run is cut as the stop cuts it (「A stop」).
+- **Only agency's own answer ends what waits on it.** A refusal, or a slot it gave back before the run got
+  a place, ends the run as before (「A cut run」); agency being away never does, and a slot or a session it
+  dropped under a run already let in is taken again (「A seat taken again」). This unit's own stop ends the
+  wait: the call ends as a loss, and the run is cut as the stop cuts it (「A stop」).
 - **A hold is let go only once agency answered its give-back.** A slot's finish, a session's end or an
   owner's release that this unit's stop cut off while agency was away leaves the hold in the store, and the
   next start gives it back (「A restart」).
+
+## A seat taken again
+
+- **Agency's restart takes a let-in run's seat from under it.** A role session lives in agency's process:
+  agency's start gives back every slot lease bound to a session of the process before, a session that stood
+  idle is gone, and one whose turn agency picked up is ended once that turn's end is handed back (agency's
+  `docs/sessions.md`, 「A restart hands the session over」, and `docs/role-slots.md`, 「The line」). The turn
+  in flight comes back under its key (「Agency away」); the run's next call then finds its slot given back,
+  its session start refused or its turn answered 404.
+- **The run takes its seat again and goes on.** Where the run's session will not start, or a turn of the
+  run's is answered lost (agency answering 404 for the session or failing with a 5xx of its own), the run's
+  slot is asked for its place again. A slot agency gave back is replaced: a new slot of the run's role, on the
+  road the run went out on, is asked under `research:<run>:seat:<n>`, the count of slots the run took again,
+  its hold kept in place of the old one's, the session agency ended with the old one ended here too, and it
+  is waited on until let in like the run's first (「One run, step by step」). The session is then started again
+  on the slot as it was started before, with the same record and capabilities, and the turn is sent once
+  more; the rounds go on from it, each prompt carrying the answer written last, so nothing the run wrote is
+  lost to the new session.
+- **Once for each call that met it.** A session that will not start on the new slot, or a turn sent once
+  more that is answered lost again, meets the loss as before (「A cut run」). The slot the run gives back at
+  its end is the one it stands on then.
 
 ## Ending a session
 

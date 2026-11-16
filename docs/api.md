@@ -891,7 +891,9 @@ of these units, and reads each one's address and token from that unit's own file
 
 - **agency:** `POST /slot-requests` with `requestKey`, `owner`, `role` and `source`, and `provider` and
   `model` together where the slot's road is named — a run's where its ask names a model, a place's its
-  road's, a branch's and a review's the run's road — a run's, a place's, a branch's or a review's slot,
+  road's, a branch's, a review's and one a run takes again the run's road — a run's, a place's, a branch's or
+  a review's slot, or one a run takes again once agency gave its own back under it (`docs/runner.md`, 「A seat
+  taken again」),
   answered with its `token` and `state` and,
   once let in, the `provider`, `model` and `effort` it goes out on, or 422 once its key was spent; a notice's
   slot names `path` and `placeKey` beside them (「The notices」). `PATCH /slot-requests/{token}` naming no state

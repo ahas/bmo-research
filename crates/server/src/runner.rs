@@ -932,7 +932,6 @@ impl Going {
 
 /// The run's road once its slot is let in.
 struct Road {
-  slot: Slot,
   model: String,
   record: Value,
 }
@@ -1133,10 +1132,10 @@ async fn go(app: Arc<App>, going: Going) {
     Ok(road) => road.model.clone(),
     Err(_) => said(&going.ask.model).unwrap_or_default().to_owned(),
   };
-  // The session the run's slot is bound to now (`docs/runner.md`, 「The slots' children」).
-  let mut bound = None;
+  // The slot the run stands on now and the session it is bound to (`docs/runner.md`, 「The slots' children」).
+  let mut seat = Seat::on(&going.slot.token);
   let result = match &road {
-    Ok(road) => carried(&app, &going, road, &mut bound).await,
+    Ok(road) => carried(&app, &going, road, &mut seat).await,
     Err(why) => Err(why.clone()),
   };
   let outcome = match &result {
@@ -1146,8 +1145,8 @@ async fn go(app: Arc<App>, going: Going) {
   };
   // The slot is given back before the session it is bound to is ended, so its finish says whether agency
   // still held it.
-  let held = give_back(&app, run, &going.slot.token, &outcome, never_ran).await;
-  if let Some(session) = &bound {
+  let held = give_back(&app, run, &seat.slot, &outcome, never_ran).await;
+  if let Some(session) = &seat.session {
     end_session(&app, run, session).await;
   }
   if !held {
@@ -1156,17 +1155,21 @@ async fn go(app: Arc<App>, going: Going) {
   ended(&app, &going, &model, result).await;
 }
 
-/// The slot let in, asked for its place every half second however long its role's line takes, and asked no
-/// more once agency answers it given back; or why it was not let in. Agency binds it to each session
-/// started on it in turn (`docs/runner.md`, 「The slots' children」).
+/// The run's slot let in (`let_in`); or why it was not.
 async fn admitted(app: &App, going: &Going) -> Result<Slot, String> {
-  let mut slot = going.slot.clone();
+  let_in(app, going, going.slot.clone(), "the run's slot").await
+}
+
+/// A slot of the run's let in, asked for its place every half second however long its role's line takes, and
+/// asked no more once agency answers it given back; or why it was not let in. Agency binds it to each session
+/// started on it in turn (`docs/runner.md`, 「The slots' children」).
+async fn let_in(app: &App, going: &Going, mut slot: Slot, what: &str) -> Result<Slot, String> {
   loop {
     if slot.admitted() {
       return Ok(slot);
     }
     if slot.ended() {
-      let why = slot.given_back("the run's slot request");
+      let why = slot.given_back(&format!("{what} request"));
       going.lose(&why);
       return Err(why);
     }
@@ -1178,7 +1181,7 @@ async fn admitted(app: &App, going: &Going) -> Result<Slot, String> {
     {
       Ok(said) => slot = slot.admission(&said),
       Err(fault) => {
-        return Err(going.met(fault, "the run's slot could not be let in"));
+        return Err(going.met(fault, &format!("{what} could not be let in")));
       }
     }
   }
@@ -1207,46 +1210,124 @@ async fn on_road(app: &App, going: &Going, slot: Slot) -> Result<Road, String> {
     },
   );
   let _ = app.store.keep_research_road(run, &provider, &model, &record);
-  Ok(Road {
-    slot,
-    model,
-    record,
-  })
+  Ok(Road { model, record })
 }
 
-/// A session started on the run's slot, which moves the slot's lease onto it, and the session the slot was
-/// bound to before then ended (`docs/runner.md`, 「The slots' children」); `bound` names the new one.
-async fn moved_onto(
+/// What the run stands on in agency now (`docs/runner.md`, 「The slots' children」, 「A seat taken again」): the
+/// slot, the session bound to it, what that session was started with, and how many slots the run took again
+/// once agency gave its slot back under it.
+struct Seat {
+  slot: String,
+  session: Option<String>,
+  started: Option<(Value, Vec<String>)>,
+  taken_again: u32,
+}
+
+impl Seat {
+  fn on(slot: &str) -> Seat {
+    Seat {
+      slot: slot.to_owned(),
+      session: None,
+      started: None,
+      taken_again: 0,
+    }
+  }
+}
+
+/// A session started on the seat's slot with `record` and `capabilities`, which moves the slot's lease onto it,
+/// and the session the slot was bound to before then ended (`docs/runner.md`, 「The slots' children」).
+async fn seated(
   app: &App,
   going: &Going,
-  start: &Start<'_>,
-  bound: &mut Option<String>,
+  seat: &mut Seat,
+  record: &Value,
+  capabilities: &[String],
 ) -> Result<String, Fault> {
-  let session = start_session(app, going.run, start).await?;
-  if let Some(before) = bound.replace(session.clone()) {
+  let start = Start {
+    line: going.line,
+    slot: &seat.slot,
+    system: &going.system,
+    record,
+    capabilities,
+    demand: going.demand,
+  };
+  let session = start_session(app, going.run, &start).await?;
+  if let Some(before) = seat.session.replace(session.clone()) {
     end_session(app, going.run, &before).await;
   }
+  seat.started = Some((record.clone(), capabilities.to_vec()));
   Ok(session)
 }
 
-/// The first answer's session: the run's record and its every capability, on the run's slot.
-async fn first_session(
+/// A session started as `seated` starts one; where agency starts none because it gave the run's slot back,
+/// started again on a slot taken anew (「A seat taken again」). Answers why there is none, said after `what`.
+async fn seated_again(
   app: &App,
   going: &Going,
-  road: &Road,
-  bound: &mut Option<String>,
+  seat: &mut Seat,
+  (record, capabilities): (&Value, &[String]),
+  what: &str,
 ) -> Result<String, String> {
-  let start = Start {
-    line: going.line,
-    slot: &road.slot.token,
-    system: &going.system,
-    record: &road.record,
-    capabilities: &going.capabilities,
-    demand: going.demand,
+  let fault = match seated(app, going, seat, record, capabilities).await {
+    Ok(session) => return Ok(session),
+    Err(fault) => fault,
   };
-  moved_onto(app, going, &start, bound)
+  match taken_again(app, going, seat).await {
+    Ok(true) => seated(app, going, seat, record, capabilities)
+      .await
+      .map_err(|fault| going.met(fault, what)),
+    Ok(false) => Err(going.met(fault, what)),
+    Err(why) => Err(format!("{}; {why}", going.met(fault, what))),
+  }
+}
+
+/// The run's slot read again after a call that named it, or its session, was answered lost: where agency gave
+/// it back, a new slot of the run's role on the run's road is asked under a key of its own, its hold kept in
+/// place of the old one's, and let in (「A seat taken again」). Answers whether a new slot was taken, or why
+/// none could be.
+async fn taken_again(app: &App, going: &Going, seat: &mut Seat) -> Result<bool, String> {
+  let run = going.run;
+  let asked = app
+    .peers
+    .move_slot(&seat.slot, &admission(going.demand, app.settings.engine.agency_terms()))
+    .await;
+  let gone = match asked {
+    Ok(said) => Slot::default().admission(&said).ended(),
+    Err(fault) if fault.away => return Err(going.met(fault, "the run's slot could not be read again")),
+    Err(fault) => fault.lost,
+  };
+  if !gone {
+    return Ok(false);
+  }
+  seat.taken_again += 1;
+  let key = format!("research:{run}:seat:{}", seat.taken_again);
+  note(
+    app,
+    run,
+    "admitted",
+    &format!("Agency gave the run's slot back under it, so a new slot is asked under {key}."),
+  );
+  let row = app.store.research_run(run).map_err(|why| why.to_string())?;
+  let named = Some((row.provider.as_str(), row.model.as_str()))
+    .filter(|(provider, model)| !provider.is_empty() && !model.is_empty());
+  let role = app.settings.runner.role(going.line);
+  let slot = take_slot(app, run, &slot_ask(&key, run, role, going.line, named))
     .await
-    .map_err(|fault| going.met(fault, "agency started no session for the run"))
+    .map_err(|fault| going.met(fault, "agency gave the run no new slot"))?;
+  let _ = app.store.let_go(run, SLOT, &seat.slot);
+  seat.slot = slot.token.clone();
+  // The session agency ended with the old slot is ended here too, so its hold is let go.
+  if let Some(before) = seat.session.take() {
+    end_session(app, run, &before).await;
+  }
+  let_in(app, going, slot, "the run's new slot").await?;
+  Ok(true)
+}
+
+/// The first answer's session: the run's record and its every capability, on the run's slot.
+async fn first_session(app: &App, going: &Going, road: &Road, seat: &mut Seat) -> Result<String, String> {
+  let record = (&road.record, going.capabilities.as_slice());
+  seated_again(app, going, seat, record, "agency started no session for the run").await
 }
 
 /// What a run's work came to: the result written, or an advisory the scope check judged older than the
@@ -1259,37 +1340,31 @@ enum Finished {
 /// The run's work on its slot, each session started on it before the one before is ended: the scope check an
 /// advisory's deep dive gets before any research, the first answer, or the earlier result a continuing run
 /// takes as its own, then the rounds, the whole document and the narration. Answers the run's outcome.
-async fn carried(
-  app: &App,
-  going: &Going,
-  road: &Road,
-  bound: &mut Option<String>,
-) -> Result<Finished, String> {
+async fn carried(app: &App, going: &Going, road: &Road, seat: &mut Seat) -> Result<Finished, String> {
   let first = match &going.continued {
     Some(earlier) => earlier.written.clone(),
     None => {
-      let session = first_session(app, going, road, bound).await?;
-      if let Some(floor) = scope_skip(app, going, &session).await {
+      first_session(app, going, road, seat).await?;
+      if let Some(floor) = scope_skip(app, going, seat).await {
         return Ok(Finished::Skipped(floor));
       }
-      first_answer(app, going, &session).await?
+      first_answer(app, going, seat).await?
     }
   };
   if words::runner().rounds.contains_key(&going.ask.key) {
-    return Ok(Finished::Written(rounds(app, going, road, first, bound).await));
+    return Ok(Finished::Written(rounds(app, going, road, first, seat).await));
   }
-  let session = match bound.clone() {
-    Some(session) => session,
-    None => first_session(app, going, road, bound).await?,
-  };
-  let answer = whole(app, going, &session, first).await;
-  Ok(Finished::Written(narrated(app, going, &session, answer).await))
+  if seat.session.is_none() {
+    first_session(app, going, road, seat).await?;
+  }
+  let answer = whole(app, going, seat, first).await;
+  Ok(Finished::Written(narrated(app, going, seat, answer).await))
 }
 
 /// The floor an advisory's run is judged older than before its research begins, where its scope turn answers
 /// the marker; none for another shape, a run with no floor, or a turn that did not come back, which researches
 /// as it stands.
-async fn scope_skip(app: &App, going: &Going, session: &str) -> Option<String> {
+async fn scope_skip(app: &App, going: &Going, seat: &mut Seat) -> Option<String> {
   let Filing::Page(page) = &going.filing else {
     return None;
   };
@@ -1301,7 +1376,7 @@ async fn scope_skip(app: &App, going: &Going, session: &str) -> Option<String> {
   let question = fill(&ask.question, &[("outside", &ask.outside), ("inside", &ask.inside)]);
   let prompt = format!("{question}\n\n## The task\n\n{}", going.ask.query);
   let name = format!("research-{}-scope", going.run);
-  match turn(app, going, session, &name, &prompt).await {
+  match turn(app, going, seat, &name, &prompt).await {
     Ok(text) if scope_marker(&text, &ask.outside) => Some(floor.to_owned()),
     Ok(_) => None,
     Err(why) => {
@@ -1326,9 +1401,16 @@ pub fn scope_marker(text: &str, marker: &str) -> bool {
     .is_some_and(|line| line.starts_with(marker))
 }
 
-/// One turn into a session, answered once it ends however long that takes (`docs/runner.md`, 「A turn's
-/// send」): what it wrote, or why it wrote nothing.
-async fn turn(app: &App, going: &Going, session: &str, name: &str, prompt: &str) -> Result<String, String> {
+/// One turn into the seat's session, answered once it ends however long that takes (`docs/runner.md`, 「A
+/// turn's send」): what it wrote, or why it wrote nothing. A turn answered lost is sent once more on a session
+/// started again the same way, on a slot taken anew where agency gave the run's back (「A seat taken again」).
+async fn turn(
+  app: &App,
+  going: &Going,
+  seat: &mut Seat,
+  name: &str,
+  prompt: &str,
+) -> Result<String, String> {
   let title = format!("{} research {}", going.line, going.run);
   let body = turn_body(
     prompt,
@@ -1338,9 +1420,32 @@ async fn turn(app: &App, going: &Going, session: &str, name: &str, prompt: &str)
       chat: going.ask.room_id.unwrap_or(0),
     },
   );
-  let answered = sent_turn(app, going.run, session, &body)
-    .await
-    .map_err(|fault| going.met(fault, &format!("the turn {name} did not come back")))?;
+  let what = format!("the turn {name} did not come back");
+  let session = seat.session.clone().ok_or_else(|| format!("{what}: the run holds no session"))?;
+  let answered = match sent_turn(app, going.run, &session, &body).await {
+    Ok(answered) => answered,
+    Err(fault) if fault.lost && !fault.away => {
+      let Some((record, capabilities)) = seat.started.clone() else {
+        return Err(going.met(fault, &what));
+      };
+      let started = (&record, capabilities.as_slice());
+      let session = match taken_again(app, going, seat).await {
+        Ok(_) => seated_again(app, going, seat, started, "agency started no session again").await,
+        Err(why) => Err(why),
+      };
+      let session = session.map_err(|why| format!("{}; {why}", going.met(fault.clone(), &what)))?;
+      note(
+        app,
+        going.run,
+        "turn",
+        &format!("The turn {name} is sent again on a session started again."),
+      );
+      sent_turn(app, going.run, &session, &body)
+        .await
+        .map_err(|fault| going.met(fault, &what))?
+    }
+    Err(fault) => return Err(going.met(fault, &what)),
+  };
   let text = written(&answered);
   let _ = app.store.keep_research_turn(
     going.run,
@@ -1354,9 +1459,9 @@ async fn turn(app: &App, going: &Going, session: &str, name: &str, prompt: &str)
   Ok(text)
 }
 
-async fn first_answer(app: &App, going: &Going, session: &str) -> Result<String, String> {
+async fn first_answer(app: &App, going: &Going, seat: &mut Seat) -> Result<String, String> {
   let name = format!("research-{}", going.run);
-  let answer = turn(app, going, session, &name, &going.prompt).await;
+  let answer = turn(app, going, seat, &name, &going.prompt).await;
   match &answer {
     Ok(_) => note(app, going.run, "answer", "The first answer came back."),
     Err(why) => note(app, going.run, "answer", &format!("The first answer did not come: {why}")),
@@ -1374,13 +1479,7 @@ pub fn round_prompt(question: &str, task: &str, last: &str) -> String {
 /// before it then ended, each asked in turn to the last; a round that does not answer leaves the last answer
 /// standing. A deep dive's whole document and its narration are asked of the same session, which the slot
 /// stays bound to until the run's end. Answers the run's result.
-async fn rounds(
-  app: &App,
-  going: &Going,
-  road: &Road,
-  first: String,
-  bound: &mut Option<String>,
-) -> String {
+async fn rounds(app: &App, going: &Going, road: &Road, first: String, seat: &mut Seat) -> String {
   let run = going.run;
   let runner = words::runner();
   let Some(process) = runner.rounds.get(&going.ask.key) else {
@@ -1393,18 +1492,10 @@ async fn rounds(
     .filter(|c| c.as_str() != BRANCHES && c.as_str() != RULEBOOKS)
     .cloned()
     .collect();
-  let start = Start {
-    line: going.line,
-    slot: &road.slot.token,
-    system: &going.system,
-    record: &record,
-    capabilities: &capabilities,
-    demand: going.demand,
-  };
-  let session = match moved_onto(app, going, &start, bound).await {
-    Ok(session) => session,
-    Err(fault) => {
-      let why = going.met(fault, "agency started no session for the rounds");
+  let started = (&record, capabilities.as_slice());
+  match seated_again(app, going, seat, started, "agency started no session for the rounds").await {
+    Ok(_) => {}
+    Err(why) => {
       note(
         app,
         run,
@@ -1413,7 +1504,7 @@ async fn rounds(
       );
       return first;
     }
-  };
+  }
   let mut last = first;
   let mut asking = going.continued.as_ref().map_or(0, |earlier| earlier.round);
   while asking < process.rounds.len() {
@@ -1423,7 +1514,7 @@ async fn rounds(
       continue;
     };
     let prompt = round_prompt(question, &going.prompt, &last);
-    match turn(app, going, &session, &format!("research-{run}-{name}"), &prompt).await {
+    match turn(app, going, seat, &format!("research-{run}-{name}"), &prompt).await {
       Ok(answer) => {
         note(app, run, "round", &format!("The round {name} answered."));
         let _ = app.store.keep_round_answered(run, name);
@@ -1439,18 +1530,18 @@ async fn rounds(
     }
     asking += 1;
   }
-  let last = whole(app, going, &session, last).await;
+  let last = whole(app, going, seat, last).await;
   if going.reference.is_some() {
-    return reference_whole(app, going, &session, last).await;
+    return reference_whole(app, going, seat, last).await;
   }
-  narrated(app, going, &session, last).await
+  narrated(app, going, seat, last).await
 }
 
 /// A references run's result held to the dossier's shape: where its last fenced block is not the JSON the
 /// drawing service reads, `session` is asked once for the whole dossier, its problems set in, and that turn's
 /// text is the result judged. A turn that writes nothing leaves the result as it stands, and the filing
 /// judges it then.
-async fn reference_whole(app: &App, going: &Going, session: &str, result: String) -> String {
+async fn reference_whole(app: &App, going: &Going, seat: &mut Seat, result: String) -> String {
   let run = going.run;
   let Some(reference) = &going.reference else {
     return result;
@@ -1467,7 +1558,7 @@ async fn reference_whole(app: &App, going: &Going, session: &str, result: String
   let question = fill(&words::runner().references.whole, &[("problems", &problems)]);
   let prompt = round_prompt(&question, &going.prompt, &result);
   let name = format!("research-{run}-whole");
-  match turn(app, going, session, &name, &prompt).await {
+  match turn(app, going, seat, &name, &prompt).await {
     Ok(text) => {
       note(app, run, "whole", "The whole dossier was asked again and came back.");
       text
@@ -1497,7 +1588,7 @@ pub fn narration_script(text: &str) -> String {
 /// script, `session` is asked one more turn for the narration alone, and its text set after the result as
 /// the script and kept as what the run wrote. A result that has its script, or a turn that writes none,
 /// leaves the result as it stands.
-async fn narrated(app: &App, going: &Going, session: &str, result: String) -> String {
+async fn narrated(app: &App, going: &Going, seat: &mut Seat, result: String) -> String {
   let run = going.run;
   let drawn = document::draw(&result, words::search_document(document::language_of(&going.ask.query)));
   if drawn.narration.is_some() {
@@ -1511,7 +1602,7 @@ async fn narrated(app: &App, going: &Going, session: &str, result: String) -> St
     }
   };
   let name = format!("research-{run}-narration");
-  let script = match turn(app, going, session, &name, &prompt).await {
+  let script = match turn(app, going, seat, &name, &prompt).await {
     Ok(text) => narration_script(&text),
     Err(why) => {
       note(app, run, "narration", &format!("The narration did not come: {why}"));
@@ -1650,7 +1741,7 @@ pub fn whole_prompt(missing: &str, task: &str, last: &str) -> String {
 /// A deep dive's result whole (`docs/runner.md`, 「The deep dive's page」): where it is short of its shape,
 /// `session` is asked one more turn for the whole document, and that turn's text is the result judged. A run
 /// told to a room, a whole result, or a turn that writes nothing leaves the result as it stands.
-async fn whole(app: &App, going: &Going, session: &str, result: String) -> String {
+async fn whole(app: &App, going: &Going, seat: &mut Seat, result: String) -> String {
   let run = going.run;
   let Filing::Page(page) = &going.filing else {
     return result;
@@ -1666,7 +1757,7 @@ async fn whole(app: &App, going: &Going, session: &str, result: String) -> Strin
   );
   let prompt = whole_prompt(&short, &going.prompt, &result);
   let name = format!("research-{run}-whole");
-  match turn(app, going, session, &name, &prompt).await {
+  match turn(app, going, seat, &name, &prompt).await {
     Ok(text) => {
       note(app, run, "whole", "The whole document was asked again and came back.");
       text

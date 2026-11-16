@@ -213,6 +213,38 @@ pub struct World {
   pub agency_refusing: u32,
   /// Bumped to cut every connection open to the stand-in agency.
   pub agency_cut: tokio::sync::watch::Sender<u64>,
+  /// The research turn agency restarts under, as a deployment restarts it: before the turn is carried, its
+  /// session idle at the restart and the send answered 404; or once its end is handed back, as agency hands
+  /// back a turn it picked up. Either way every session started before is gone and every slot bound to one is
+  /// given back by `run-ended`.
+  pub agency_restarts_before: Option<String>,
+  pub agency_restarts_after: Option<String>,
+  /// The sessions agency no longer holds, whose turns it answers 404.
+  pub sessions_gone: BTreeSet<String>,
+}
+
+impl World {
+  /// Agency restarted: every session it started is gone, and every slot bound to one given back.
+  fn restarted(&mut self) {
+    let bound: Vec<(String, String)> = self
+      .slot_sessions
+      .iter()
+      .map(|(token, session)| (token.clone(), session.clone()))
+      .collect();
+    for (token, session) in bound {
+      self.sessions_gone.insert(session);
+      if self.slots_finished.insert(token.clone()) {
+        self.given_back.insert(
+          token,
+          (
+            "released".to_string(),
+            "run-ended".to_string(),
+            "its role session ended with the agency process that held it".to_string(),
+          ),
+        );
+      }
+    }
+  }
 }
 
 pub type Shared = Arc<Mutex<World>>;
@@ -787,7 +819,29 @@ async fn agency_turn(State(w): State<Shared>, method: Method, uri: Uri, body: By
       .into_response();
     }
   }
-  research_turn(&w, asked["name"].as_str().unwrap_or_default()).await
+  let name = asked["name"].as_str().unwrap_or_default().to_string();
+  let session = uri.path().trim_start_matches("/sessions/").trim_end_matches("/turns").to_string();
+  {
+    let mut world = w.lock().unwrap();
+    if world.agency_restarts_before.as_deref() == Some(name.as_str()) {
+      world.agency_restarts_before = None;
+      world.restarted();
+    }
+    if world.sessions_gone.contains(&session) {
+      return (
+        StatusCode::NOT_FOUND,
+        axum::Json(json!({"code": "not-found", "error": format!("No session {session}")})),
+      )
+        .into_response();
+    }
+  }
+  let answer = research_turn(&w, &name).await;
+  let mut world = w.lock().unwrap();
+  if world.agency_restarts_after.as_deref() == Some(name.as_str()) {
+    world.agency_restarts_after = None;
+    world.restarted();
+  }
+  answer
 }
 
 async fn agency_translation(State(w): State<Shared>, method: Method, uri: Uri, body: Bytes) -> Response {

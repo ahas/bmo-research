@@ -1332,3 +1332,64 @@ async fn a_give_back_agency_never_answers_before_the_stop_keeps_its_hold() {
   let held = ground.app.store.holds(1).unwrap();
   assert!(held.contains(&("slot".to_string(), "slot-1".to_string())), "{held:?}");
 }
+
+/// The sessions started, each with the slot it was started on.
+fn started_on(ground: &support::Ground) -> Vec<String> {
+  sessions(ground)
+    .iter()
+    .map(|s| s["slot"].as_str().unwrap_or_default().to_owned())
+    .collect()
+}
+
+/// Agency restarting under a run's first answer, which hands that turn's end back and then gives the run's
+/// slot back with its session, leaves the run's rounds to a new slot: asked under a key of its own, its
+/// session started the same way, and the run answers with its rounds and nothing lost (`docs/runner.md`,
+/// 「A seat taken again」).
+#[tokio::test]
+async fn agency_restarting_after_a_turn_takes_a_new_slot_for_the_rounds() {
+  let (ground, _base, client) = served().await;
+  ground.world.lock().unwrap().agency_restarts_after = Some("research-1".into());
+  client.ask_research(&basic_ask()).await.unwrap();
+
+  let run = closed(&ground, 1).await;
+  assert_eq!((run.outcome.as_deref(), run.error.as_deref()), (Some("answered"), None));
+  let keys: Vec<Value> = ground
+    .asked_path("agency", "POST", "/slot-requests")
+    .into_iter()
+    .map(|a| a.body["requestKey"].clone())
+    .collect();
+  assert_eq!(keys, [json!("research:1"), json!("research:1:seat:1")]);
+  assert_eq!(
+    started_on(&ground),
+    ["slot-1", "slot-1", "slot-2"],
+    "the rounds' session stands on the new slot"
+  );
+  let rounds = sessions(&ground);
+  assert_eq!(rounds[1]["labels"], rounds[2]["labels"], "the session is started again the same way");
+  assert_eq!(ground.turns_named("research-1-final").len(), 1);
+  let finished = ground.asked_path("agency", "PATCH", "/slot-requests/slot-2");
+  assert_eq!(finished.last().unwrap().body, json!({"state": "finished", "outcome": "answered"}));
+  assert!(ground.app.store.holds(1).unwrap().is_empty());
+}
+
+/// Agency restarting while a run's session waits between its turns answers the next turn 404 and gives the
+/// slot back: the turn is sent once more on a session started again on a new slot (`docs/runner.md`, 「A seat
+/// taken again」).
+#[tokio::test]
+async fn agency_restarting_between_turns_sends_the_turn_again_on_a_new_slot() {
+  let (ground, _base, client) = served().await;
+  ground.world.lock().unwrap().agency_restarts_before = Some("research-1-final".into());
+  client.ask_research(&basic_ask()).await.unwrap();
+
+  let run = closed(&ground, 1).await;
+  assert_eq!((run.outcome.as_deref(), run.error.as_deref()), (Some("answered"), None));
+  assert_eq!(started_on(&ground), ["slot-1", "slot-1", "slot-2"]);
+  let finals = ground
+    .asked_path("agency", "POST", "/sessions/")
+    .into_iter()
+    .filter(|a| a.body["name"] == "research-1-final")
+    .map(|a| a.path)
+    .collect::<Vec<_>>();
+  assert_eq!(finals, ["/sessions/voyager@run:2/turns", "/sessions/voyager@run:3/turns"]);
+  assert!(ground.app.store.holds(1).unwrap().is_empty());
+}
