@@ -1,4 +1,3 @@
 target/
 .placed/
-.graph/*
-!.graph/settings.toml
+.graph/

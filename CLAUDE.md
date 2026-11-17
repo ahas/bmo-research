@@ -41,11 +41,6 @@ state how all of it works.
 - **Tests live in `tests/`.** The root package `research-checks` holds them; no test module sits in a
   source file. `tests/layout.rs` fails on a directory named after its parent and on another build tool's
   manifest at the root.
-- **The code graph in `.graph/` is written only with `bmo graph`**: one node per feature, with its files, its
-  exported names, the features it needs and the API it exposes or calls. `bmo graph check` says nothing where
-  the graph is whole, and the graph is brought up to date in the checkout before the commit. Its area files are
-  generated and untracked, so a fresh checkout builds them again; `settings.toml` is the repository's
-  configuration and stays tracked.
 - **Versions** are the workspace's, `0.1.0-rev.<n>` before the first release, and move only at a release
   the owner declares (bmo-chat's `docs/conventions.md`, 「Versions」).
 

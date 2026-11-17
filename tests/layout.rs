@@ -65,7 +65,7 @@ fn the_readme_s_folder_table_names_every_top_level_folder() {
     .lines()
     .filter_map(|line| line.strip_prefix("| `"))
     .filter_map(|rest| rest.split_once("/`").map(|(folder, _)| folder.to_string()))
-    // A dot folder the table names, the code graph's, is no folder of the layout.
+    // A dot folder the table names is no folder of the layout.
     .filter(|folder| !folder.starts_with('.'))
     .collect();
   named.sort();
