@@ -60,7 +60,10 @@ state how all of it works.
 
 ## Checks
 
-- Static: `cargo check --workspace --all-targets`.
-- Review: `cargo fmt --all --check` (108 columns, two-space indentation, as `rustfmt.toml` sets) and
-  `cargo clippy --workspace --all-targets -- -D warnings`.
-- Tests: `cargo test --workspace`.
+The testbed runs every Rust check itself, through its Cargo verb in the shared build directory, and
+`testbed.toml` declares none of them as a step; `bmo check` runs them on a change.
+
+- Static: `cargo check` on every crate a change marks.
+- Review: `cargo fmt --check` (108 columns, two-space indentation, as `rustfmt.toml` sets) and
+  `cargo clippy --all-targets` with every warning an error, wherever a change marks a crate.
+- Tests: the suite runs every workspace member's tests, the root package's `tests/` among them.
