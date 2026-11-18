@@ -13,7 +13,7 @@ languages = ["cargo"]
 dir = "tools"
 
 [check]
-quick = ["layout", "dependencies", "korean", "cargo-profile", "shared-versions"]
+quick = ["layout", "dependencies", "korean", "cargo-profile", "shared-versions", "personal-data"]
 korean_ledger = "korean-ledger.json"
 
 # The repository whose root holds the shared versions the manifests and the lock hold to.

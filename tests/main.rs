@@ -10,7 +10,6 @@ mod layout;
 mod literals;
 mod openapi;
 mod page;
-mod personal_data;
 mod pull;
 mod reading;
 mod references;

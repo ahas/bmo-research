@@ -35,7 +35,7 @@ state how all of it works.
   and the words a filed document is read by. `tests/literals.rs` fails on Hangul anywhere else.
 - **No personal data:** no name of the owner or of a host, no mail address, home path, token or private
   network address. A value that differs by installation is a setting; a path is written from `$HOME` or
-  from a variable. `tests/personal_data.rs` and `tests/literals.rs` fail on one.
+  from a variable. The testbed's `personal-data` check and `tests/literals.rs` fail on one.
 - **No hand-written parser for a general format.** TOML, JSON, feeds and env files are read by a maintained
   library.
 - **Tests live in `tests/`.** The root package `research-checks` holds them; no test module sits in a
