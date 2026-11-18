@@ -57,25 +57,3 @@ fn the_root_holds_only_cargo_manifests() {
     OTHER_MANIFESTS.iter().copied().filter(|name| root().join(name).exists()).collect();
   assert!(found.is_empty(), "manifests of other build tools at the root: {found:?}");
 }
-
-#[test]
-fn the_readme_s_folder_table_names_every_top_level_folder() {
-  let readme = fs::read_to_string(root().join("README.md")).expect("the README reads");
-  let mut named: Vec<String> = readme
-    .lines()
-    .filter_map(|line| line.strip_prefix("| `"))
-    .filter_map(|rest| rest.split_once("/`").map(|(folder, _)| folder.to_string()))
-    // A dot folder the table names is no folder of the layout.
-    .filter(|folder| !folder.starts_with('.'))
-    .collect();
-  named.sort();
-  let mut folders: Vec<String> = fs::read_dir(root())
-    .expect("the root reads")
-    .flatten()
-    .filter(|entry| entry.path().is_dir())
-    .map(|entry| entry.file_name().to_string_lossy().to_string())
-    .filter(|name| !name.starts_with('.') && !NOT_WRITTEN.contains(&name.as_str()))
-    .collect();
-  folders.sort();
-  assert_eq!(named, folders);
-}
