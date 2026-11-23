@@ -47,7 +47,9 @@ fn files(folders: &[&str]) -> Vec<(PathBuf, String)> {
   for entry in std::fs::read_dir(root()).expect("the root reads").flatten() {
     let path = entry.path();
 
+    // A linked worktree's `.git` is a file naming its git directory by absolute path, kept by git as the folder is.
     if path.is_file()
+      && !NOT_WRITTEN.iter().any(|skip| entry.file_name() == *skip)
       && let Ok(text) = std::fs::read_to_string(&path)
     {
       found.push((path, text));
