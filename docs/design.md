@@ -263,7 +263,7 @@ A source is a registration: a category, a kind, an address and, where the kind t
   No setting of this unit names a node, lists the nodes of a model or pins a model to one.
 - **kiki's two models are two engines sharing the lab's language-model cards:** `flash-next` on the
   arbiter service `lab-arena`, `flash-next-coder` on `lab-arena-coder`. Every such card can hold either, and
-  which one stands on it is the arbiter's grant (bmo-lab-arena `docs/engines.md`). The daemon's runs go out
+  which one stands on it is the arbiter's grant. The daemon's runs go out
   on `flash-next`; their branches, and the verification job's co-workers, on `flash-next-coder`.
 - **A place asks for its engine before its slot.** On a road that is one of the engine watch's
   registrations (`docs/settings.md`, `[engine]`), where the watch names a master, a place (「A node pulls」)
@@ -290,7 +290,7 @@ A source is a registration: a category, a kind, an address and, where the kind t
 - **A run's branch is asked within the run's demand.** A branch goes to any other card the arbiter can
   open for the Coder engine; only where every other card is in use is the run's own card lent to it, the
   run's engine standing down until the branch is finished, however long it takes, and coming back after
-  two engine loads (bmo-lab-arena `docs/engines.md`, 「The self-swap」). The search task prompt states this
+  two engine loads. The search task prompt states this
   as a rule (`prompts/search/task.md`).
 - **A try the arbiter cut is retried, not counted against its tries.** A try of a watched road that
   fails after its demand's card was taken, whether or not the demand has been granted again by the time the try
