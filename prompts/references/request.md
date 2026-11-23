@@ -1,5 +1,5 @@
 Reference dossier task. Find the reference pictures for drawing the subject below, and write the
-dossier the rulebook `references` defines.
+dossier the rulebook `bmo-research-references` defines.
 
 Subject: {query}
 Subject key: {subjectKey}

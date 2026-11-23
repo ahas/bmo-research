@@ -118,10 +118,19 @@ async fn a_search_is_let_in_sent_asked_its_rounds_filed_and_told_to_its_room() {
     "the listing by its order"
   );
   assert!(!system.contains("{tools}"));
-  assert!(system.contains("RULEBOOK prompts/rules/search-kinds.md:\n"));
+  assert!(system.contains("SKILL bmo-research-kinds:\n# The bmo-research-kinds stand-in"));
+  assert!(!system.contains("description:"), "a skill's front matter is left out");
   assert!(system.contains(
-    "RULEBOOK prompts/rules/product-search.md (sections: Whether this rulebook applies at all):"
+    "SKILL bmo-research-products (sections: Whether this rulebook applies at all):\n\
+     ## Whether this rulebook applies at all"
   ));
+  assert!(
+    !system.contains(
+      "What the stand-in says once its deciding section applies.\n\nSKILL bmo-research-restaurants"
+    ),
+    "a rulebook binding only some searches stands by its deciding section alone"
+  );
+  assert!(system.contains("SKILL bmo-docs-plain-writing:\n"));
   assert!(system.contains("RULEBOOK prompts/rules/self-preservation.md:\n"));
   assert!(system.contains("research/rulebook"));
   let record = &first["labels"]["research"];
@@ -1000,6 +1009,7 @@ async fn a_room_s_document_gone_before_its_room_was_told_is_told_whole_once_and_
 /// short enough for the archive to show it whole on a phone (`docs/design.md`, 「Reports and rooms」).
 #[test]
 fn a_search_is_told_its_title_names_its_subject_in_a_bounded_noun_phrase() {
+  support::skills();
   let system = research_server::runner::search_instructions("- web_search").unwrap();
   let rule = system
     .lines()
@@ -1014,12 +1024,6 @@ fn a_search_is_told_its_title_names_its_subject_in_a_bounded_noun_phrase() {
     assert!(rule.contains(words), "{words} missing from {rule}");
   }
   assert!(!rule.contains("headline"), "{rule}");
-  let research =
-    std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/prompts/rules/research.md")).unwrap();
-  assert!(research.contains("**A title is a noun phrase, never a sentence:**"));
-  let dives =
-    std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/prompts/rules/deep-dives.md")).unwrap();
-  assert!(dives.contains("**The title names the thing, never the verdict:**"));
 }
 
 #[tokio::test]

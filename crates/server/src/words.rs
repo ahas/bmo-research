@@ -2,11 +2,16 @@
 //! words and the columns a source's readings are listed with, the words a filed document is read by and the
 //! sections it holds, the notes the translator is handed
 //! and the words a deep dive's page is drawn with (`docs/api.md`, 「The questions」 and 「The page」); and the runner's: the search and browse lines' tasks,
-//! requests and branch instructions, the rulebooks, the words a run's document is written in, and the
-//! rulebooks' order, the rounds and the narration's question (`docs/runner.md`).
+//! requests and branch instructions, the rule against destroying the system, the words a run's document is
+//! written in, and the rulebooks' order, the rounds and the narration's question (`docs/runner.md`). The
+//! rulebooks themselves are skills of the skills repository, read from the folder the deployment places them
+//! in (`docs/runner.md`, 「The line's instructions」).
 
 use std::collections::BTreeMap;
-use std::sync::LazyLock;
+use std::path::{Path, PathBuf};
+use std::sync::{LazyLock, OnceLock};
+
+use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 
 use bmo_research_client::Shape;
 use serde::Deserialize;
@@ -31,21 +36,11 @@ const SEARCH_DOCUMENT: &str = include_str!("../../../prompts/search/document.tom
 const RUNNER: &str = include_str!("../../../prompts/runner.toml");
 const REPAIR: &str = include_str!("../../../prompts/repair.toml");
 
-/// The rulebooks under `prompts/rules/`, by name.
-const RULEBOOKS: &[(&str, &str)] = &[
-  ("search-kinds", include_str!("../../../prompts/rules/search-kinds.md")),
-  ("product-search", include_str!("../../../prompts/rules/product-search.md")),
-  ("restaurant-search", include_str!("../../../prompts/rules/restaurant-search.md")),
-  ("investment-search", include_str!("../../../prompts/rules/investment-search.md")),
-  ("study-material", include_str!("../../../prompts/rules/study-material.md")),
-  ("deep-dives", include_str!("../../../prompts/rules/deep-dives.md")),
-  ("research", include_str!("../../../prompts/rules/research.md")),
-  ("security-advisory", include_str!("../../../prompts/rules/security-advisory.md")),
-  ("economy-brief", include_str!("../../../prompts/rules/economy-brief.md")),
-  ("plain-writing", include_str!("../../../prompts/rules/plain-writing.md")),
-  ("self-preservation", include_str!("../../../prompts/rules/self-preservation.md")),
-  ("references", include_str!("../../../prompts/rules/references.md")),
-];
+/// The platform's rule against destroying the system, which every run's instructions end with.
+pub const SELF_PRESERVATION: &str = include_str!("../../../prompts/rules/self-preservation.md");
+
+/// The folder the deployment places the skills in, under the deploy tree.
+pub const SKILLS: &str = "prompts/skills";
 
 /// The words of the notices.
 #[derive(Debug, Clone, Deserialize)]
@@ -373,13 +368,71 @@ pub fn fill(template: &str, values: &[(&str, &str)]) -> String {
   out
 }
 
-/// A rulebook's text, by its name under `prompts/rules/`.
-pub fn rulebook(name: &str) -> Result<&'static str, String> {
-  RULEBOOKS
-    .iter()
-    .find(|(named, _)| *named == name)
-    .map(|(_, text)| *text)
-    .ok_or_else(|| format!("prompts/rules/{name}.md is not built in"))
+static SKILLS_HELD: OnceLock<PathBuf> = OnceLock::new();
+
+/// Holds the folder the skills are read from for the rest of the process, where the settings name one; the
+/// first folder held stands.
+pub fn hold_skills(folder: PathBuf) {
+  let _ = SKILLS_HELD.set(folder);
+}
+
+/// The folder the skills are read from: the one held, else `prompts/skills` in the nearest folder above the
+/// running executable that holds one, as the deploy tree holds it beside `bin/`.
+pub fn skills_folder() -> Option<PathBuf> {
+  if let Some(held) = SKILLS_HELD.get() {
+    return Some(held.clone());
+  }
+  let exe = std::env::current_exe().ok()?;
+  exe.ancestors().skip(1).map(|folder| folder.join(SKILLS)).find(|skills| skills.is_dir())
+}
+
+/// A rulebook's text: the body of the skill of that name, read from the skills folder, its front matter left
+/// out.
+pub fn rulebook(name: &str) -> Result<String, String> {
+  let folder =
+    skills_folder().ok_or_else(|| format!("no {SKILLS} folder is placed, so {name} is not read"))?;
+  skill_in(&folder, name)
+}
+
+/// The body of the skill `name` under `folder`.
+pub fn skill_in(folder: &Path, name: &str) -> Result<String, String> {
+  let path = folder.join(name).join("SKILL.md");
+  let text = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+  Ok(skill_body(&text).to_owned())
+}
+
+/// A `SKILL.md`'s body: what follows its front matter block, as the markdown reader finds the block, with
+/// the blank lines after it left out; a text with no front matter is its own body.
+pub fn skill_body(text: &str) -> &str {
+  let mut parser = Parser::new_ext(text, Options::ENABLE_YAML_STYLE_METADATA_BLOCKS)
+    .into_offset_iter()
+    .peekable();
+  if !matches!(parser.peek(), Some((Event::Start(Tag::MetadataBlock(_)), _))) {
+    return text;
+  }
+  let end = parser
+    .find_map(|(event, range)| matches!(event, Event::End(TagEnd::MetadataBlock(_))).then_some(range.end))
+    .unwrap_or(0);
+  text[end..].trim_start_matches(['\n', '\r'])
+}
+
+/// Every skill the runner composes a run of, each once, in the order `prompts/runner.toml` first names it:
+/// what a deployment places for it.
+pub fn skills() -> Vec<String> {
+  let words = runner();
+  let search = &words.search;
+  let mut names: Vec<String> = Vec::new();
+  for name in search.rulebooks.iter().chain([
+    &search.plain_writing,
+    &search.references,
+    &words.narration.rulebook,
+    &words.review.rulebook,
+  ]) {
+    if !names.contains(name) {
+      names.push(name.clone());
+    }
+  }
+  names
 }
 
 /// The headings and labels a run's document stands under, in one language.
@@ -420,8 +473,9 @@ pub struct Rounds {
   pub rounds: Vec<String>,
 }
 
-/// The search's rulebooks: their order, those given by their deciding section alone, that section's heading,
-/// and the two rulebooks every search ends with.
+/// The search's rulebooks, each a skill by its name: their order, those given by their deciding section
+/// alone, that section's heading, the plain-writing rulebook every search and references run ends with, and
+/// the one a references run is handed whole.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SearchRulebooks {
@@ -429,7 +483,7 @@ pub struct SearchRulebooks {
   pub on_request: Vec<String>,
   pub applies_section: String,
   pub plain_writing: String,
-  pub self_preservation: String,
+  pub references: String,
 }
 
 /// What the runner composes a run of.

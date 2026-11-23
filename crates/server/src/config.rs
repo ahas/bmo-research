@@ -192,6 +192,9 @@ pub struct Runner {
   pub search_role: String,
   pub browse_role: String,
   pub capabilities: Vec<String>,
+  /// The folder the skills a run is composed of are read from; empty reads the `prompts/skills` folder the
+  /// deployment places in the release the executable stands in (`docs/runner.md`, 「The line's instructions」).
+  pub skills: String,
 }
 
 impl Runner {
@@ -209,6 +212,7 @@ impl Default for Runner {
       capabilities: ["room.chat", "room.tools", "web.read", "web.sites", "web.branches", "web.rulebooks"]
         .map(String::from)
         .to_vec(),
+      skills: String::new(),
     }
   }
 }

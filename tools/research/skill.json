@@ -1,0 +1,18 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "asker": {
+      "description": "Who asked, as the room knows them; their own rule for this kind of research comes with the skill where they keep one. The owner where none is named.",
+      "type": "string"
+    },
+    "name": {
+      "description": "The skill's name, such as bmo-research-restaurants.",
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "type": "object"
+}

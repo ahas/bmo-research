@@ -1,7 +1,7 @@
 //! The research tool (`docs/api.md`, 「The tools」): its manifest held to the executable's entries, a call
 //! handed the way the tool host hands it answered against a served daemon, the owner's actions refused to a
-//! session that does not hold the owner's capability, a research sent out, and a rulebook read whole where the
-//! record hands it.
+//! session that does not hold the owner's capability, a research sent out, and a skill read whole where the
+//! record hands it or the chat asks it, with the asker's own rule after it where they keep one.
 
 use crate::support;
 
@@ -241,28 +241,90 @@ fn rulebook_call(labels: Value, name: &str) -> Value {
 }
 
 #[tokio::test]
-async fn a_rulebook_the_record_hands_is_read_whole_and_any_other_refused() {
-  let labels = json!({"research": {"rulebooks": ["product-search", "deep-dives"]}});
-  let read = research_tool::answer(rulebook_call(labels.clone(), "product-search")).await;
-  assert_eq!(read["isError"], false, "{read}");
-  let whole = std::fs::read_to_string(
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("prompts/rules/product-search.md"),
+async fn a_rulebook_the_record_does_not_hand_is_refused_with_the_names_it_does() {
+  let labels = json!({"research": {"rulebooks": ["bmo-research-products", "bmo-research-deep-dives"]}});
+  let refused = research_tool::answer(rulebook_call(labels, "bmo-research-routine")).await;
+  assert_eq!(refused["isError"], true);
+  assert!(text(&refused).contains("bmo-research-products, bmo-research-deep-dives"), "{refused}");
+  let none = research_tool::answer(rulebook_call(json!({}), "bmo-research-routine")).await;
+  assert_eq!(none["isError"], true);
+  assert!(text(&none).contains("handed no rulebook"), "{none}");
+}
+
+/// A deploy tree with two skills placed under `prompts/skills/`, and a data root whose people's rules give
+/// one person a restaurant rule of their own; answered as the tree's `bin/` and the data root.
+fn placed() -> (PathBuf, PathBuf) {
+  let tree = support::scratch().join("placed");
+  for name in ["bmo-research-restaurants", "bmo-research-products"] {
+    std::fs::create_dir_all(tree.join("prompts/skills").join(name)).unwrap();
+    std::fs::write(
+      tree.join("prompts/skills").join(name).join("SKILL.md"),
+      format!("---\nname: {name}\ndescription: \"When it is read.\"\nbundle: worker\n---\n\n# {name}\n\nThe default rule.\n"),
+    )
+    .unwrap();
+  }
+  let inside = tree.join("bin");
+  std::fs::create_dir_all(&inside).unwrap();
+  let root = support::scratch().join("data");
+  std::fs::create_dir_all(root.join("research")).unwrap();
+  std::fs::write(
+    root.join(research_tool::PEOPLE),
+    "[[person]]\nnames = [\"the owner\", \"Sam\"]\n[person.rules]\nbmo-research-restaurants = \"\"\"\n## Sam's rule\n\nFive checks.\n\"\"\"\n",
   )
   .unwrap();
-  assert_eq!(text(&read), format!("RULEBOOK prompts/rules/product-search.md:\n{whole}"));
-  let refused = research_tool::answer(rulebook_call(labels, "research")).await;
-  assert_eq!(refused["isError"], true);
-  assert!(text(&refused).contains("product-search, deep-dives"), "{refused}");
-  let none = research_tool::answer(rulebook_call(json!({}), "research")).await;
-  assert_eq!(none["isError"], true);
+  (inside, root)
+}
 
-  let placed = support::scratch().join("placed");
-  std::fs::create_dir_all(placed.join("prompts/rules")).unwrap();
-  std::fs::write(placed.join("prompts/rules/deep-dives.md"), "# Placed\n").unwrap();
-  let inside = placed.join("bin");
-  std::fs::create_dir_all(&inside).unwrap();
-  assert_eq!(research_tool::rules_folder(&inside), Some(placed.join("prompts/rules")));
-  let labels = json!({"research": {"rulebooks": ["deep-dives"]}});
-  let read = research_tool::rulebook(&inside, &labels, &json!({"name": "deep-dives"})).unwrap();
-  assert_eq!(read, "RULEBOOK prompts/rules/deep-dives.md:\n# Placed\n");
+#[test]
+fn a_rulebook_the_record_hands_is_its_skill_whole_with_the_asker_s_own_rule_after_it() {
+  let (inside, root) = placed();
+  assert_eq!(
+    research_tool::skills_folder(&inside),
+    Some(inside.parent().unwrap().join("prompts/skills"))
+  );
+  let handed = |owner: Value| json!({"research": {"rulebooks": ["bmo-research-restaurants", "bmo-research-products"], "owner": owner}});
+  let read = |labels: Value, name: &str| {
+    research_tool::rulebook(&inside, &root, &labels, &json!({"name": name})).unwrap()
+  };
+  assert_eq!(
+    read(handed(Value::Null), "bmo-research-products"),
+    "SKILL bmo-research-products:\n# bmo-research-products\n\nThe default rule.\n",
+    "the front matter is left out, and a skill the asker keeps no rule for is the skill alone"
+  );
+  let own = "SKILL bmo-research-restaurants:\n# bmo-research-restaurants\n\nThe default rule.\n\n\
+             THE ASKER'S OWN RULE:\n## Sam's rule\n\nFive checks.\n";
+  assert_eq!(
+    read(handed(Value::Null), "bmo-research-restaurants"),
+    own,
+    "an ask naming nobody is the owner's"
+  );
+  assert_eq!(
+    read(handed(json!(" sam ")), "bmo-research-restaurants"),
+    own,
+    "a name is matched as said"
+  );
+  assert_eq!(
+    read(handed(json!("Lee")), "bmo-research-restaurants"),
+    "SKILL bmo-research-restaurants:\n# bmo-research-restaurants\n\nThe default rule.\n",
+    "a person keeping no rule of their own is held to the default rule"
+  );
+
+  std::fs::write(root.join(research_tool::PEOPLE), "[[person]]\nname = 1\n").unwrap();
+  let unread = read(handed(json!("Sam")), "bmo-research-restaurants");
+  assert!(
+    unread.contains("could not be read") && unread.contains("apply the default rule"),
+    "{unread}"
+  );
+}
+
+#[test]
+fn a_research_skill_is_read_whole_for_the_asker_the_chat_names_and_any_other_name_refused() {
+  let (inside, root) = placed();
+  let read = |arguments: Value| research_tool::skill(&inside, &root, &arguments);
+  let own = read(json!({"name": "bmo-research-restaurants", "asker": "Sam"})).unwrap();
+  assert!(own.ends_with("THE ASKER'S OWN RULE:\n## Sam's rule\n\nFive checks.\n"), "{own}");
+  let other = read(json!({"name": "bmo-research-restaurants", "asker": "Lee"})).unwrap();
+  assert!(!other.contains("THE ASKER'S OWN RULE"), "{other}");
+  let refused = read(json!({"name": "bmo-research-anything"})).unwrap_err();
+  assert!(refused.contains("bmo-research-products, bmo-research-restaurants"), "{refused}");
 }

@@ -46,6 +46,16 @@ run is this unit's.
 
 ## The line's instructions
 
+- **The rulebooks are skills.** Each is a skill of the skills repository, bmo-skills, by its name there
+  (`bmo-research-kinds`, `bmo-research-products`, `bmo-research-restaurants` and the rest, and
+  `bmo-docs-plain-writing`), the same text a job worker is given and the chat agent reads. This unit holds
+  none of them: `prompts/runner.toml` names which a run is composed of, `bmo-research skills` prints those
+  names, and the deployment places each, with that repository's own placer, under `prompts/skills/` of the
+  release (`docs/api.md`, 「The command」). A run reads a skill's body, its front matter left out, from the
+  folder the settings name (`[runner]`, `skills`), else from `prompts/skills/` in the release the running binary stands in; a
+  skill that is not placed there, or lacks the section a run is given, refuses the run as a broken prompt.
+  The rule against destroying the system is the platform's, not a skill: this unit keeps its copy under
+  `prompts/rules/` and ends every run's instructions with it.
 - **A search's system prompt** is composed here as the run is asked: the search task
   (`prompts/search/task.md`) with the web namespace's listing set in its `{tools}` mark, then the search
   rulebooks in the order `prompts/runner.toml` names — those binding only some searches given by the one
@@ -53,12 +63,15 @@ run is this unit's.
   against destroying the system. The listing is the tool host's: the `listing` line of every tool under the
   namespace `web`, by its order. A search whose listing cannot be had is refused 503 and nothing is asked.
 - **A rulebook binding only some searches** is read whole by the run, once its deciding section says it
-  applies, with `research/rulebook`, which answers the rulebooks the record names under `rulebooks` alone.
+  applies, with `research/rulebook`, which answers the rulebooks the record names under `rulebooks` alone,
+  each followed by the asker's own rule for its kind where the asker keeps one (`docs/settings.md`, 「A
+  person's own rules」): the restaurant rulebook's filter is the asker's own where they keep one, else its
+  default rule.
 - **A browse's system prompt** is the browse task (`prompts/browse/task.md`) and the rulebook against
   destroying the system.
 - **A references run's system prompt** is the references task (`prompts/references/task.md`) with the same
-  listing, the `references` rulebook whole (`prompts/rules/references.md`), the plain-writing rulebook and
-  the rulebook against destroying the system. The run's record names that one rulebook under `rulebooks`, so
+  listing, the references rulebook (`bmo-research-references`) whole, the plain-writing rulebook and the
+  rulebook against destroying the system. The run's record names that one rulebook under `rulebooks`, so
   `research/rulebook` answers it and no search rulebook binds the run.
 - **A branch's system prompt** is the branch instructions (`prompts/search/branch.md`) with the same listing,
   and the rulebook against destroying the system. Agency puts the platform's harness opening before each.
@@ -338,7 +351,8 @@ type before it uses one.
   references run is the one that carries none. Where the result its last turn wrote has no `LISTEN:` block,
   or an empty one, the same session is asked one more turn, named `research-<run>-narration`, for the
   narration alone: the narration question
-  (`prompts/runner.toml`, `[narration]`), the search-kinds rulebook's section on the narration, the task as
+  (`prompts/runner.toml`, `[narration]`), the search-kinds rulebook's (`bmo-research-kinds`) section on the
+  narration, the task as
   the run was given it and the answer written last. The narration says what the thing is, the verdict and
   the one thing to know, in plain spoken sentences in the question's language, with no heading, list or
   structure line.

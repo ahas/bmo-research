@@ -1725,6 +1725,7 @@ name = "research-tool"
 version = "0.1.0-rev.17"
 dependencies = [
  "bmo-research-client",
+ "pulldown-cmark",
  "serde",
  "serde_json",
  "tokio",

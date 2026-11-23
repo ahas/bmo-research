@@ -50,7 +50,9 @@ state how all of it works.
 - `crates/server`: the daemon and the `bmo-research` binary (`serve`, `health`, `openapi`, `migrate` and the
   `research` nouns).
 - `tools/research`: the tool the tool host places, one executable answering every entry of the namespace.
-- `prompts/`: the search and browse instructions, the rulebooks, the question templates and the words.
+- `prompts/`: the search and browse instructions, the rule against destroying the system, the question
+  templates and the words. The rulebooks are skills of the skills repository, placed under
+  `prompts/skills/` at deployment and never committed (`docs/runner.md`, 「The line's instructions」).
 - `docs/`, `deploy/`, `tests/`, and `testbed.toml` at the root.
 
 ## Checks

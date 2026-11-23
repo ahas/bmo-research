@@ -1,13 +1,14 @@
 //! The research namespace's tool (`docs/api.md`, 「The tools」): one executable answering every entry of the
 //! namespace by calling the daemon's routes, at the address and with the token the daemon's settings name
-//! under the data root the session record's `BMO_DATA_DIR` names; the rulebook reader alone reads no route but
-//! the rulebooks placed beside the executable. It speaks the tool host's call protocol 1: one request on
-//! standard input, one tool result on standard output.
+//! under the data root the session record's `BMO_DATA_DIR` names; the two skill readers alone read no route
+//! but the skills placed beside the executable and the asker's own rules under the data root. It speaks the
+//! tool host's call protocol 1: one request on standard input, one tool result on standard output.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use bmo_research_client::*;
+use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -34,11 +35,21 @@ pub const ENTRIES: &[&str] = &[
   "resume",
   "run",
   "rulebook",
+  "skill",
 ];
 
-/// The folder under which a rulebook is read: `prompts/rules` under the tool's working folder or the nearest
+/// The folder under which a skill is read: `prompts/skills` under the tool's working folder or the nearest
 /// folder above it holding one.
-pub const RULES: &str = "prompts/rules";
+pub const SKILLS: &str = "prompts/skills";
+
+/// The file under the data root holding each person's own rules (`docs/settings.md`, 「A person's own rules」).
+pub const PEOPLE: &str = "research/people.toml";
+
+/// The asker a run or a call names nobody as.
+pub const NOBODY: &str = "the owner";
+
+/// The line a person's own rule is answered under, after the skill it stands in.
+pub const OWN_RULE: &str = "THE ASKER'S OWN RULE:";
 
 /// A tool result: text for the model, marked as an error where it is a refusal.
 pub fn result(text: impl Into<String>, error: bool) -> Value {
@@ -118,9 +129,15 @@ pub async fn answer(handed: Value) -> Value {
   };
   let session = &handed["session"];
   let arguments = handed.get("arguments").cloned().unwrap_or_else(|| json!({}));
-  if name == "rulebook" {
+  if name == "rulebook" || name == "skill" {
     let here = std::env::current_dir().unwrap_or_default();
-    return match rulebook(&here, &session["labels"], &arguments) {
+    let root = data_root(session);
+    let read = if name == "rulebook" {
+      rulebook(&here, &root, &session["labels"], &arguments)
+    } else {
+      skill(&here, &root, &arguments)
+    };
+    return match read {
       Ok(text) => result(text, false),
       Err(why) => result(why, true),
     };
@@ -305,14 +322,28 @@ pub async fn call(
   }
 }
 
-/// The folder holding `prompts/rules`: `here` or the nearest folder above it.
-pub fn rules_folder(here: &Path) -> Option<PathBuf> {
-  here.ancestors().map(|folder| folder.join(RULES)).find(|rules| rules.is_dir())
+/// The folder holding `prompts/skills`: `here` or the nearest folder above it.
+pub fn skills_folder(here: &Path) -> Option<PathBuf> {
+  here.ancestors().map(|folder| folder.join(SKILLS)).find(|skills| skills.is_dir())
 }
 
-/// One rulebook the session record's `labels.research.rulebooks` names, whole, read from the rules folder
-/// found from `here`; a name the record does not name is refused with the names it does.
-pub fn rulebook(here: &Path, labels: &Value, arguments: &Value) -> Result<String, String> {
+/// The data root the session record's `BMO_DATA_DIR` names, else the platform's own under the home folder.
+pub fn data_root(session: &Value) -> PathBuf {
+  match session["variables"]["BMO_DATA_DIR"].as_str().filter(|r| !r.is_empty()) {
+    Some(root) => PathBuf::from(root),
+    None => PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".local/share/bmo/data"),
+  }
+}
+
+/// One rulebook the session record's `labels.research.rulebooks` names, whole, read from the skills folder
+/// found from `here`, with the asker's own rule for it where they keep one; a name the record does not name
+/// is refused with the names it does. The asker is the record's `owner`, the owner where it names none.
+pub fn rulebook(
+  here: &Path,
+  data_root: &Path,
+  labels: &Value,
+  arguments: &Value,
+) -> Result<String, String> {
   let name = need_text(arguments, "name")?;
   let name = name.trim_end_matches(".md").rsplit('/').next().unwrap_or_default().to_string();
   let handed: Vec<String> = labels["research"]["rulebooks"]
@@ -326,10 +357,106 @@ pub fn rulebook(here: &Path, labels: &Value, arguments: &Value) -> Result<String
       format!("{name} is no rulebook this run was handed: {}", handed.join(", "))
     });
   }
-  let folder = rules_folder(here).ok_or_else(|| format!("no {RULES} stands above {}", here.display()))?;
-  let path = folder.join(format!("{name}.md"));
+  let asker = labels["research"]["owner"].as_str().filter(|a| !a.trim().is_empty()).unwrap_or(NOBODY);
+  let folder = skills_folder(here).ok_or_else(|| format!("no {SKILLS} stands above {}", here.display()))?;
+  with_own_rule(&folder, data_root, &name, asker)
+}
+
+/// One skill placed in the skills folder found from `here`, whole, with the asker's own rule for it where
+/// they keep one; a name no skill is placed under is refused with the names that are. The asker is the
+/// argument `asker`, the owner where it names none.
+pub fn skill(here: &Path, data_root: &Path, arguments: &Value) -> Result<String, String> {
+  let name = need_text(arguments, "name")?;
+  let asker = arguments["asker"].as_str().filter(|a| !a.trim().is_empty()).unwrap_or(NOBODY);
+  let folder = skills_folder(here).ok_or_else(|| format!("no {SKILLS} stands above {}", here.display()))?;
+  let placed = placed_skills(&folder);
+  if !placed.contains(&name) {
+    return Err(format!("{name} is no research skill: {}", placed.join(", ")));
+  }
+  with_own_rule(&folder, data_root, &name, asker)
+}
+
+/// The names of the skills placed in `folder`, in order.
+pub fn placed_skills(folder: &Path) -> Vec<String> {
+  let mut names: Vec<String> = std::fs::read_dir(folder)
+    .map(|entries| {
+      entries
+        .filter_map(Result::ok)
+        .filter(|entry| entry.path().join("SKILL.md").is_file())
+        .filter_map(|entry| entry.file_name().into_string().ok())
+        .collect()
+    })
+    .unwrap_or_default();
+  names.sort();
+  names
+}
+
+/// The skill `name` under `folder`, its front matter left out, then the asker's own rule for it under
+/// [`OWN_RULE`] where they keep one; a file of the people's rules that does not read is said in its place.
+fn with_own_rule(folder: &Path, data_root: &Path, name: &str, asker: &str) -> Result<String, String> {
+  let path = folder.join(name).join("SKILL.md");
   let text = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-  Ok(format!("RULEBOOK prompts/rules/{name}.md:\n{text}"))
+  let whole = format!("SKILL {name}:\n{}", skill_body(&text));
+  Ok(match own_rule(data_root, asker, name) {
+    Ok(Some(rule)) => format!("{}\n\n{OWN_RULE}\n{}\n", whole.trim_end(), rule.trim()),
+    Ok(None) => whole,
+    Err(why) => format!(
+      "{}\n\nThe asker's own rule could not be read ({why}): apply the default rule and say so.\n",
+      whole.trim_end()
+    ),
+  })
+}
+
+/// A `SKILL.md`'s body: what follows its front matter block, as the markdown reader finds the block, with
+/// the blank lines after it left out; a text with no front matter is its own body.
+pub fn skill_body(text: &str) -> &str {
+  let mut parser = Parser::new_ext(text, Options::ENABLE_YAML_STYLE_METADATA_BLOCKS)
+    .into_offset_iter()
+    .peekable();
+  if !matches!(parser.peek(), Some((Event::Start(Tag::MetadataBlock(_)), _))) {
+    return text;
+  }
+  let end = parser
+    .find_map(|(event, range)| matches!(event, Event::End(TagEnd::MetadataBlock(_))).then_some(range.end))
+    .unwrap_or(0);
+  text[end..].trim_start_matches(['\n', '\r'])
+}
+
+/// Each person who keeps rules of their own: the names an asker is named by, and their rule for each
+/// skill's kind of research, by the skill's name.
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct People {
+  #[serde(default)]
+  person: Vec<Person>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Person {
+  names: Vec<String>,
+  #[serde(default)]
+  rules: BTreeMap<String, String>,
+}
+
+/// The asker's own rule for the skill `name`, read from [`PEOPLE`] under the data root: none where the file
+/// does not stand, names no person by the asker's name, or that person keeps no rule for the skill.
+pub fn own_rule(data_root: &Path, asker: &str, name: &str) -> Result<Option<String>, String> {
+  let path = data_root.join(PEOPLE);
+  let people: People = match std::fs::read_to_string(&path) {
+    Ok(text) => toml::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?,
+    Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+    Err(e) => return Err(format!("{}: {e}", path.display())),
+  };
+  let asker = asker.trim().to_lowercase();
+  Ok(
+    people
+      .person
+      .into_iter()
+      .find(|person| person.names.iter().any(|named| named.trim().to_lowercase() == asker))
+      .and_then(|mut person| person.rules.remove(name))
+      .filter(|rule| !rule.trim().is_empty()),
+  )
 }
 
 fn item_line(item: &Item) -> String {

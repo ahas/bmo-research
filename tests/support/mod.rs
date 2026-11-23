@@ -1539,6 +1539,14 @@ pub fn tool_host(world: Shared) -> Router {
     .with_state(world)
 }
 
+/// The stand-in skills a run is composed of, held as the folder every run of the process reads them from:
+/// the skills repository holds the real ones, and a deployment places them.
+pub fn skills() -> PathBuf {
+  let folder = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/skills");
+  research_server::words::hold_skills(folder.clone());
+  folder
+}
+
 /// A fixture's text, from `tests/fixtures/`.
 pub fn fixture(name: &str) -> String {
   std::fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(name))
@@ -1772,6 +1780,7 @@ pub async fn ground(change: impl FnOnce(&mut Settings)) -> Ground {
   settings.poll_seconds = 0;
   settings.agency.away_first_ms = 1;
   settings.agency.away_most_ms = 5;
+  settings.runner.skills = skills().to_string_lossy().into_owned();
   change(&mut settings);
   let store = Store::open(&settings.store_dir()).unwrap();
   let app = App::new(settings, store, "test-token".into());

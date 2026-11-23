@@ -34,6 +34,8 @@ enum Step {
   Migrate,
   /// Draws every filed page again where it differs from what this binary draws, and prints how many it set.
   Redraw,
+  /// Prints the skills the runner composes a run of, one name a line: what a deployment places.
+  Skills,
   /// The unit's own verbs, as `bmo research` hands them.
   Research {
     #[command(subcommand)]
@@ -145,6 +147,10 @@ async fn main() -> ExitCode {
     }
     Step::Migrate => migrate(),
     Step::Redraw => redraw().await,
+    Step::Skills => {
+      research_server::words::skills().iter().for_each(|name| println!("{name}"));
+      Ok(())
+    }
     Step::Research { verb } => command(verb).await,
   };
   match said {

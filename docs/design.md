@@ -11,7 +11,8 @@ research feature; agency supplies it slots and sessions and nothing more.
 
 - **Bongbos's routine, running on its own.** The owner's collaborator reads a maker's material, measures
   what it claims on the lab's own hardware and reports in a fixed shape (the rulebook
-  `prompts/rules/research.md`: the investigation, the manual and the verification). The daemon does the
+  `bmo-research-routine`, a skill of the skills repository: the investigation, the manual and the
+  verification). The daemon does the
   first two shapes by itself, continuously, and the third on the owner's word.
 - **Continuous, uncapped and cheap.** Everything its sources turn up waits in the queue, which has no cap;
   the lab's nodes pull from it, so as many deep dives run as the search line's role has places, and the
@@ -151,7 +152,7 @@ adds, changes and takes away categories freely; three stand at the start:
 
 | Category | Purpose | What a deep dive produces | What follows |
 |---|---|---|---|
-| `it` | new AI technology, as Bongbos's lab researches it | the manual or the investigation (the rulebook `research.md`): the maker's own material, the lab's fit, the reproduction plan | a `fit` item is reported for the owner's word; approved, a verification job under the bench lock, and a service registered with the arbiter |
+| `it` | new AI technology, as Bongbos's lab researches it | the manual or the investigation (the rulebook `bmo-research-routine`): the maker's own material, the lab's fit, the reproduction plan | a `fit` item is reported for the owner's word; approved, a verification job under the bench lock, and a service registered with the arbiter |
 | `security` | vulnerability news that bears on the platform's own stack | an advisory investigation: what the flaw is, the affected versions, whether and where the platform runs them (the stack inventory below), the vendor's fix and the patch steps | each repository's worker is notified of its own part; the patch is the worker's work |
 | `economy` | the economic news and indicators the owner's later portfolio and trading system will read | a brief, not a deep dive: the items of the day in one document with the figures they carry, the sources, and the facts kept for the economy store | the brief is notified to the owner's room now and to the trading agent later; the facts stand in the store for it to read |
 
@@ -160,7 +161,7 @@ adds, changes and takes away categories freely; three stand at the start:
   writes the brief. The question templates under `prompts/` are one per shape.
 - **A topic is a category whose question is the owner's own.** Its shape is `topic`: what to look for and how
   to report it is the category's `instruction`, written by the owner in his own words, and no template or
-  rulebook of this repository is added for it. Like a brief it is gathered: once its `gatherMinutes` have
+  rulebook is added for it. Like a brief it is gathered: once its `gatherMinutes` have
   passed — thirty minutes, a day, whatever the owner sets — one run is asked the instruction, with every
   item its sources turned up since under it where it has sources, and on the instruction alone where it has
   none, so a topic that is only a standing search needs no source at all. Its result is filed as a document
@@ -222,7 +223,8 @@ A source is a registration: a category, a kind, an address and, where the kind t
 ## Where the runner lives
 
 - **The research runner is this unit's** (`docs/runner.md`): the search, browse and reference instructions,
-  the rulebooks, the request, the research settings, the rounds, the branch allowance, the filing of the
+  composed with the rulebooks, which are skills of the skills repository the deployment places beside it, the
+  request, the research settings, the rounds, the branch allowance, the filing of the
   document and the room's instruction, and the run's ledger and log. Agency supplies a slot of the role a
   run holds — `voyager` on its search line, `seeker` on its browse line — whose road is that of the agent of that role it is let in on,
   and sessions of that role, whose system prompt this unit hands in whole and whose record carries the run's
@@ -329,8 +331,8 @@ A source is a registration: a category, a kind, an address and, where the kind t
     longer the one that result answers.
 - **No count of failures gives an item up.** Past its retries the item is `stuck`: still asked on every
   retry wait, while the repair worker is handed the evidence — the item, its runs, their errors and the last lines
-  of their log — through a repair item in the job service, to fix the cause in the prompts, the rulebooks,
-  the runner or the engine's road and then ask the item again (`docs/api.md`, 「The repair」). The owner's
+  of their log — through a repair item in the job service, to fix the cause in the prompts, the rulebooks (the
+  skills repository's research skills), the runner or the engine's road and then ask the item again (`docs/api.md`, 「The repair」). The owner's
   dismissal is the one way an item leaves the queue unreported.
 
 ## The notifier
@@ -457,7 +459,9 @@ category, with `PATCH` to stop and resume, and what holds the queue while a run'
 `research` are the chat agent's doors to the same: `research/ask`, `research/queue`, `research/taken`,
 `research/dismiss`, `research/categories`, `research/sources`, `research/rooms`, `research/stop`,
 `research/resume` and `research/run`; the owner-only ones hold a capability the chat line alone is given. A
-search run is shown `research/rulebook`, the reader of the rulebooks its record names.
+search run is shown `research/rulebook`, the reader of the rulebooks its record names, and the chat line
+`research/skill`, the reader of every research skill, each with the asker's own rule for its kind where
+they keep one (`docs/api.md`, 「The tools」).
 
 ## Phases
 

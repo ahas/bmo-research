@@ -155,3 +155,16 @@ capabilities = ["web.rulebooks"]
 [entry.listing]
 line = "- rulebook — read a rulebook this search was handed, whole"
 order = 12
+
+[[entry]]
+namespace = "research"
+name = "skill"
+title = "Read a research skill"
+description = "Read one research skill whole: the rules a kind of research and its answer are held to, with the asker's own rule for that kind where they keep one. Before answering such a request yourself, read the skill for its kind: bmo-research-restaurants for places to eat or food to order, bmo-research-products for a thing to buy or a price, bmo-research-investment for where to put money or a stock forecast, bmo-research-study-material for material to learn a subject from, bmo-research-security-advisories for a vulnerability or an advisory, bmo-research-economy-brief for a brief of a day's economic news, bmo-research-deep-dives and bmo-research-routine for a deep look at a thing somebody made, bmo-research-kinds for what any search checks and attaches, and bmo-docs-plain-writing for how the words read. Name the asker so their own rule comes with it."
+input = "skill.json"
+hints = { read_only = true }
+capabilities = ["research.ask"]
+
+[entry.listing]
+line = "- skill — read the research skill a kind of request is held to, with the asker's own rule"
+order = 13

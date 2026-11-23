@@ -331,11 +331,11 @@ async fn a_references_run_is_asked_filed_as_a_dossier_and_told_to_no_room() {
   let first = &sessions[0];
   let system = first["systemPrompt"].as_str().unwrap();
   assert!(
-    system.contains("prompts/rules/references.md"),
+    system.contains("SKILL bmo-research-references:\n"),
     "the references rulebook is handed whole"
   );
   assert!(!system.contains("prompts/search/task.md"), "no search task binds a references run");
-  assert_eq!(first["labels"]["research"]["rulebooks"], json!(["references"]));
+  assert_eq!(first["labels"]["research"]["rulebooks"], json!(["bmo-research-references"]));
   let turn = ground.turns_named("research-1").remove(0);
   let prompt = turn["prompt"].as_str().unwrap();
   for said in [

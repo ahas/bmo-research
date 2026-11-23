@@ -52,9 +52,29 @@ bmo_dir="$(dirname "$(command -v bmo)")"
 ln -sfn "$HOME/.local/share/bmo-research/deploy/bin/bmo-research" "$bmo_dir/bmo-research"
 '''
 
+# The skills the runner composes a run of, each placed under prompts/skills/ by the skills repository's own
+# placer, a skill at a time as the release's binary names them (docs/runner.md, "The line's instructions"):
+# from the skills checkout beside this one in the workspace the checkout stands in, or the one BMO_SKILLS_DIR
+# names, built into the shared Cargo target.
+[[deploy.step]]
+id = "place-skills"
+phase = "before-flip"
+command = '''
+set -eu
+common="$(git rev-parse --path-format=absolute --git-common-dir)"
+skills="${BMO_SKILLS_DIR:-$(dirname "$common")/../../resources/skills}"
+target="${BMO_CARGO_TARGET_DIR:-$HOME/.local/share/bmo/cargo-target}"
+cargo build --quiet --release --manifest-path "$skills/Cargo.toml" --bin bmo-skills --target-dir "$target"
+rm -rf prompts/skills
+mkdir -p prompts/skills
+bin/bmo-research skills | while read -r name; do
+  "$target/release/bmo-skills" place --skill "$name" --into prompts/skills --from "$skills"
+done
+'''
+
 # The tool is placed in its folder's .placed/: the executable the release's bin/ holds, its manifest and the
-# schemas beside it, and the rulebooks under prompts/rules/, which the rulebook reader reads from the folder it
-# is placed in.
+# schemas beside it, and the skills under prompts/skills/, which the skill readers read from the folder it is
+# placed in.
 [[deploy.step]]
 id = "place-tools"
 phase = "before-flip"
@@ -63,8 +83,8 @@ set -eu
 rm -rf tools/research/.placed
 mkdir -p tools/research/.placed
 cp bin/research-tool tools/research/tool.toml tools/research/*.json tools/research/.placed/
-mkdir -p tools/research/.placed/prompts/rules
-cp prompts/rules/*.md tools/research/.placed/prompts/rules/
+mkdir -p tools/research/.placed/prompts
+cp -R prompts/skills tools/research/.placed/prompts/
 '''
 
 # The tool registered with the tool host once the daemon answers, as this service's own (docs/api.md, "The

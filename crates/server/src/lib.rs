@@ -52,6 +52,9 @@ pub struct App {
 
 impl App {
   pub fn new(settings: config::Settings, store: store::Store, token: String) -> Arc<App> {
+    if !settings.runner.skills.trim().is_empty() {
+      words::hold_skills(config::expand(settings.runner.skills.trim()));
+    }
     let settings = Arc::new(settings);
     let http = reqwest::Client::builder()
       .user_agent(format!("{}/{}", settings.user_agent, env!("CARGO_PKG_VERSION")))

@@ -16,7 +16,7 @@ information, and Unsplash's public search and photo pages. A source outside thes
 source the run needed could not be read, say under `unresolved` what the dossier still lacks, never that a
 tool refused.
 
-The rulebook `references` after this task is the whole rule: the sources, the candidate's fields, the licence
+The rulebook `bmo-research-references` after this task is the whole rule: the sources, the candidate's fields, the licence
 as metadata and the dossier's shape. It binds every answer.
 
 Your answer is the dossier as JSON: one fenced code block holding the object, with nothing before it and

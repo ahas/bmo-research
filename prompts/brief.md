@@ -1,6 +1,6 @@
 Write today's economy brief.
 
-Its shape is the rulebook economy-brief.md's. Read each item below yourself, and gather the day's news into one document.
+Its shape is the rulebook bmo-research-economy-brief's. Read each item below yourself, and gather the day's news into one document.
 
 {items}
 

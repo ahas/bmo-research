@@ -234,8 +234,11 @@ async fn a_daemon_stopped_by_sigterm_in_a_deep_dive_and_started_again_takes_its_
   std::fs::write(
     ground.root.join("research/settings.toml"),
     format!(
-      "listen = \"127.0.0.1:{port}\"\ntick_seconds = 1\npoll_seconds = 0\nstop_seconds = 0\n\n[artifact]\naddress = \"{}\"\n\n[engine]\naddress = \"{}\"\n\n[tool_host]\nsocket = \"{}\"\n",
-      settings.artifact.address, settings.engine.address, settings.tool_host.socket
+      "listen = \"127.0.0.1:{port}\"\ntick_seconds = 1\npoll_seconds = 0\nstop_seconds = 0\n\n[artifact]\naddress = \"{}\"\n\n[engine]\naddress = \"{}\"\n\n[tool_host]\nsocket = \"{}\"\n\n[runner]\nskills = \"{}\"\n",
+      settings.artifact.address,
+      settings.engine.address,
+      settings.tool_host.socket,
+      settings.runner.skills
     ),
   )
   .unwrap();

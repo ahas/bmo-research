@@ -2,7 +2,7 @@
   "additionalProperties": false,
   "properties": {
     "name": {
-      "description": "The rulebook's name as the instructions name it, such as product-search.",
+      "description": "The rulebook's name as the instructions name it, such as bmo-research-products.",
       "minLength": 1,
       "type": "string"
     }

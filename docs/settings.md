@@ -68,6 +68,22 @@ How a research run goes out (`docs/runner.md`).
 | `search_role` | `voyager` | The role a run on the search line holds: its own slot and its review's are asked under it |
 | `browse_role` | `seeker` | The role a run on the browse line holds: its own slot and its review's are asked under it |
 | `capabilities` | `room.chat`, `room.tools`, `web.read`, `web.sites`, `web.branches`, `web.rulebooks` | The capabilities a run's session record keeps, handed as `toolsAllowed`: `web.branches` is left out where the run may open no branch, `web.rulebooks` where it is handed no rulebook |
+| `skills` | empty | The folder the skills a run is composed of are read from, a folder a skill under its name; empty reads `prompts/skills/` in the release the running binary stands in, where the deployment places them (`docs/runner.md`, 「The line's instructions」) |
+
+## A person's own rules: `research/people.toml`
+
+A file of its own under the data root, beside the settings and apart from them: the daemon never reads it,
+and the research tool's two skill readers, `research/rulebook` and `research/skill`, read it at every call
+(`docs/api.md`, 「The tools」). It holds the rules a person keeps for a kind of research in their own words,
+which stand in place of that kind's default: a restaurant recommendation filtered by the asker's own
+checklist rather than the restaurant skill's default rule. It is the installation's private data, written by
+the owner, never a file of this repository. A file that does not stand holds no one's rule.
+
+| Key | Meaning |
+|---|---|
+| `person` | A list of tables, one a person who keeps rules of their own |
+| `person.names` | The names an asker is matched by, as said and case aside: the words a room knows the person by, and `the owner` for the owner, whom an ask naming nobody stands for |
+| `person.rules` | A table: each key a skill's name, such as `bmo-research-restaurants`, each value the person's own rule for that skill's kind, opening with the name the result's `RULE:` line gives it |
 
 ## The research settings' defaults: `[research_settings]`
 

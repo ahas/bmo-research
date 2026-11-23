@@ -1,15 +1,16 @@
 # What the research runner composes a run of (docs/runner.md): the search rulebooks and the rounds.
 
-# The rulebooks a search is bound by, in this order, each named as it stands under prompts/rules/; the ones
-# binding only some searches, of which only the section deciding whether each applies stands in the
-# instructions, the run reading the rest with research/rulebook; and that section's heading. The
-# plain-writing and self-preservation rulebooks follow them whole.
+# The rulebooks a search is bound by, in this order, each a skill of the skills repository named as it is
+# placed under prompts/skills/; the ones binding only some searches, of which only the section deciding
+# whether each applies stands in the instructions, the run reading the rest with research/rulebook; and that
+# section's heading. The plain-writing rulebook follows them whole, then the rule against destroying the
+# system under prompts/rules/. A references run is handed its one rulebook whole.
 [search]
-rulebooks = ["search-kinds", "product-search", "restaurant-search", "investment-search", "study-material", "deep-dives", "research", "security-advisory", "economy-brief"]
-on_request = ["product-search", "restaurant-search", "investment-search", "study-material", "deep-dives", "research", "security-advisory", "economy-brief"]
+rulebooks = ["bmo-research-kinds", "bmo-research-products", "bmo-research-restaurants", "bmo-research-investment", "bmo-research-study-material", "bmo-research-deep-dives", "bmo-research-routine", "bmo-research-security-advisories", "bmo-research-economy-brief"]
+on_request = ["bmo-research-products", "bmo-research-restaurants", "bmo-research-investment", "bmo-research-study-material", "bmo-research-deep-dives", "bmo-research-routine", "bmo-research-security-advisories", "bmo-research-economy-brief"]
 applies_section = "Whether this rulebook applies at all"
-plain_writing = "plain-writing"
-self_preservation = "self-preservation"
+plain_writing = "bmo-docs-plain-writing"
+references = "bmo-research-references"
 
 # The rounds a run asks a session of their own after its first answer (docs/runner.md, 「The rounds」): the
 # questions by name, each a rule the session is asked, and each research key's list, the depth deciding how
@@ -53,7 +54,7 @@ inside = "IN SCOPE"
 # narration」): the question, and the rulebook and its section the narration is written by.
 [narration]
 question = "The answer you wrote last carries no narration. Write the narration alone now: the script for the ear the rule below states, in the language the question is asked in. Say what the thing is, the verdict, and the one thing a listener must know, in plain spoken sentences. Write no heading, no list, no structure line and nothing else: this turn's text is taken whole as the script."
-rulebook = "search-kinds"
+rulebook = "bmo-research-kinds"
 section = "The narration"
 
 # What a deep dive's session is asked where its result is short of its shape (docs/runner.md, 「The deep
@@ -70,7 +71,7 @@ whole = "The answer you wrote last is not the reference dossier: {problems}. Wri
 # the rulebook and its section the review is held to, which stand as the review session's instructions.
 [review]
 question = "Review the finished page below by the rules you were given: its English side, its Korean side and its two narrations. Where nothing needs fixing, write the line PASS and nothing else. Otherwise write each fix as a block of its own: first a line FIX: followed by the side and the part, which is en or ko and then the section's heading exactly as the English side writes it, or narration-en, or narration-ko; then a line WHY: followed by the fault in one sentence; then the part rewritten whole, a section with its heading line first. Write nothing before the first block and nothing between two blocks: each block is applied as it stands."
-rulebook = "deep-dives"
+rulebook = "bmo-research-deep-dives"
 section = "The review"
 # The names the finished page's parts are handed under, each on a line of its own between the marks, and the
 # word standing for a part the page has none of.

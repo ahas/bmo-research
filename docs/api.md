@@ -529,8 +529,8 @@ The templates under `prompts/` are in English, one per item shape, each naming i
 search runner applies it, and the run writes its document in English, the question's language:
 
 - `manual.md` and `investigation.md`, a `manual-or-investigation` category's: a `model` item is asked as a
-  manual (the rulebook `research.md`, 「The manual」), and a `paper`, `release` or `entry` item as an
-  investigation (`research.md`, 「The investigation」); an ask names its own. The item's `{name}`,
+  manual (the rulebook `bmo-research-routine`, 「The manual」), and a `paper`, `release` or `entry` item as
+  an investigation (`bmo-research-routine`, 「The investigation」); an ask names its own. The item's `{name}`,
   `{address}` and `{origin}` are set in. The manual's question names the headings and the label the fit is
   read by; both name the opening section saying what the subject is and what it is for.
 - **An investigation's `{prior}`** is its category's nearest earlier reports, at most a handful, read from
@@ -539,7 +539,7 @@ search runner applies it, and the run writes its document in English, the questi
   number, title, subject and live link, the latest first where they stand equally near. A category holding
   no reported item sets the one line saying none stands, so the run compares with nothing and invents no
   comparison.
-- `advisory.md`, an `advisory` category's (`security-advisory.md`): the item's `{name}`, `{address}` and
+- `advisory.md`, an `advisory` category's (`bmo-research-security-advisories`): the item's `{name}`, `{address}` and
   `{origin}`, `{stack}`, the stack inventory a row a line, and `{floor}`, the age floor the run is judged
   against. It asks for the exposure as a table naming each component's repository.
 - **The age floor** is the oldest recorded component, by the moment its build or version was recorded, and
@@ -552,7 +552,7 @@ search runner applies it, and the run writes its document in English, the questi
   the words it was made with quoted; or, for a follow-up, the document it follows from by its number and
   title, linked where its live link is known, with the sentence saying why it was asked quoted. A brief,
   gathered from its category's sources, is handed none.
-- `brief.md`, a `brief` category's (`economy-brief.md`): `{items}`, every gathered item's name and address
+- `brief.md`, a `brief` category's (`bmo-research-economy-brief`): `{items}`, every gathered item's name and address
   a line.
 
 ### The fit
@@ -849,7 +849,8 @@ daemon's settings name, read under the data root the session record's `BMO_DATA_
 | `research/stop` | `category?` | `PATCH /state` | `research.owner` |
 | `research/resume` | `category?` | `PATCH /state` | `research.owner` |
 | `research/run` | `key`, `query`, `options?`, `roomId?`, `provider?`, `model?`, `asker?` | `POST /research-runs` | `research.ask` |
-| `research/rulebook` | `name` | none: it reads the rulebook from the deploy tree | `web.rulebooks` |
+| `research/rulebook` | `name` | none: it reads the skill from the deploy tree, and the asker's own rule from the data root | `web.rulebooks` |
+| `research/skill` | `name`, `asker?` | none: it reads the skill from the deploy tree, and the asker's own rule from the data root | `research.ask` |
 
 - **An entry that both reads and changes** is shown to a session holding `research.ask`, and the tool
   refuses its changing actions to a session whose record does not also hold `research.owner`.
@@ -867,16 +868,28 @@ daemon's settings name, read under the data root the session record's `BMO_DATA_
   line or two with its document's link.
 - **`research/ask` says why and from what:** `because` is the ask's words, and `follows` the item or
   `document` the document an ask made from an earlier research follows from (「queue」).
-- **`research/rulebook` answers one rulebook whole,** read from `prompts/rules/<name>.md` under the first
-  folder, from the tool's working folder upward, that holds `prompts/rules`: the deployment places the
-  rulebooks beside the tool's executable. Only a name the session record's `labels.research.rulebooks` holds is
-  read; any other is refused with the names that are. It is shown to a search run, whose record holds
-  `web.rulebooks`.
+- **`research/rulebook` answers one rulebook whole,** the skill of that name read from
+  `prompts/skills/<name>/SKILL.md` under the first folder, from the tool's working folder upward, that holds
+  `prompts/skills`: the deployment places the skills beside the tool's executable. The skill's front matter
+  is left out. Only a name the session record's `labels.research.rulebooks` holds is read; any other is
+  refused with the names that are. It is shown to a search run, whose record holds `web.rulebooks`.
+- **`research/skill` answers one research skill whole** the same way, any skill placed there, for the chat
+  agent: its description names each skill with the kind of request it binds, and tells it to read the one
+  that fits before it answers such a request itself and to name the asker. A name no skill is placed under
+  is refused with the names that are.
+- **Both answer the asker's own rule after the skill,** under a line `THE ASKER'S OWN RULE:`, where the
+  asker keeps one for that skill in the people's rules under the data root (`docs/settings.md`, 「A person's
+  own rules」): for `research/rulebook` the asker is the record's `owner`, for `research/skill` its `asker`
+  argument, and the owner where either names none. A person matches by any of the names the file gives
+  them, as said, case aside. A file that does not read is said after the skill in its place, with the
+  instruction to hold the asker to the default rule and say so.
 
 ## The command
 
 `bmo-research` serves and answers the deployment: `serve` runs the daemon; `health` answers 0 once the
-daemon answers ready; `openapi` prints the OpenAPI document; `migrate` brings the store's schema to the
+daemon answers ready; `openapi` prints the OpenAPI document; `skills` prints the name of every skill the
+runner composes a run of, one a line, which the deployment places under `prompts/skills/` with the skills
+repository's placer (`docs/runner.md`, 「The line's instructions」); `migrate` brings the store's schema to the
 version the binary holds and says which; `redraw` draws every filed page again where it differs from what
 this binary draws, and prints how many it set (「The page」); `nouns` prints `research`, the noun `bmo research …` hands it.
 Under `research` stand `state`, `stop`, `resume`, `categories`, `queue`, `ask`, `taken`, `dismiss`,

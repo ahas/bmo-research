@@ -242,8 +242,14 @@ pub async fn view(app: &App, held: &Held, set: bool) -> ResearchSettings {
 
 // The line's instructions.
 
+/// A rulebook whole: the skill of that name.
 fn rulebook_whole(name: &str) -> Result<String, String> {
-  Ok(format!("RULEBOOK prompts/rules/{name}.md:\n{}", words::rulebook(name)?))
+  Ok(format!("SKILL {name}:\n{}", words::rulebook(name)?))
+}
+
+/// The rule against destroying the system, which every run's instructions end with.
+fn guard() -> String {
+  format!("RULEBOOK prompts/rules/self-preservation.md:\n{}", words::SELF_PRESERVATION)
 }
 
 /// The sections of a rulebook a run judges by, each from its `## ` heading to the next; a heading the
@@ -255,16 +261,12 @@ pub fn rulebook_sections(name: &str, headings: &[String]) -> Result<String, Stri
     .map(|heading| {
       let start = text
         .find(&format!("\n## {heading}\n"))
-        .ok_or_else(|| format!("prompts/rules/{name}.md has no section \"{heading}\""))?;
+        .ok_or_else(|| format!("the skill {name} has no section \"{heading}\""))?;
       let end = text[start + 1..].find("\n## ").map_or(text.len(), |at| at + start + 1);
       Ok(text[start + 1..end].trim().to_owned())
     })
     .collect::<Result<Vec<_>, String>>()?;
-  Ok(format!(
-    "RULEBOOK prompts/rules/{name}.md (sections: {}):\n{}",
-    headings.join(", "),
-    sections.join("\n\n")
-  ))
+  Ok(format!("SKILL {name} (sections: {}):\n{}", headings.join(", "), sections.join("\n\n")))
 }
 
 /// A search's instructions: the task with the web namespace's listing, the search rulebooks — the ones
@@ -280,30 +282,18 @@ pub fn search_instructions(tools: &str) -> Result<String, String> {
     });
   }
   parts.push(rulebook_whole(&search.plain_writing)?);
-  parts.push(rulebook_whole(&search.self_preservation)?);
+  parts.push(guard());
   Ok(parts.join("\n\n"))
 }
 
 /// A branch's instructions, with the same listing the search is shown.
 pub fn branch_instructions(tools: &str) -> Result<String, String> {
-  Ok(
-    [
-      fill(words::SEARCH_BRANCH, &[("tools", tools)]).trim().to_string(),
-      rulebook_whole(&words::runner().search.self_preservation)?,
-    ]
-    .join("\n\n"),
-  )
+  Ok([fill(words::SEARCH_BRANCH, &[("tools", tools)]).trim().to_string(), guard()].join("\n\n"))
 }
 
 /// A browse's instructions.
 pub fn browse_instructions() -> Result<String, String> {
-  Ok(
-    [
-      words::BROWSE_TASK.trim().to_string(),
-      rulebook_whole(&words::runner().search.self_preservation)?,
-    ]
-    .join("\n\n"),
-  )
+  Ok([words::BROWSE_TASK.trim().to_string(), guard()].join("\n\n"))
 }
 
 /// A references run's instructions: the references task with the web namespace's listing, the references
@@ -313,9 +303,9 @@ pub fn references_instructions(tools: &str) -> Result<String, String> {
   Ok(
     [
       fill(words::REFERENCE_TASK, &[("tools", tools)]).trim().to_string(),
-      rulebook_whole("references")?,
+      rulebook_whole(&words::runner().search.references)?,
       rulebook_whole(&words::runner().search.plain_writing)?,
-      rulebook_whole(&words::runner().search.self_preservation)?,
+      guard(),
     ]
     .join("\n\n"),
   )
@@ -1008,7 +998,7 @@ async fn sent_out(
     })?;
     (
       references_instructions(&tools).map_err(Refused::Failed)?,
-      vec![references::KEY.to_owned()],
+      vec![words::runner().search.references.clone()],
     )
   } else if line == "search" {
     let tools = ToolHost::new(&app.settings)
@@ -1627,8 +1617,7 @@ async fn narrated(app: &App, going: &Going, seat: &mut Seat, result: String) -> 
 pub fn review_instructions() -> Result<String, String> {
   let ask = &words::runner().review;
   let rule = rulebook_sections(&ask.rulebook, std::slice::from_ref(&ask.section))?;
-  let guard = rulebook_whole(&words::runner().search.self_preservation)?;
-  Ok(format!("{rule}\n\n{guard}"))
+  Ok(format!("{rule}\n\n{}", guard()))
 }
 
 /// The prompt a deep dive's review is asked with: the review question, then the finished page.

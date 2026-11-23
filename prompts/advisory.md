@@ -4,7 +4,7 @@ Subject: {name}
 Advisory source: {address}
 Where this research came from: {origin}
 
-Its shape is the rulebook security-advisory.md's. Read the vendor's advisory and fix notices, the CVE record and the distributions' security lists yourself. Read writeups of how the flaw is exploited only as far as the exposure judgement needs.
+Its shape is the rulebook bmo-research-security-advisories's. Read the vendor's advisory and fix notices, the CVE record and the distributions' security lists yourself. Read writeups of how the flaw is exploited only as far as the exposure judgement needs.
 
 Keep these sections in the body, under these names exactly.
 
