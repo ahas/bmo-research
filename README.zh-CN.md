@@ -25,5 +25,5 @@
 | `tests/` | 全部测试:存储与队列规则、来源读取器、针对替身服务器的扫描与深度调研、路由,以及仓库自身的检查 |
 | `deploy/` | 部署时重启并监视的用户单元 |
 
-根目录下是 Cargo 工作区、`rustfmt.toml`、语言台账 `korean-ledger.json`、测试平台的 `testbed.toml`、`CLAUDE.md`
+根目录下是 Cargo 工作区、`rustfmt.toml`、语言台账 `korean-ledger.json`、测试平台的 `testbed.toml`、`install.toml`、`CLAUDE.md`
 以及 MIT `LICENSE`。

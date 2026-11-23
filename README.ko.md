@@ -26,5 +26,5 @@ Hub, arXiv, GitHub 릴리스, 피드)에서 새 대상을 찾아내고, 각 대�
 | `tests/` | 모든 테스트: 저장소와 대기열 규칙, 출처 리더, 대역 서버를 상대로 한 스캔과 딥 다이브, 경로, 저장소 검사 |
 | `deploy/` | 배포가 재시작하고 감시하는 사용자 유닛 |
 
-루트에는 Cargo 워크스페이스, `rustfmt.toml`, 언어 대장 `korean-ledger.json`, 테스트베드의 `testbed.toml`,
+루트에는 Cargo 워크스페이스, `rustfmt.toml`, 언어 대장 `korean-ledger.json`, 테스트베드의 `testbed.toml`, `install.toml`,
 `CLAUDE.md`, 그리고 MIT `LICENSE`가 있습니다.

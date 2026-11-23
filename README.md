@@ -29,4 +29,4 @@ chat agent's to file on the owner's word.
 | `deploy/` | The user unit the deployment restarts and watches |
 
 At the root stand the Cargo workspace, `rustfmt.toml`, the language ledger `korean-ledger.json`, the
-testbed's `testbed.toml`, `CLAUDE.md` and the MIT `LICENSE`.
+testbed's `testbed.toml`, `install.toml`, `CLAUDE.md` and the MIT `LICENSE`.

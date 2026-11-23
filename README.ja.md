@@ -27,5 +27,5 @@
 | `tests/` | すべてのテスト:ストアとキューのルール、ソースのリーダー、スタンドインのサーバーを相手にしたスキャンとディープダイブ、ルート、リポジトリの検査 |
 | `deploy/` | デプロイが再起動し監視するユーザーユニット |
 
-ルートには Cargo のワークスペース、`rustfmt.toml`、言語台帳 `korean-ledger.json`、テストベッドの `testbed.toml`、
+ルートには Cargo のワークスペース、`rustfmt.toml`、言語台帳 `korean-ledger.json`、テストベッドの `testbed.toml`、`install.toml`、
 `CLAUDE.md`、そして MIT の `LICENSE` があります。

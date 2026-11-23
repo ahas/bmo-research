@@ -1,0 +1,80 @@
+# What installing the research unit on a fresh machine needs, read by the testbed's install verb (bmo-testbed's
+# docs/install.md, 「The install declaration」). The settings are docs/settings.md; the daemon mints its own
+# token at its first start, into env/research.token.
+
+install = 1
+
+restart = "systemctl --user restart bmo-research.service"
+
+[[needs]]
+program = "cargo"
+what = "Builds the daemon and its tool; the Rust toolchain from https://rustup.rs."
+
+[[port]]
+name = "research.server"
+number = 3238
+
+# The daemon's settings file, which each release links to. The store stands under the data root. Each peer is
+# read from a file under env/ the settings name: agency, the receiver and bmo-job from files of this unit's own
+# below, the artifact service from env/artifact.token and the calendar from env/calendar.toml, each written by
+# its own unit's install. No arbiter master is named, so no engine demand is asked.
+[[settings]]
+file = "research/settings.toml"
+text = """
+listen = "127.0.0.1:{{port.research.server}}"
+store = "{{data_root}}/research"
+
+[agency]
+env = "research-agency.env"
+
+[receiver]
+env = "research-receiver.env"
+
+[artifact]
+address = "http://127.0.0.1:{{port.artifact.server}}"
+token = "artifact.token"
+
+[calendar]
+settings = "calendar.toml"
+
+[job]
+settings = "research-job.toml"
+"""
+
+[[settings]]
+file = "env/research-agency.env"
+text = """
+AGENCY_CONTROL_PORT={{port.agency.control}}
+AGENCY_CONTROL_TOKEN={{token.agency.control}}
+"""
+
+[[settings]]
+file = "env/research-receiver.env"
+text = """
+RECEIVER_ADDRESS=http://127.0.0.1:{{port.receiver.server}}
+RECEIVER_TOKEN={{token.receiver.service}}
+"""
+
+# bmo-job as the daemon reads it: where it listens, and the file its shared token stands in.
+[[settings]]
+file = "env/research-job.toml"
+text = """
+[server]
+listen = "127.0.0.1:{{port.job.server}}"
+token_file = "research-job.token"
+"""
+
+[[settings]]
+file = "env/research-job.token"
+text = "{{token.job.server}}"
+
+# The console reaches the daemon with the token the daemon mints, so this line waits until it stands.
+[[line]]
+file = "env/web-console.env"
+key = "RESEARCH_ADDRESS"
+value = "http://127.0.0.1:{{port.research.server}}"
+
+[[line]]
+file = "env/web-console.env"
+key = "RESEARCH_TOKEN"
+value = "{{file.env/research.token}}"
