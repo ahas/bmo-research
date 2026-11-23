@@ -261,8 +261,8 @@ A source is a registration: a category, a kind, an address and, where the kind t
 - **Routing is automatic.** A run names the model it goes out on, a registration of agency's; where the
   model runs and on which card is decided by the arbiter's master and agency's registry at that moment.
   No setting of this unit names a node, lists the nodes of a model or pins a model to one.
-- **kiki's two models are two engines sharing the lab's language-model cards:** `flash-next` on the
-  arbiter service `lab-arena`, `flash-next-coder` on `lab-arena-coder`. Every such card can hold either, and
+- **Two registered models may be two engines sharing the same language-model cards,** as the settings'
+  example has it: `flash-next` on the arbiter service `local-llm`, `flash-next-coder` on `local-llm-coder`. Every such card can hold either, and
   which one stands on it is the arbiter's grant. The daemon's runs go out
   on `flash-next`; their branches, and the verification job's co-workers, on `flash-next-coder`.
 - **A place asks for its engine before its slot.** On a road that is one of the engine watch's

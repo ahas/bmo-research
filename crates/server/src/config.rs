@@ -135,10 +135,7 @@ impl Default for Engine {
       address: String::new(),
       token: String::new(),
       provider: "registered".into(),
-      models: vec![Watched {
-        registration: "flash-next".into(),
-        service: "lab-arena".into(),
-      }],
+      models: Vec::new(),
       pool: "research".into(),
       cards: 1,
       rank: None,

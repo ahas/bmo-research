@@ -54,7 +54,7 @@ card answers is the master's; no setting names a node.
 | `address` | empty | The arbiter's master, which grants the demands; empty asks no demand, and every place asks its slot at once |
 | `token` | empty | The file under the data root's `env/` whose text is the master's bearer token; empty where the master takes none |
 | `provider` | `registered` | The provider whose models the watch names |
-| `models` | `flash-next` served by `lab-arena` | Each watched model, a table of `registration`, its name in agency's registry, and `service`, the arbiter service its engine is; an empty list watches nothing |
+| `models` | none | Each watched model, a table of `registration`, its name in agency's registry, and `service`, the arbiter service its engine is; an empty list watches nothing |
 | `pool` | `research` | The key every demand of this unit's work is asked under, handed to the master directly and through agency's slots and sessions; empty names none |
 | `cards` | 1 | The most cards of each engine that pool uses at once, whoever in this unit asks, a room's research among them; the daemon asks no more places on a watched road |
 | `rank` | none | The rank every demand of this unit's work is asked at, the lower first; none takes the master's default |
@@ -175,9 +175,9 @@ address = "http://127.0.0.1:7440"
 
 [[engine.models]]
 registration = "flash-next"
-service = "lab-arena"
+service = "local-llm"
 
 [[engine.models]]
 registration = "flash-next-coder"
-service = "lab-arena-coder"
+service = "local-llm-coder"
 ```

@@ -18,7 +18,7 @@ run is this unit's.
 - **Each key has its settings** (「What a run is held to」) and its rounds (`prompts/runner.toml`).
 - **A references run is asked by the drawing service** through `POST /research-runs`, never by the chat
   agent's `research/run`: its options name the subject's key and kind, the dossier's language, the candidate
-  limit and the image engines (「The references dossier」). It is filed for bmo-paint and told to no room.
+  limit and the image engines (「The references dossier」). It is filed for the drawing service and told to no room.
 
 ## What a run is held to: the research settings
 
@@ -292,8 +292,8 @@ run is this unit's.
 
 A `references` run builds one reference dossier for drawing one subject: what the subject looks like, the
 features a drawing must keep, what must not be drawn, and the pictures a drawing may be built from.
-It is asked by the drawing service through `POST /research-runs` and is filed in the archive for bmo-paint to
-read. No room is told and no narration is made; the run's row answers its end and its document.
+It is asked by the drawing service through `POST /research-runs` and is filed in the archive for that
+service to read. No room is told and no narration is made; the run's row answers its end and its document.
 
 - **The ask** names `key` `references` and a `query` naming the subject, and names its `options` as an object
   (or the same JSON as a string): `subjectKey` (the subject's key in the brain, which the drawing service
@@ -337,12 +337,12 @@ read. No room is told and no narration is made; the run's row answers its end an
 - **The filing** is a `search` document. Its title names the subject, its description is the dossier's, and
   its body holds the sections what the subject is, its appearance and the features that must survive, its
   aliases, the constraints, the candidate table, the sources, what stayed unresolved, and the candidate JSON
-  as the body's last fenced block, which bmo-paint parses. Its labels are `research` (the run), `key` and
+  as the body's last fenced block, which the drawing service parses. Its labels are `research` (the run), `key` and
   `category` (`references`), `query`, `languages` (the dossier's), `paint.subject-key` and `paint.schema`
-  (`references-v1`). No candidate picture is attached: bmo-paint fetches the bytes itself. A share link is
+  (`references-v1`). No candidate picture is attached: the drawing service fetches the bytes itself. A share link is
   opened where the archive gives one, and nothing of the dossier waits on it.
 
-The dossier is a lead: bmo-paint fetches every candidate itself and checks its address, dimensions and media
+The dossier is a lead: the drawing service fetches every candidate itself and checks its address, dimensions and media
 type before it uses one.
 
 ## The narration

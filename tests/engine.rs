@@ -100,7 +100,7 @@ async fn a_place_asks_its_card_first_and_its_try_stands_on_the_grant_and_gives_i
   assert_eq!(asked.len(), 1, "one demand for the place");
   assert_eq!(
     (asked[0]["serviceName"].as_str(), asked[0]["count"].as_i64()),
-    (Some("lab-arena"), Some(1))
+    (Some("local-llm"), Some(1))
   );
   assert!(asked[0]["workKey"].as_str().is_some_and(|key| key.starts_with("research:place:")));
   assert!(asked[0].get("within").is_none_or(Value::is_null));
@@ -169,10 +169,10 @@ async fn a_place_waiting_for_its_card_asks_no_slot_takes_no_item_and_the_state_s
   assert!(!hold.place.is_empty());
   assert_eq!(
     (hold.service_name.as_str(), hold.demand_id, hold.cause.as_deref(), hold.reported),
-    ("lab-arena", Some(4001), Some("in-use"), false)
+    ("local-llm", Some(4001), Some("in-use"), false)
   );
   assert!(
-    hold.line().contains("lab-arena") && hold.line().contains("Every card is in use"),
+    hold.line().contains("local-llm") && hold.line().contains("Every card is in use"),
     "{}",
     hold.line()
   );
@@ -200,8 +200,8 @@ async fn a_place_waiting_for_its_card_asks_no_slot_takes_no_item_and_the_state_s
 async fn demands_a_stopped_daemon_left_held_are_given_back() {
   let ground = support::ground(|_| {}).await;
   let store = &ground.app.store;
-  store.keep_demand(77, Some(3), Some(9), None, "lab-arena").unwrap();
-  store.keep_demand(78, None, Some(9), Some(77), "lab-arena").unwrap();
+  store.keep_demand(77, Some(3), Some(9), None, "local-llm").unwrap();
+  store.keep_demand(78, None, Some(9), Some(77), "local-llm").unwrap();
   assert_eq!(give_back_all(&ground.app).await, 2);
   assert_eq!(given_back(&ground), ["/demands/77", "/demands/78"]);
   assert!(
@@ -210,7 +210,7 @@ async fn demands_a_stopped_daemon_left_held_are_given_back() {
   );
 
   // A pass of the loop gives back what an ended try left held.
-  store.keep_demand(79, Some(42), None, None, "lab-arena").unwrap();
+  store.keep_demand(79, Some(42), None, None, "local-llm").unwrap();
   settle(&ground).await;
   assert_eq!(given_back(&ground).last().map(String::as_str), Some("/demands/79"));
   assert!(store.demands().unwrap().is_empty());
@@ -240,7 +240,7 @@ async fn a_branch_of_a_run_holding_a_card_asks_its_own_within_the_run_s() {
     json!({"run": run, "source": "search", "role": "voyager", "branches": 2, "pages": 8, "branchPages": 4});
   store.keep_research_road(run, "registered", "flash-next", &record).unwrap();
   store.research_running(run).unwrap();
-  store.keep_demand(3000, Some(5), Some(run), None, "lab-arena").unwrap();
+  store.keep_demand(3000, Some(5), Some(run), None, "local-llm").unwrap();
   ground.world.lock().unwrap().slot_waits = 1;
 
   let end = client
@@ -260,7 +260,7 @@ async fn a_branch_of_a_run_holding_a_card_asks_its_own_within_the_run_s() {
       asked[0]["within"].as_i64(),
       asked[0]["count"].as_i64()
     ),
-    (Some("lab-arena"), Some(3000), Some(1))
+    (Some("local-llm"), Some(3000), Some(1))
   );
   assert_eq!(asked[0]["workKey"], format!("research:{run}:branch:1"));
   let branch = 4001;
@@ -303,7 +303,7 @@ async fn a_branch_s_card_granted_late_still_opens_the_branch() {
     json!({"run": run, "source": "search", "role": "voyager", "branches": 2, "pages": 8, "branchPages": 4});
   store.keep_research_road(run, "registered", "flash-next", &record).unwrap();
   store.research_running(run).unwrap();
-  store.keep_demand(3000, Some(5), Some(run), None, "lab-arena").unwrap();
+  store.keep_demand(3000, Some(5), Some(run), None, "local-llm").unwrap();
   ground.world.lock().unwrap().cards_busy = true;
 
   let asked = tokio::spawn(async move {
@@ -426,7 +426,7 @@ async fn a_card_that_does_not_come_is_told_to_the_owner_s_room_once() {
   assert_eq!((told[0]["room"].as_i64(), told[0]["sort"].as_str()), (Some(7), Some("notice")));
   let expected = words::fill(
     &words::report().restore,
-    &[("model", "flash-next"), ("service", "lab-arena"), ("minutes", "0")],
+    &[("model", "flash-next"), ("service", "local-llm"), ("minutes", "0")],
   );
   assert_eq!(told[0]["said"]["order"], expected.as_str());
   assert!(holds(&ground.app)[0].reported);

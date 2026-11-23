@@ -1,8 +1,8 @@
 //! The `references` research key (`docs/runner.md`, 「The references dossier」): the options the drawing
 //! service asks it with, the candidate list it must bring back with each licence line as metadata, and the
-//! dossier it files in the archive for bmo-paint to read. The run itself is a search run, composed and sent
-//! by the runner; this module holds what is the key's own: what it takes, what it accepts, and the document
-//! it files.
+//! dossier it files in the archive for the drawing service to read. The run itself is a search run,
+//! composed and sent by the runner; this module holds what is the key's own: what it takes, what it
+//! accepts, and the document it files.
 
 use std::collections::BTreeSet;
 
@@ -50,7 +50,7 @@ pub struct ReferenceAsk {
   pub image_engines: Vec<String>,
 }
 
-/// The options as bmo-paint writes them, read before anything is looked up.
+/// The options as the drawing service writes them, read before anything is looked up.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ReferenceOptions {
@@ -194,8 +194,8 @@ pub struct Dossier {
 }
 
 /// The dossier a run's result holds, or why it is not one: its last fenced block read as JSON against the
-/// key's shape, its candidates held to the fields the drawing service needs. A candidate it cannot support is
-/// dropped, with why said under `unresolved`; a licence never drops one.
+/// key's shape, its candidates held to the fields the drawing service needs. A candidate it cannot support
+/// is dropped, with why said under `unresolved`; a licence never drops one.
 pub fn dossier(text: &str, ask: &ReferenceAsk, now: i64) -> Result<Dossier, String> {
   let (_, block) = reading::last_fenced(text).ok_or("its answer holds no fenced block")?;
   let value: Value =
@@ -394,7 +394,8 @@ fn web_url(text: &str) -> bool {
 }
 
 /// The dossier as its document is read: the sections the design gives, the candidate table, and the JSON
-/// bmo-paint parses as the body's last fenced block, in the language of the person who asked for the draw.
+/// the drawing service parses as the body's last fenced block, in the language of the person who asked for
+/// the draw.
 pub fn render(dossier: &Dossier, words: &ReferenceWords) -> String {
   let mut out = String::new();
   heading(&mut out, &words.what);
@@ -490,9 +491,9 @@ fn cell(text: &str) -> String {
   text.replace('|', "\\|").replace('\n', " ")
 }
 
-/// A dossier filed in the artifact service for bmo-paint: kind `search`, the labels the design names and the
-/// research labels, the body the design's sections, and its last fenced block the candidate JSON. No room is
-/// told, no picture is attached, and the share link is opened but not required.
+/// A dossier filed in the artifact service for the drawing service: kind `search`, the labels the design
+/// names and the research labels, the body the design's sections, and its last fenced block the candidate
+/// JSON. No room is told, no picture is attached, and the share link is opened but not required.
 pub async fn file(
   app: &App,
   run: i64,

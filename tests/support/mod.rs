@@ -1776,6 +1776,11 @@ pub async fn ground(change: impl FnOnce(&mut Settings)) -> Ground {
   settings.data_root = root.clone();
   settings.artifact.address = artifact;
   settings.engine.address = arbiter;
+  // The engine watch names no model by default; the ground watches the road its runs go out on.
+  settings.engine.models = vec![research_server::config::Watched {
+    registration: "flash-next".into(),
+    service: "local-llm".into(),
+  }];
   settings.tool_host.socket = socket.to_string_lossy().into_owned();
   settings.poll_seconds = 0;
   settings.agency.away_first_ms = 1;
