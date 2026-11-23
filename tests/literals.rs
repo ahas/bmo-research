@@ -63,6 +63,20 @@ fn files(folders: &[&str]) -> Vec<(PathBuf, String)> {
   found
 }
 
+/// A README translated into another language, `README.<language>.md` at the root, which is written in that language.
+fn translated(path: &Path) -> bool {
+  path.parent() == Some(root().as_path())
+    && path
+      .file_name()
+      .and_then(|name| name.to_str())
+      .is_some_and(|name| name.starts_with("README.") && name != "README.md")
+}
+
+/// The README's line of links to its translations, which names each language in its own script.
+fn language_bar(line: &str) -> bool {
+  line.contains("](README.ko.md)")
+}
+
 fn hangul(one: char) -> bool {
   matches!(one, '\u{1100}'..='\u{11FF}' | '\u{3130}'..='\u{318F}' | '\u{A960}'..='\u{A97F}' | '\u{AC00}'..='\u{D7FF}')
 }
@@ -135,8 +149,12 @@ fn no_code_test_or_document_holds_hangul() {
   let mut found = Vec::new();
 
   for (path, text) in files(ENGLISH) {
+    if translated(&path) {
+      continue;
+    }
+
     for (index, line) in text.lines().enumerate() {
-      if line.chars().any(hangul) {
+      if line.chars().any(hangul) && !language_bar(line) {
         found.push(shown(&path, index + 1));
       }
     }
