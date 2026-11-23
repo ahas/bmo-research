@@ -1,3 +1,5 @@
+**English** | [한국어](README.ko.md) | [日本語](README.ja.md) | [简体中文](README.zh-CN.md)
+
 # bmo-research
 
 The platform's research unit: a daemon that keeps a queue of things to research by category, finds new
@@ -27,4 +29,4 @@ chat agent's to file on the owner's word.
 | `deploy/` | The user unit the deployment restarts and watches |
 
 At the root stand the Cargo workspace, `rustfmt.toml`, the language ledger `korean-ledger.json`, the
-testbed's `testbed.toml` and `CLAUDE.md`.
+testbed's `testbed.toml`, `CLAUDE.md` and the MIT `LICENSE`.
