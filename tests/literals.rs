@@ -163,6 +163,12 @@ fn no_code_test_or_document_holds_hangul() {
   assert!(found.is_empty(), "Hangul outside the prompts: {found:#?}");
 }
 
+/// The root license names its copyright holder by the owner's public handle, so its copyright line is the
+/// one place that handle stands.
+fn license_holder(path: &Path, line: &str) -> bool {
+  path == root().join("LICENSE") && line.starts_with("Copyright (c) ")
+}
+
 #[test]
 fn no_file_holds_a_personal_literal() {
   let literals = personal();
@@ -172,6 +178,9 @@ fn no_file_holds_a_personal_literal() {
 
   for (path, text) in files(&folders) {
     for (index, line) in text.lines().enumerate() {
+      if license_holder(&path, line) {
+        continue;
+      }
       for literal in &literals {
         if holds(line, literal) {
           found.push(format!("{}: {literal}", shown(&path, index + 1)));
