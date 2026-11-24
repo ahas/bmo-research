@@ -16,7 +16,7 @@ research feature; agency supplies it slots and sessions and nothing more.
   first two shapes by itself, continuously, and the third on the owner's word.
 - **Continuous, uncapped and cheap.** Everything its sources turn up waits in the queue, which has no cap;
   the lab's nodes pull from it, so as many deep dives run as the search line's role has places, and the
-  daemon goes on until the owner stops it. The runs go out on kiki, the lab's own model, which costs
+  daemon goes on until the owner stops it. The runs go out on Kakia, the lab's own model, which costs
   nothing.
 - **Semi-automatic.** A deep dive that finds a thing the maker's own documents show usable in the lab is
   reported to the owner first, as a notice the chat agent delivers. On his word the chat agent raises the
@@ -82,7 +82,7 @@ sources ──scan──▶ candidates ──new?──▶ queue ──a place l
 4. **The deep dive.** A node pulls (「A node pulls」): the daemon asks agency for places of the search line's
    role, and only once a place is let in takes the next item from the queue and starts its run on that
    place, so as many deep dives run as the role's cap lets in and the arbiter grants cards for. The item
-   becomes a research run on kiki's road at the exhaustive depth, asked as a manual where the thing is a model, an engine, a
+   becomes a research run on Kakia's road at the exhaustive depth, asked as a manual where the thing is a model, an engine, a
    dataset or a tool, and as an investigation where it is a claim or an event. The run's question is the
    item's name, its maker's address and where it came from — the source that found it, the owner's ask, or
    the earlier research a follow-up continues — with the shape named, so the runner's research rulebook
@@ -231,7 +231,7 @@ A source is a registration: a category, a kind, an address and, where the kind t
   settings under the labels this unit names; it runs nothing of research on its own.
 - **Every research goes through the one runner:** the chat agent's `research/run`, any caller of
   `POST /research-runs`, and the daemon's own deep dive, which asks it on the road its settings name,
-  kiki's: provider `registered`, model `flash-next`. The deep dive reads the run's end from the runner's
+  Kakia's: provider `registered`, model `flash-next`. The deep dive reads the run's end from the runner's
   ledger and the document from the run's row, and sends its own line to its rooms; a run it asks tells no
   room itself. The drawing service's `references` run is asked the same way and files a dossier for it, with
   no room told (`docs/runner.md`, 「The references dossier」).
@@ -302,10 +302,10 @@ A source is a registration: a category, a kind, an address and, where the kind t
 - **Why nothing runs is shown:** the state route answers each hold — the place's demand and its reason
   (the engine starting, every card in use, a bench or a claim) — and the categories on its road, so the
   queue tool and the console can say it.
-- **The verification is kiki's worker with its co-workers.** The notice for a `fit` item names that
+- **The verification is Kakia's worker with its co-workers.** The notice for a `fit` item names that
   worker, and the chat agent files the item for it; its co-workers run on `flash-next-coder`, and its
   bench runs on the cards the arbiter grants it (「The bench lock」).
-- **kiki's own turns (the chat companion and its worker) are agency's to hold** while their engine is
+- **Kakia's own turns (the chat companion and its worker) are agency's to hold** while their engine is
   away, as agency's rules for an engine the arbiter stands say; the daemon adds nothing to that.
 
 ## Nothing is given up
@@ -465,7 +465,7 @@ they keep one (`docs/api.md`, 「The tools」).
 
 ## Phases
 
-1. **The daemon with the loop:** sources, scan, queue, the deep dive on kiki's road, the notices to the
+1. **The daemon with the loop:** sources, scan, queue, the deep dive on Kakia's road, the notices to the
    owner's room, the tools, the deploy. The verification is the chat
    agent's to file on the owner's word; the bench lock is the worker skill's by hand, as today.
 2. **The bench lock and the tiers:** the `bench` occupant in the arbiter's rules at tier 1, every service
