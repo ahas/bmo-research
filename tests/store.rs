@@ -1,8 +1,6 @@
 //! The store and the queue's rules (`docs/store.md`, `docs/api.md` 「queue」): the categories it starts with,
 //! no cap on the queue, the queue's order, a candidate judged once, where each item came from, a stuck item's
-//! moves, an error dated by its try, the step that stands every item a store held given up stuck, the step
-//! that dates every error the store held, the count of each run's review asks, and the step that takes the
-//! run's clock off its runs and its kept settings.
+//! moves, an error dated by its try, the count of each run's review asks, and a topic category.
 
 use crate::support;
 
@@ -27,32 +25,6 @@ fn candidate(name: &str, kind: ItemKind) -> Candidate {
     words: name.into(),
   }
 }
-
-/// What undoes the step that gives a category its topic: its instruction and its calendar gone.
-const UNDO_TOPIC: &str = "alter table categories drop column instruction;
-  alter table categories drop column calendar_realm;
-  alter table categories drop column calendar_id;";
-
-/// What undoes the step that takes the categories' cap away, and the step after it: the column back, each
-/// category holding one, and the topic's columns gone.
-const UNDO_CAP: &str = "alter table categories drop column instruction;
-  alter table categories drop column calendar_realm;
-  alter table categories drop column calendar_id;
-  alter table categories add column cap integer not null default 5;";
-
-/// What undoes the step that keeps a page by its document, and every step after it: its table dropped, the
-/// item's columns back, the categories' cap back and the topic's columns gone.
-const UNDO_PAGES: &str = "alter table categories drop column instruction;
-  alter table categories drop column calendar_realm;
-  alter table categories drop column calendar_id;
-  alter table categories add column cap integer not null default 5;
-  drop table pages;
-  alter table queue add column languages text not null default '[]';
-  alter table queue add column narrations text not null default '[]';
-  alter table queue add column pending text not null default '[]';
-  alter table queue add column pending_retry_at integer;
-  alter table queue add column translation_tries integer not null default 0;
-  alter table queue add column narration_tries integer not null default 0;";
 
 #[test]
 fn a_new_store_holds_the_three_first_categories_at_its_version() {
@@ -303,93 +275,6 @@ fn a_stuck_item_is_still_asked_goes_back_stuck_when_interrupted_and_is_asked_aga
 }
 
 #[test]
-fn the_step_that_keeps_repairs_stands_every_given_up_item_stuck_with_its_retry_due() {
-  let dir = support::scratch().join("research");
-  let store = Store::open(&dir).unwrap();
-  let item = store.ask("it", "example.org/z", "z", "https://example.org/z", Shape::Manual).unwrap();
-  let kept = store.ask("it", "example.org/w", "w", "https://example.org/w", Shape::Manual).unwrap();
-  drop(store);
-  // The store as it stood one step before: an item given up after its retries, and its notice.
-  let conn = rusqlite::Connection::open(dir.join("research.db")).unwrap();
-  conn
-    .execute_batch(&format!(
-      "{UNDO_PAGES}
-       update queue set state = 'failed', tries = 4, retry_at = null, error = 'the turn wrote nothing'
-         where id = {};
-       insert into reports (item_id, recipient, kind, state, at) values ({}, 'room:7', 'failed', 'sent', 1);
-       alter table queue drop column repair_item_id;
-       alter table queue drop column error_at;
-       alter table research_runs drop column continues;
-       alter table research_runs drop column answered;
-       alter table research_runs drop column review_asks;
-       alter table research_runs add column closes_at integer;
-       drop table translated_parts;
-       drop table page_texts;
-       drop table page_reviews;
-       drop table narration_asks;
-       drop table syntheses;
-       pragma user_version = 9;",
-      item.id, item.id
-    ))
-    .unwrap();
-  drop(conn);
-
-  let store = Store::open(&dir).unwrap();
-  assert_eq!(store.version().unwrap(), schema_version());
-  let stuck = store.item(item.id).unwrap();
-  assert_eq!(
-    (stuck.state, stuck.tries, stuck.retry_at, stuck.repair_item_id),
-    (ItemState::Stuck, 4, Some(0), None)
-  );
-  assert_eq!(stuck.error.as_deref(), Some("the turn wrote nothing"));
-  assert_eq!(store.item(kept.id).unwrap().state, ItemState::Waiting);
-  assert_eq!(store.unrepaired().unwrap().iter().map(|i| i.id).collect::<Vec<_>>(), [item.id]);
-  let conn = rusqlite::Connection::open(dir.join("research.db")).unwrap();
-  let kinds: String = conn.query_row("select group_concat(kind) from reports", [], |r| r.get(0)).unwrap();
-  assert_eq!(kinds, "stuck");
-}
-
-#[test]
-fn the_step_that_dates_errors_dates_each_by_the_latest_try_that_carried_its_item() {
-  let dir = support::scratch().join("research");
-  let store = Store::open(&dir).unwrap();
-  let lead = store
-    .ask("economy", "example.org/e1", "E1", "https://example.org/e1", Shape::Brief)
-    .unwrap();
-  let other = store
-    .ask("economy", "example.org/e2", "E2", "https://example.org/e2", Shape::Brief)
-    .unwrap();
-  let quiet = store.ask("it", "example.org/q", "q", "https://example.org/q", Shape::Manual).unwrap();
-  let (run, _) = store.start_try("economy", &[lead.id, other.id]).unwrap().unwrap();
-  store.keep_run_id(run, 116).unwrap();
-  store
-    .requeue(run, "cut", Some("cut"), "agency went away, so the try is not counted", 3)
-    .unwrap();
-  drop(store);
-  // The store as it stood before that step: the try ended at a known time, and no item dated.
-  let conn = rusqlite::Connection::open(dir.join("research.db")).unwrap();
-  conn
-    .execute_batch(&format!(
-      "{UNDO_PAGES}
-       update runs set ended_at = 5000 where id = {run};
-       alter table queue drop column error_at;
-       alter table research_runs drop column review_asks;
-       alter table research_runs add column closes_at integer;
-       pragma user_version = 12;"
-    ))
-    .unwrap();
-  drop(conn);
-
-  let store = Store::open(&dir).unwrap();
-  assert_eq!(store.version().unwrap(), schema_version());
-  for id in [lead.id, other.id] {
-    let item = store.item(id).unwrap();
-    assert_eq!((item.error.is_some(), item.error_at), (true, Some(5000)), "item {id}");
-  }
-  assert_eq!(store.item(quiet.id).unwrap().error_at, None, "an item with no error stays undated");
-}
-
-#[test]
 fn an_error_is_dated_by_its_try_and_cleared_as_the_next_starts() {
   let store = store();
   let item = store.ask("it", "example.org/d", "d", "https://example.org/d", Shape::Manual).unwrap();
@@ -554,9 +439,8 @@ fn an_item_keeps_where_it_came_from_a_source_an_ask_or_the_document_it_follows()
 }
 
 #[test]
-fn each_review_ask_of_a_run_is_counted_anew_from_one_and_a_store_from_before_counts_from_one() {
-  let dir = support::scratch().join("research");
-  let store = Store::open(&dir).unwrap();
+fn each_review_ask_of_a_run_is_counted_anew_from_one() {
+  let store = store();
   let open = || {
     store
       .open_research_run(&NewResearchRun {
@@ -573,224 +457,16 @@ fn each_review_ask_of_a_run_is_counted_anew_from_one_and_a_store_from_before_cou
       })
       .unwrap()
   };
-  let (before, other) = (open(), open());
-  drop(store);
-  // The store as it stood before the count's step, holding runs with no count and a closing time.
-  let conn = rusqlite::Connection::open(dir.join("research.db")).unwrap();
-  conn
-    .execute_batch(&format!(
-      "{UNDO_PAGES} alter table research_runs drop column review_asks; alter table research_runs add column \
-       closes_at integer; pragma user_version = 13;",
-    ))
-    .unwrap();
-  drop(conn);
-
-  let store = Store::open(&dir).unwrap();
-  assert_eq!(store.version().unwrap(), schema_version());
-  assert_eq!(store.count_review_ask(before).unwrap(), 1);
-  assert_eq!(store.count_review_ask(before).unwrap(), 2);
+  let (first, other) = (open(), open());
+  assert_eq!(store.count_review_ask(first).unwrap(), 1);
+  assert_eq!(store.count_review_ask(first).unwrap(), 2);
   assert_eq!(store.count_review_ask(other).unwrap(), 1, "each run counts its own");
   assert!(store.count_review_ask(other + 1).is_err(), "no run, no count");
 }
 
 #[test]
-fn the_step_that_drops_the_run_s_clock_takes_it_off_the_runs_and_the_kept_settings() {
-  let dir = support::scratch().join("research");
-  let store = Store::open(&dir).unwrap();
-  store
-    .keep_research_settings(
-      r#"{"branchRole":"researcher","strategy":"direct-then-browser","hostIntervalMs":null,
-"engineIntervalMs":null,"keys":{"browse":{"branches":0,"minutes":15},
-"search:basic":{"branches":0,"minutes":5,"pages":3}}}"#,
-    )
-    .unwrap();
-  drop(store);
-  // The store as it stood one step before, its runs and its kept settings holding a clock.
-  let conn = rusqlite::Connection::open(dir.join("research.db")).unwrap();
-  conn
-    .execute_batch(&format!(
-      "{UNDO_PAGES} alter table research_runs add column closes_at integer; pragma user_version = 14;"
-    ))
-    .unwrap();
-  drop(conn);
-
-  let store = Store::open(&dir).unwrap();
-  assert_eq!(store.version().unwrap(), schema_version());
-  let kept: serde_json::Value =
-    serde_json::from_str(&store.kept_research_settings().unwrap().unwrap()).unwrap();
-  assert_eq!(kept["keys"]["browse"], serde_json::json!({"branches": 0}));
-  assert_eq!(kept["keys"]["search:basic"], serde_json::json!({"branches": 0, "pages": 3}));
-  drop(store);
-  let conn = rusqlite::Connection::open(dir.join("research.db")).unwrap();
-  let columns: Vec<String> = conn
-    .prepare("select name from pragma_table_info('research_runs')")
-    .unwrap()
-    .query_map([], |row| row.get(0))
-    .unwrap()
-    .map(Result::unwrap)
-    .collect();
-  assert!(!columns.iter().any(|column| column == "closes_at"), "{columns:?}");
-}
-
-#[test]
-fn the_step_that_keeps_pages_by_document_takes_each_page_from_the_item_its_run_was_asked_for() {
-  let dir = support::scratch().join("research");
-  let store = Store::open(&dir).unwrap();
-  let lead = store
-    .ask("economy", "example.org/p1", "P1", "https://example.org/p1", Shape::Brief)
-    .unwrap();
-  let other = store
-    .ask("economy", "example.org/p2", "P2", "https://example.org/p2", Shape::Brief)
-    .unwrap();
-  let (run, _) = store.start_try("economy", &[lead.id, other.id]).unwrap().unwrap();
-  store.keep_run_id(run, 300).unwrap();
-  let filed = Filed {
-    document_id: 600,
-    ..Filed::default()
-  };
-  for id in [lead.id, other.id] {
-    assert!(store.file(id, &filed).unwrap());
-  }
-  drop(store);
-  // The store as it stood one step before: each item kept its document's page, the lead its retry wait.
-  let conn = rusqlite::Connection::open(dir.join("research.db")).unwrap();
-  conn
-    .execute_batch(&format!(
-      "{UNDO_PAGES}
-       update queue set languages = '[\"ko\",\"en\"]', narrations = '[\"ko\"]', pending = '[\"narration-en\"]',
-         pending_retry_at = 42, translation_tries = 2, narration_tries = 3 where id = {};
-       update queue set languages = '[\"en\"]' where id = {};
-       pragma user_version = 15;",
-      lead.id, other.id
-    ))
-    .unwrap();
-  drop(conn);
-
-  let store = Store::open(&dir).unwrap();
-  assert_eq!(store.version().unwrap(), schema_version());
-  let page = store.page_state(600).unwrap();
-  assert_eq!(
-    (page.languages, page.narrations, page.pending, page.retry_at),
-    (
-      vec!["ko".to_string(), "en".to_string()],
-      vec!["ko".to_string()],
-      vec!["narration-en".to_string()],
-      Some(42)
-    )
-  );
-  assert_eq!((page.translation_tries, page.narration_tries), (2, 3));
-  // The page is the run's lead item's, the first its try carried, and every item of it answers it.
-  let due: Vec<i64> = store.pages_due(42).unwrap().iter().map(|item| item.id).collect();
-  assert_eq!(due, [lead.id]);
-  assert_eq!(store.item(other.id).unwrap().languages, ["ko", "en"]);
-  assert_eq!(store.item(other.id).unwrap().pending_retry_at, Some(42));
-  drop(store);
-  let conn = rusqlite::Connection::open(dir.join("research.db")).unwrap();
-  let columns: Vec<String> = conn
-    .prepare("select name from pragma_table_info('queue')")
-    .unwrap()
-    .query_map([], |row| row.get(0))
-    .unwrap()
-    .map(Result::unwrap)
-    .collect();
-  for gone in [
-    "languages",
-    "narrations",
-    "pending",
-    "pending_retry_at",
-    "translation_tries",
-    "narration_tries",
-  ] {
-    assert!(!columns.iter().any(|column| column == gone), "{gone} in {columns:?}");
-  }
-}
-
-#[test]
-fn the_step_that_names_slots_takes_every_hold_of_a_seat_request_as_a_slot() {
-  let dir = support::scratch().join("research");
-  let store = Store::open(&dir).unwrap();
-  let run = store
-    .open_research_run(&NewResearchRun {
-      key: "search:basic",
-      line: "search",
-      query: "Q",
-      asker: None,
-      options: None,
-      room_id: None,
-      provider: "",
-      model: "",
-      branches_allowed: 0,
-      tells: false,
-    })
-    .unwrap();
-  store.hold(run, "session", "search@apart:1").unwrap();
-  drop(store);
-  // The store as it stood one step before, its run holding a slot request under the older word.
-  let conn = rusqlite::Connection::open(dir.join("research.db")).unwrap();
-  conn
-    .execute_batch(&format!(
-      "insert into research_holds (run_id, kind, value) values ({run}, 'seat', 'token-1');
-       alter table pages drop column gone_at;
-       {UNDO_CAP}
-       pragma user_version = {};",
-      schema_version() - 4
-    ))
-    .unwrap();
-  drop(conn);
-
-  let store = Store::open(&dir).unwrap();
-  assert_eq!(store.version().unwrap(), schema_version());
-  assert_eq!(
-    store.holds(run).unwrap(),
-    [
-      ("session".to_string(), "search@apart:1".to_string()),
-      ("slot".to_string(), "token-1".to_string())
-    ]
-  );
-}
-
-#[test]
-fn the_step_that_takes_the_cap_away_keeps_every_category_and_its_items() {
-  let dir = support::scratch().join("research");
-  let store = Store::open(&dir).unwrap();
-  let item = store.ask("it", "example.org/c", "c", "https://example.org/c", Shape::Manual).unwrap();
-  drop(store);
-  // The store as it stood one step before: every category holding a cap.
-  let conn = rusqlite::Connection::open(dir.join("research.db")).unwrap();
-  conn
-    .execute_batch(&format!("{UNDO_CAP} pragma user_version = {};", schema_version() - 2))
-    .unwrap();
-  drop(conn);
-
-  let store = Store::open(&dir).unwrap();
-  assert_eq!(store.version().unwrap(), schema_version());
-  assert_eq!(store.categories().unwrap().len(), 3);
-  assert_eq!(store.item(item.id).unwrap().state, ItemState::Waiting);
-  drop(store);
-  let conn = rusqlite::Connection::open(dir.join("research.db")).unwrap();
-  let columns: Vec<String> = conn
-    .prepare("select name from pragma_table_info('categories')")
-    .unwrap()
-    .query_map([], |r| r.get(0))
-    .unwrap()
-    .collect::<Result<_, _>>()
-    .unwrap();
-  assert!(!columns.contains(&"cap".to_string()), "{columns:?}");
-}
-
-#[test]
-fn the_step_that_gives_a_category_its_topic_keeps_every_category_and_takes_a_topic_afterwards() {
-  let dir = support::scratch().join("research");
-  drop(Store::open(&dir).unwrap());
-  // The store as it stood one step before: no category holding an instruction or a calendar.
-  let conn = rusqlite::Connection::open(dir.join("research.db")).unwrap();
-  conn
-    .execute_batch(&format!("{UNDO_TOPIC} pragma user_version = {};", schema_version() - 1))
-    .unwrap();
-  drop(conn);
-
-  let store = Store::open(&dir).unwrap();
-  assert_eq!(store.version().unwrap(), schema_version());
+fn a_category_takes_a_topic_beside_the_first_three() {
+  let store = store();
   let before = store.categories().unwrap();
   assert_eq!(before.len(), 3);
   assert!(

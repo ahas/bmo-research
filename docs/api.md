@@ -889,8 +889,8 @@ daemon's settings name, read under the data root the session record's `BMO_DATA_
 `bmo-research` serves and answers the deployment: `serve` runs the daemon; `health` answers 0 once the
 daemon answers ready; `openapi` prints the OpenAPI document; `skills` prints the name of every skill the
 runner composes a run of, one a line, which the deployment places under `prompts/skills/` with the skills
-repository's placer (`docs/runner.md`, 「The line's instructions」); `migrate` brings the store's schema to the
-version the binary holds and says which; `redraw` draws every filed page again where it differs from what
+repository's placer (`docs/runner.md`, 「The line's instructions」); `migrate` lays the store's schema where it has none,
+refuses a version other than the one the binary holds, and says which; `redraw` draws every filed page again where it differs from what
 this binary draws, and prints how many it set (「The page」); `nouns` prints `research`, the noun `bmo research …` hands it.
 Under `research` stand `state`, `stop`, `resume`, `categories`, `queue`, `ask`, `taken`, `dismiss`,
 `front`, `sources`, `recipients`, `runs`, `stack` and `facts`, each calling the route of the same name through the client; `--json` prints

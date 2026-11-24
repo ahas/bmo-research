@@ -3,6 +3,7 @@
 
 mod support;
 
+mod baseline;
 mod dependencies;
 mod dive;
 mod engine;

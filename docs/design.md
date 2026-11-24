@@ -448,7 +448,7 @@ take; so its own area stays the research and the measurement, however many categ
   `sources`, `seen`, `queue`, `runs`, `reports`, `rooms`, `pages` (what each filed page and room's document
   holds and still lacks), `facts` (the economy category's figures),
   `stack` (the security category's inventory), `demands` (the arbiter demands held), and the runner's `research_runs`, `research_log`,
-  `research_holds` and `research_settings`. Schema versioned and migrated at start.
+  `research_holds` and `research_settings`. The schema starts at the 1.0.0 baseline, laid at start where none is.
 
 ## The routes and the tools
 

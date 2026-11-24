@@ -15,237 +15,21 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use crate::sources::{Candidate, ItemKind};
 use crate::translation::Rendering;
 
-/// The schema's steps, each bringing the store one version up; the version is how many have been taken. The
-/// first registers the three categories the unit starts with, so a category taken away is not brought back;
-/// the second keeps an item's Korean rendering and its pending tries; the third holds the runner's research
-/// runs, their log, what they hold of agency and the owner's research settings; the fourth keeps what a
-/// deep dive's one page holds — its languages, its narrations and its Korean side — and what it still
-/// lacks, a document filed before it holding English alone and lacking nothing it can be given; the fifth
-/// keeps what the readings left on each source: how many were made, and what the last that succeeded turned
-/// up and kept; the sixth holds a `page` source's link pattern and strategy; the seventh keeps the arbiter
-/// demands the daemon holds and takes the fit's node list away; the eighth keeps what a page still lacks
-/// before its report is told, stands an item whose page was being finished and whose report was never told
-/// `finishing`, and sets every page finished since the fourth that still lacks a part due on the retry
-/// wait; the ninth keeps where an item came from — a source, an ask with its words, or a follow-up with the
-/// document it follows from — an item standing before it a source's where no ask made it, and an ask's with
-/// no words otherwise; the tenth keeps the repair a stuck item's worker is asked for, stands every item the
-/// store held given up `stuck` with its retry due and no repair yet, and names their notices `stuck`; the
-/// eleventh keeps the synthesis asked of the voice unit for each narration a page still lacks, and sets
-/// every filed page that plays a narration to be finished again at once by the item its try was asked for,
-/// with none counted as had, so each sound is found attached and the page drawn again whole from what the
-/// store keeps; the twelfth keeps, for a run that continues, the run it continues and the rounds each run
-/// answered, and, for a deep dive's page, each part of its Korean side as it is had, the texts its review
-/// rewrote and its Korean narration's words, its one review, and how often each narration was asked anew;
-/// the thirteenth keeps when the try an item's error names ended, an error standing before it dated by the
-/// latest try that carried the item, else by the item's last change; the fourteenth counts each run's
-/// page's review asks; the fifteenth takes a run's closing time away and the research settings' minutes
-/// with it; the sixteenth keeps what a page holds and lacks by its document, for a deep dive's page and a
-/// room's document alike, each filed page taking what the item its run was asked for kept; the seventeenth
-/// names every hold of a slot request `slot`; the eighteenth keeps when a page's document was found gone; the
-/// nineteenth takes each category's cap away, the queue holding none.
-const MIGRATIONS: &[&str] = &[
-  "
-  create table categories (
-    name text primary key, purpose text not null, shape text not null, cap integer not null,
-    cadence_minutes integer not null, gather_minutes integer, provider text, model text,
-    state text not null default 'running', state_at integer, created_at integer not null);
-  insert into categories (name, purpose, shape, cap, cadence_minutes, gather_minutes, created_at) values
+/// The schema's version, kept in the store's own `user_version`: the 1.0.0 baseline's, which `baseline.sql`
+/// makes whole (`docs/store.md`). An install from the last release before 1.0.0 holds this version already.
+const BASELINE: i64 = 20;
+
+/// The three categories the unit starts with, registered once as the baseline is laid, so a category taken
+/// away is not brought back.
+const SEED: &str = "
+  insert into categories (name, purpose, shape, cadence_minutes, gather_minutes, created_at) values
     ('it', 'New AI technology: models, engines, datasets, tools and papers the lab may run or measure.',
-     'manual-or-investigation', 5, 60, null, cast(strftime('%s', 'now') as integer) * 1000),
+     'manual-or-investigation', 60, null, cast(strftime('%s', 'now') as integer) * 1000),
     ('security', 'Vulnerability news that bears on the platform''s own stack.',
-     'advisory', 3, 60, null, cast(strftime('%s', 'now') as integer) * 1000),
+     'advisory', 60, null, cast(strftime('%s', 'now') as integer) * 1000),
     ('economy', 'Economic news and indicators, gathered into a daily brief whose figures are kept.',
-     'brief', 30, 60, 1440, cast(strftime('%s', 'now') as integer) * 1000);
-  create table sources (
-    id integer primary key autoincrement, category text not null, kind text not null, address text not null,
-    query text, require text not null default '[]', exclude text not null default '[]', every_minutes integer,
-    item_limit integer not null, failure_count integer not null default 0, last_error text, read_at integer,
-    created_at integer not null, changed_at integer not null);
-  create table seen (
-    key text primary key, category text not null, name text not null, maker text, address text,
-    kind text not null, published_at integer, source_id integer, state text not null, item_id integer,
-    found_at integer not null);
-  create index seen_unqueued on seen (category, state, found_at);
-  create table queue (
-    id integer primary key autoincrement, category text not null, key text not null, name text not null,
-    maker text, address text, kind text not null, shape text not null, source_id integer, asked integer not null,
-    priority integer not null, state text not null, tries integer not null default 0, retry_at integer,
-    run_id integer, document_id integer, title text, description text, share_url text,
-    fit integer not null default 0, fit_nodes text not null default '[]', touches text, plan text,
-    job_item_id integer, error text, found_at integer not null, created_at integer not null,
-    changed_at integer not null);
-  create index queue_state on queue (category, state);
-  create table runs (
-    id integer primary key autoincrement, category text not null, item_id integer not null,
-    item_ids text not null, try integer not null, run_id integer, state text not null, outcome text, error text,
-    started_at integer not null, ended_at integer);
-  create table reports (
-    id integer primary key autoincrement, item_id integer not null, recipient text not null, kind text not null,
-    instruction_id integer, state text not null, error text, at integer not null);
-  create table recipients (
-    id integer primary key autoincrement, category text not null, kind text not null, room_id integer,
-    agent_name text, origin text not null, added_at integer not null);
-  create unique index recipients_one on recipients (category, kind, coalesce(room_id, 0), coalesce(agent_name, ''));
-  create table facts (
-    id integer primary key autoincrement, name text not null, value text not null, unit text, as_of text,
-    source_address text, run_id integer, document_id integer, created_at integer not null);
-  create index facts_name on facts (name, id);
-  create table stack (
-    id integer primary key autoincrement, component text not null, version text, place text, repository text,
-    worker text, added_at integer not null);
-",
-  "
-  alter table queue add column ko_document_id integer;
-  alter table queue add column ko_share_url text;
-  alter table queue add column translation_tries integer not null default 0;
-  alter table queue add column translation_retry_at integer;
-",
-  "
-  create table research_runs (
-    id integer primary key autoincrement, key text not null, line text not null, query text not null,
-    asker text, options text, room_id integer, provider text not null, model text not null,
-    state text not null, outcome text, error text, started_at integer not null, closes_at integer,
-    finished_at integer, branches_allowed integer not null, branches integer not null default 0,
-    record text not null, tells integer not null, turns text not null default '[]', written text,
-    document_id integer, title text, description text, link text);
-  create index research_runs_state on research_runs (state);
-  create table research_log (
-    id integer primary key autoincrement, run_id integer not null, at integer not null, kind text not null,
-    text text not null);
-  create index research_log_run on research_log (run_id, id);
-  create table research_holds (
-    id integer primary key autoincrement, run_id integer not null, kind text not null, value text not null);
-  create index research_holds_run on research_holds (run_id);
-  create table research_settings (id integer primary key, value text not null);
-",
-  "
-  alter table queue drop column ko_document_id;
-  alter table queue drop column ko_share_url;
-  alter table queue rename column translation_retry_at to pending_retry_at;
-  alter table queue add column languages text not null default '[]';
-  alter table queue add column narrations text not null default '[]';
-  alter table queue add column narration_tries integer not null default 0;
-  update queue set languages = '[\"en\"]' where document_id is not null;
-  update queue set pending_retry_at = null;
-  create table renderings (
-    document_id integer primary key, title text not null, description text, body text not null,
-    created_at integer not null);
-",
-  "
-  alter table sources add column scan_count integer not null default 0;
-  alter table sources add column last_yield integer;
-  alter table sources add column last_taken integer;
-",
-  "
-  alter table sources add column pattern text;
-  alter table sources add column strategy text;
-",
-  "
-  alter table queue drop column fit_nodes;
-  create table demands (
-    id integer primary key, try_id integer, run_id integer, within integer, service text not null,
-    asked_at integer not null);
-",
-  "
-  alter table queue add column pending text not null default '[]';
-  update queue set state = 'finishing'
-    where state in ('reported', 'fit') and pending_retry_at is not null
-      and not exists (select 1 from reports where reports.item_id = queue.id);
-  update queue set pending_retry_at = 0
-    where state in ('reported', 'fit', 'taken') and document_id is not null and pending_retry_at is null
-      and (translation_tries > 0 or narration_tries > 0)
-      and (languages <> '[\"ko\",\"en\"]' or narrations <> '[\"ko\",\"en\"]');
-",
-  "
-  alter table queue add column origin text not null default 'source';
-  alter table queue add column because text;
-  alter table queue add column parent_item_id integer;
-  alter table queue add column parent_document_id integer;
-  alter table queue add column parent_title text;
-  alter table queue add column parent_share_url text;
-  update queue set origin = 'asked' where asked = 1;
-",
-  "
-  alter table queue add column repair_item_id integer;
-  update queue set state = 'stuck', retry_at = 0 where state = 'failed';
-  update reports set kind = 'stuck' where kind = 'failed';
-",
-  "
-  create table syntheses (
-    document_id integer not null, language text not null, synthesis_id integer not null,
-    characters integer not null, asked_at integer not null, primary key (document_id, language));
-  update queue set narrations = '[]', pending_retry_at = 0
-    where narrations <> '[]' and document_id is not null
-      and state in ('finishing', 'reported', 'fit', 'taken')
-      and id in (select runs.item_id from runs where runs.run_id = queue.run_id);
-  update queue set narrations = '[]'
-    where narrations <> '[]' and document_id in (select document_id from queue where pending_retry_at = 0);
-",
-  "
-  alter table research_runs add column continues integer;
-  alter table research_runs add column answered text not null default '[]';
-  create table translated_parts (
-    document_id integer not null, english text not null, korean text not null,
-    primary key (document_id, english));
-  create table page_texts (
-    document_id integer not null, name text not null, text text not null, primary key (document_id, name));
-  create table page_reviews (
-    document_id integer primary key, answer text not null, applied text not null default '[]',
-    remade text not null default '[]', reviewed_at integer not null);
-  create table narration_asks (
-    document_id integer not null, language text not null, renewed integer not null,
-    primary key (document_id, language));
-",
-  "
-  alter table queue add column error_at integer;
-  update queue set error_at = coalesce(
-      (select max(runs.ended_at) from runs
-        where runs.item_id = queue.id or (queue.run_id is not null and runs.run_id = queue.run_id)),
-      changed_at)
-    where error is not null;
-",
-  "
-  alter table research_runs add column review_asks integer not null default 0;
-",
-  "
-  alter table research_runs drop column closes_at;
-  update research_settings set value = json_remove(value, '$.keys.\"search:basic\".minutes',
-    '$.keys.\"search:thorough\".minutes', '$.keys.\"search:exhaustive\".minutes', '$.keys.browse.minutes');
-",
-  "
-  create table pages (
-    document_id integer primary key, item_id integer, languages text not null default '[]',
-    narrations text not null default '[]', pending text not null default '[]', pending_retry_at integer,
-    translation_tries integer not null default 0, narration_tries integer not null default 0);
-  insert or ignore into pages (document_id, item_id, languages, narrations, pending, pending_retry_at,
-      translation_tries, narration_tries)
-    select document_id, id, languages, narrations, pending, pending_retry_at, translation_tries, narration_tries
-      from queue where document_id is not null
-      order by document_id,
-        exists (select 1 from runs where runs.run_id = queue.run_id and runs.item_id = queue.id) desc,
-        pending_retry_at is null, id;
-  alter table queue drop column languages;
-  alter table queue drop column narrations;
-  alter table queue drop column pending;
-  alter table queue drop column pending_retry_at;
-  alter table queue drop column translation_tries;
-  alter table queue drop column narration_tries;
-",
-  "
-  update research_holds set kind = 'slot' where kind = 'seat';
-",
-  "
-  alter table pages add column gone_at integer;
-",
-  "
-  alter table categories drop column cap;
-",
-  "
-  alter table categories add column instruction text;
-  alter table categories add column calendar_realm text;
-  alter table categories add column calendar_id text;
-",
-];
+     'brief', 60, 1440, cast(strftime('%s', 'now') as integer) * 1000);
+";
 
 /// A page's one review (`docs/store.md`, `page_reviews`): what it wrote, the indices of its fixes applied or
 /// left out, and the languages whose narration it had made again.
@@ -276,7 +60,7 @@ pub struct Parent {
 
 /// The schema version this binary holds.
 pub fn schema_version() -> i64 {
-  MIGRATIONS.len() as i64
+  BASELINE
 }
 
 pub fn now_ms() -> i64 {
@@ -476,7 +260,7 @@ pub struct Store {
 }
 
 impl Store {
-  /// The store in `dir`, its schema brought to this binary's version.
+  /// The store in `dir`, its schema laid where it has none and refused where it is not this binary's.
   pub fn open(dir: &Path) -> Result<Store, String> {
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let conn = Connection::open(dir.join("research.db")).map_err(|e| e.to_string())?;
@@ -2608,20 +2392,27 @@ fn wait_for_the_lock(_asked: i32) -> bool {
   true
 }
 
-/// The store's schema brought to this binary's version, a step at a time; a newer store is refused.
+/// A store with no schema laid with the 1.0.0 baseline and its seed in one transaction; a store at the
+/// baseline's version read as it stands; one of an older version, from a release before 1.0.0 short of its
+/// last, refused, and a newer one too.
 fn migrate(conn: &Connection) -> Result<(), String> {
   let version: i64 = conn.query_row("pragma user_version", [], |r| r.get(0)).map_err(|e| e.to_string())?;
-  if version > schema_version() {
+  if version == 0 {
+    let laid = || -> rusqlite::Result<()> {
+      let unit = conn.unchecked_transaction()?;
+      unit.execute_batch(include_str!("baseline.sql"))?;
+      unit.execute_batch(SEED)?;
+      unit.pragma_update(None, "user_version", BASELINE)?;
+      unit.commit()
+    };
+    laid().map_err(|e| format!("the schema's baseline: {e}"))?;
+  } else if version < BASELINE {
     return Err(format!(
-      "the store is at schema version {version}, newer than this binary's {}",
-      schema_version()
+      "the store is at schema version {version}, from a release before 1.0.0 short of its last; that release \
+       brings it to version {BASELINE} first"
     ));
-  }
-  for (at, step) in MIGRATIONS.iter().enumerate().skip(version as usize) {
-    let next = at as i64 + 1;
-    conn
-      .execute_batch(&format!("begin; {step} pragma user_version = {next}; commit;"))
-      .map_err(|e| format!("the schema's step to version {next}: {e}"))?;
+  } else if version > BASELINE {
+    return Err(format!("the store is at schema version {version}, newer than this binary's {BASELINE}"));
   }
   Ok(())
 }

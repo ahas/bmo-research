@@ -1,9 +1,12 @@
 # The store
 
 One SQLite file, `research.db`, in the folder the settings' `store` names under the data root. Its schema
-carries a version (SQLite's `user_version`); the daemon, and `bmo-research migrate`, bring it to the version
-the binary holds as they start, one step at a time, and refuse a store newer than the binary. The step that
-makes the store registers the three first categories (`docs/api.md`, 「categories」). A write that finds
+starts at the 1.0.0 baseline, version 20 in the file's own `user_version`: the daemon, and `bmo-research
+migrate`, make every table below as they start where the file has none, with the three first categories
+(`docs/api.md`, 「categories」), and record that version. An install from the last release before 1.0.0
+already holds that version and that schema, and is read as it stands. A store of an older version is refused,
+with its version named: the last release before 1.0.0 brings it up first. One newer than the binary is
+refused too. A write that finds
 the file locked by another process waits for the lock to be let go, however long that takes. Times are epoch
 milliseconds; lists are JSON arrays.
 
