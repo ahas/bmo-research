@@ -41,8 +41,9 @@ state how all of it works.
 - **Tests live in `tests/`.** The root package `research-checks` holds them; no test module sits in a
   source file. `tests/layout.rs` fails on a directory named after its parent and on another build tool's
   manifest at the root.
-- **Versions** are the workspace's, `0.1.0-rev.<n>` before the first release, and move only at a release
-  the owner declares (bmo-chat's `docs/conventions.md`, 「Versions」).
+- **Versions** are the set's, read off the git tags when a build is made, and move only at a release the
+  owner declares (bmo-chat's `docs/conventions.md`, 「Versions」); the manifests' version fields are
+  placeholders that never move.
 
 ## Layout
 

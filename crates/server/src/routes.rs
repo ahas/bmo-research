@@ -130,7 +130,7 @@ async fn health() -> Response {
   Json(Health {
     ready: true,
     reason: None,
-    version: env!("CARGO_PKG_VERSION").into(),
+    version: crate::VERSION.into(),
   })
   .into_response()
 }

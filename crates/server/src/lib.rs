@@ -30,6 +30,13 @@ pub mod tool_host;
 pub mod translation;
 pub mod words;
 
+/// The version this build answers with: the set's, which the testbed hands the build as `BMO_VERSION`, else
+/// the manifest's placeholder (bmo-chat's `docs/conventions.md`, 「Versions」).
+pub const VERSION: &str = match option_env!("BMO_VERSION") {
+  Some(version) => version,
+  None => env!("CARGO_PKG_VERSION"),
+};
+
 /// Everything the routes and the loop share.
 pub struct App {
   pub settings: Arc<config::Settings>,
@@ -57,7 +64,7 @@ impl App {
     }
     let settings = Arc::new(settings);
     let http = reqwest::Client::builder()
-      .user_agent(format!("{}/{}", settings.user_agent, env!("CARGO_PKG_VERSION")))
+      .user_agent(format!("{}/{}", settings.user_agent, VERSION))
       .build()
       .unwrap_or_default();
     let stop = stop::Stop::default();

@@ -12,7 +12,7 @@ use research_server::words::fill;
 #[derive(Parser)]
 #[command(
   name = "bmo-research",
-  version,
+  version = research_server::VERSION,
   about = "The research unit: the queue, the scan, the deep dive and the notices"
 )]
 struct Cli {
