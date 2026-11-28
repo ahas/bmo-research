@@ -855,6 +855,11 @@ daemon's settings name, read under the data root the session record's `BMO_DATA_
 - **An entry that both reads and changes** is shown to a session holding `research.ask`, and the tool
   refuses its changing actions to a session whose record does not also hold `research.owner`.
 - **Each answers a short text** for the model to read, and a refusal as a result marked as an error.
+- **Its manual, `tools/research/manual.md`, says how the entries are used:** an ask that continues a report
+  names it, a search of one's own goes out with `research/run`, a request a research skill binds reads that skill
+  first naming the asker, and a verification notice is put to the owner and recorded with `research/taken` once
+  filed on his word. Every entry but `research/rulebook` names it, so the host's describe answers it and a session
+  is handed it with its first call of one; the deployment places it beside the manifest.
 - **No entry is held to a clock:** the manifest names no `timeout`, and a call ends with the daemon's answer,
   its connection breaking, or its caller going away.
 - **`research/run` sends a research out** and is answered at once with the run's id, its state and its road,

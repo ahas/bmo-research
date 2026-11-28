@@ -82,7 +82,7 @@ command = '''
 set -eu
 rm -rf tools/research/.placed
 mkdir -p tools/research/.placed
-cp bin/research-tool tools/research/tool.toml tools/research/*.json tools/research/.placed/
+cp bin/research-tool tools/research/tool.toml tools/research/*.json tools/research/manual.md tools/research/.placed/
 mkdir -p tools/research/.placed/prompts
 cp -R prompts/skills tools/research/.placed/prompts/
 '''

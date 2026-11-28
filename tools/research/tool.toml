@@ -16,6 +16,7 @@ name = "ask"
 title = "Ask for research"
 description = "Queue a thing for the research daemon by its name and its maker's address; it is researched before anything the sources turned up, and its report comes back to the room. Say why it is asked in because; where it follows from an earlier research, name that item in follows, or its document in document, so the report names the step it followed from."
 input = "ask.json"
+manual = "manual.md"
 capabilities = ["research.ask"]
 
 [entry.listing]
@@ -28,6 +29,7 @@ name = "queue"
 title = "Research queue"
 description = "List the research queue: what runs, what waits, and what was reported, each with its state and its report's link."
 input = "queue.json"
+manual = "manual.md"
 hints = { read_only = true }
 capabilities = ["research.ask"]
 
@@ -41,6 +43,7 @@ name = "taken"
 title = "Mark research taken"
 description = "Record that a reported item is taken: the job item filed for it on the owner's word is kept on the item."
 input = "taken.json"
+manual = "manual.md"
 capabilities = ["research.owner"]
 
 [entry.listing]
@@ -53,6 +56,7 @@ name = "dismiss"
 title = "Dismiss research"
 description = "Dismiss a research item on the owner's word; nothing turns it up again."
 input = "dismiss.json"
+manual = "manual.md"
 capabilities = ["research.owner"]
 
 [entry.listing]
@@ -65,6 +69,7 @@ name = "categories"
 title = "Research categories"
 description = "List the research categories, or, on the owner's word, add, change or remove one. A category of the shape topic is gathered every gatherMinutes under its own instruction, and may name the calendar its dated findings are written to."
 input = "categories.json"
+manual = "manual.md"
 capabilities = ["research.ask"]
 
 [entry.listing]
@@ -77,6 +82,7 @@ name = "sources"
 title = "Research sources"
 description = "List the sources the research daemon reads, or, on the owner's word, add or remove one."
 input = "sources.json"
+manual = "manual.md"
 capabilities = ["research.ask"]
 
 [entry.listing]
@@ -89,6 +95,7 @@ name = "recipients"
 title = "Research recipients"
 description = "List who hears a category's notices, rooms and agents, or, on the owner's word, add or remove one."
 input = "recipients.json"
+manual = "manual.md"
 capabilities = ["research.ask"]
 
 [entry.listing]
@@ -101,6 +108,7 @@ name = "rooms"
 title = "Research rooms"
 description = "List the rooms that hear a category's notices, or, on the owner's word, add or remove one."
 input = "rooms.json"
+manual = "manual.md"
 capabilities = ["research.ask"]
 
 [entry.listing]
@@ -113,6 +121,7 @@ name = "stop"
 title = "Stop research"
 description = "Stop the research daemon's runs, every category or the one named; a run under way finishes."
 input = "stop.json"
+manual = "manual.md"
 capabilities = ["research.owner"]
 
 [entry.listing]
@@ -125,6 +134,7 @@ name = "resume"
 title = "Resume research"
 description = "Resume the research daemon's runs, every category or the one named."
 input = "resume.json"
+manual = "manual.md"
 capabilities = ["research.owner"]
 
 [entry.listing]
@@ -137,6 +147,7 @@ name = "run"
 title = "Run a research"
 description = "Send a web research out at a depth, answered at once with the run's id, its state and the road it went out on, or why it cannot go out now. The key is the depth: search:basic for a question after one value or one fact, search:thorough for a question with a few angles, search:exhaustive for a deep dive, browse for a task that must open and click through pages. Write the question whole, as the owner means it, and name roomId, the room this turn answers, so the result comes back there. Name a model, with its provider where one is meant, only where the owner named one for this research; with none named, the role's own road carries it. The result comes back to the room as an instruction once the run ends: the answer in a line or two and its document's link."
 input = "run.json"
+manual = "manual.md"
 capabilities = ["research.ask"]
 
 [entry.listing]
@@ -162,6 +173,7 @@ name = "skill"
 title = "Read a research skill"
 description = "Read one research skill whole: the rules a kind of research and its answer are held to, with the asker's own rule for that kind where they keep one. Before answering such a request yourself, read the skill for its kind: bmo-research-restaurants for places to eat or food to order, bmo-research-products for a thing to buy or a price, bmo-research-investment for where to put money or a stock forecast, bmo-research-study-material for material to learn a subject from, bmo-research-security-advisories for a vulnerability or an advisory, bmo-research-economy-brief for a brief of a day's economic news, bmo-research-deep-dives and bmo-research-routine for a deep look at a thing somebody made, bmo-research-kinds for what any search checks and attaches, and bmo-docs-plain-writing for how the words read. Name the asker so their own rule comes with it."
 input = "skill.json"
+manual = "manual.md"
 hints = { read_only = true }
 capabilities = ["research.ask"]
 
