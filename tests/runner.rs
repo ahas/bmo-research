@@ -888,8 +888,8 @@ async fn a_room_s_document_carries_its_narration_at_its_head_and_its_room_is_tol
 }
 
 #[tokio::test]
-async fn a_room_s_document_whose_sound_fails_is_told_only_once_its_narration_is_attached_on_its_retry_wait()
-{
+async fn a_room_s_document_whose_sound_fails_is_told_at_once_and_its_narration_attached_later_without_a_second_telling()
+ {
   let (ground, _base, client) = served().await;
   // A Korean question: its result and its script are Korean, and the sound is spoken as written. The
   // syllables are made from their code points, so the source holds no Hangul.
@@ -919,10 +919,10 @@ async fn a_room_s_document_whose_sound_fails_is_told_only_once_its_narration_is_
   let run = closed_saying(&ground, 1, "narration", "was not made").await;
   assert_eq!((run.outcome.as_deref(), run.document_id), (Some("answered"), Some(901)));
   assert_eq!(run.pending, ["narration-ko"]);
-  assert!(
-    ground.asked_path("receiver", "POST", "/instructions").is_empty(),
-    "the room hears nothing yet"
-  );
+  closed_saying(&ground, 1, "told", "was told").await;
+  let told = ground.asked_path("receiver", "POST", "/instructions");
+  assert_eq!(told.len(), 1, "the room is told at the sound's first failure");
+  assert!(told[0].body["said"]["order"].as_str().unwrap().contains("https://share.example/d901"));
   assert_eq!(ground.world.lock().unwrap().kept_labels[&901]["pending"], "narration-ko");
   assert!(ground.world.lock().unwrap().attachments.is_empty());
   assert!(
@@ -953,9 +953,11 @@ async fn a_room_s_document_whose_sound_fails_is_told_only_once_its_narration_is_
     .collect();
   assert_eq!(attached, [("narration-ko.ogg".to_string(), Some("head".to_string()))]);
   assert!(ground.world.lock().unwrap().kept_labels[&901].get("pending").is_none());
-  let told = ground.asked_path("receiver", "POST", "/instructions");
-  assert_eq!(told.len(), 1, "told once the sound is attached");
-  assert!(told[0].body["said"]["order"].as_str().unwrap().contains("https://share.example/d901"));
+  assert_eq!(
+    ground.asked_path("receiver", "POST", "/instructions").len(),
+    1,
+    "the sound attached later is not told again"
+  );
   let run = ground.app.store.research_run(1).unwrap().view();
   assert_eq!((run.narrations, run.pending), (vec!["ko".to_string()], Vec::<String>::new()));
 
@@ -966,7 +968,7 @@ async fn a_room_s_document_whose_sound_fails_is_told_only_once_its_narration_is_
 }
 
 #[tokio::test]
-async fn a_room_s_document_gone_before_its_room_was_told_is_told_whole_once_and_not_asked_again() {
+async fn a_room_s_document_gone_after_its_link_was_told_is_told_whole_once_and_not_asked_again() {
   let (ground, _base, client) = served().await;
   {
     let mut world = ground.world.lock().unwrap();
@@ -984,14 +986,20 @@ async fn a_room_s_document_gone_before_its_room_was_told_is_told_whole_once_and_
     .unwrap();
   let run = closed_saying(&ground, 1, "narration", "was not made").await;
   assert_eq!(run.pending, ["narration-en"]);
+  closed_saying(&ground, 1, "told", "was told").await;
+  assert_eq!(
+    ground.asked_path("receiver", "POST", "/instructions").len(),
+    1,
+    "the room is told the link at the sound's first failure"
+  );
   ground.world.lock().unwrap().gone_documents.insert(901);
 
   let due = ground.app.store.run_pages_due(now_ms() + 3_600_000).unwrap();
   finish_told(&ground.app, &due[0]).await;
 
   let told = ground.asked_path("receiver", "POST", "/instructions");
-  assert_eq!(told.len(), 1, "the room is told once");
-  let order = told[0].body["said"]["order"].as_str().unwrap();
+  assert_eq!(told.len(), 2, "the link gone, the room is told the result whole, once");
+  let order = told[1].body["said"]["order"].as_str().unwrap();
   assert!(
     order.contains("Its result, as the run wrote it") && order.contains("Run 1 answered."),
     "{order}"

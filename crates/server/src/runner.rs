@@ -1972,6 +1972,12 @@ pub async fn finish_told(app: &App, row: &ResearchRunRow) {
     return;
   }
   let mut narrations = state.narrations.clone();
+  // The room told already, at a sound's earlier failure, is not told again.
+  let told_before = app
+    .store
+    .research_log(run)
+    .is_ok_and(|lines| lines.iter().any(|line| line.kind == "told"));
+  let mut failed_first = false;
   if let (true, Some(script)) = (lacking, script.as_deref()) {
     let name = dive::sound_name(code);
     match dive::narration(app, (run, document_id), (code, Speech::Written(script)), &name, Some("head"))
@@ -1985,6 +1991,7 @@ pub async fn finish_told(app: &App, row: &ResearchRunRow) {
       Err(why) => {
         eprintln!("bmo-research: research {run}'s {code} narration was not made: {why}");
         note(app, run, "narration", &format!("The {code} narration was not made: {why}"));
+        failed_first = !told_before;
       }
     }
   }
@@ -1993,6 +2000,15 @@ pub async fn finish_told(app: &App, row: &ResearchRunRow) {
     _ => Vec::new(),
   };
   let _ = app.store.pend_page(document_id, &pending, (!pending.is_empty()).then_some(next));
+  if failed_first {
+    note(
+      app,
+      run,
+      "filed",
+      "The narration's first try failed, so the room is told now without its sound.",
+    );
+    tell_linked(app, row, &ask, &written, document_id).await;
+  }
   if pending == state.pending {
     return;
   }
@@ -2011,6 +2027,28 @@ pub async fn finish_told(app: &App, row: &ResearchRunRow) {
   if !pending.is_empty() {
     return;
   }
+  if told_before {
+    note(
+      app,
+      run,
+      "filed",
+      "The document has its narration; its room was told at the first failure.",
+    );
+    return;
+  }
+  note(app, run, "filed", "The document has its narration, so its room is told.");
+  tell_linked(app, row, &ask, &written, document_id).await;
+}
+
+// The room told the answer in brief and the document's live link, else the link it was filed with.
+async fn tell_linked(
+  app: &App,
+  row: &ResearchRunRow,
+  ask: &ResearchRunAsk,
+  written: &str,
+  document_id: i64,
+) {
+  let run = row.id;
   let link = match app.peers.share(document_id).await {
     Ok(link) => link,
     Err(why) => {
@@ -2018,9 +2056,8 @@ pub async fn finish_told(app: &App, row: &ResearchRunRow) {
       row.link.clone().unwrap_or_default()
     }
   };
-  let brief = brief_of(&written).unwrap_or_else(|| written.clone());
-  note(app, run, "filed", "The document has its narration, so its room is told.");
-  tell(app, run, &linked_instruction(run, &ask, &brief, &link)).await;
+  let brief = brief_of(written).unwrap_or_else(|| written.to_owned());
+  tell(app, run, &linked_instruction(run, ask, &brief, &link)).await;
 }
 
 /// Why a run that met a loss was cut: its own failure, and the loss where that was not the failure itself.
