@@ -2060,11 +2060,25 @@ pub async fn finish_told(app: &App, row: &ResearchRunRow) {
     .research_log(run)
     .is_ok_and(|lines| lines.iter().any(|line| line.kind == "told"));
   let mut failed_first = false;
+  let mut told_early = false;
   if let (true, Some(script)) = (lacking, script.as_deref()) {
     let name = dive::sound_name(code);
-    match dive::narration(app, (run, document_id), (code, Speech::Written(script)), &name, Some("head"))
-      .await
-    {
+    let narrate =
+      dive::narration(app, (run, document_id), (code, Speech::Written(script)), &name, Some("head"));
+    tokio::pin!(narrate);
+    let patience = Duration::from_secs(words::runner().narration.tell_after_minutes * 60);
+    let made = tokio::select! {
+      made = &mut narrate => made,
+      () = tokio::time::sleep(patience) => {
+        if !told_before {
+          note(app, run, "filed", "The narration has not come yet, so the room is told now without its sound.");
+          tell_linked(app, row, &ask, &written, document_id).await;
+          told_early = true;
+        }
+        narrate.await
+      }
+    };
+    match made {
       Ok(()) => {
         narrations.push(code.to_owned());
         let _ = app.store.keep_narrations(document_id, &narrations);
@@ -2073,7 +2087,7 @@ pub async fn finish_told(app: &App, row: &ResearchRunRow) {
       Err(why) => {
         eprintln!("bmo-research: research {run}'s {code} narration was not made: {why}");
         note(app, run, "narration", &format!("The {code} narration was not made: {why}"));
-        failed_first = !told_before;
+        failed_first = !told_before && !told_early;
       }
     }
   }
@@ -2109,13 +2123,8 @@ pub async fn finish_told(app: &App, row: &ResearchRunRow) {
   if !pending.is_empty() {
     return;
   }
-  if told_before {
-    note(
-      app,
-      run,
-      "filed",
-      "The document has its narration; its room was told at the first failure.",
-    );
+  if told_before || told_early {
+    note(app, run, "filed", "The document has its narration; its room was told before it came.");
     return;
   }
   note(app, run, "filed", "The document has its narration, so its room is told.");

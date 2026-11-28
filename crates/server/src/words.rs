@@ -538,6 +538,9 @@ pub struct NarrationAsk {
   pub question: String,
   pub rulebook: String,
   pub section: String,
+  /// The minutes a room's sound is waited for before the room is told without it (`docs/runner.md`, 「The
+  /// narration's sound」).
+  pub tell_after_minutes: u64,
 }
 
 /// What a deep dive's session is asked where its result is short of its shape: the question, with `{missing}`

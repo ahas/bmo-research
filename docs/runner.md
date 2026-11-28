@@ -386,7 +386,7 @@ type before it uses one.
 ## The narration's sound
 
 A run told to its room has its document heard as well as read, as a deep dive's page is, and its room hears
-of it once the sound is attached, or at once where the sound's first try fails.
+of it once the sound is attached, or without it where the sound does not come soon.
 
 - **The script is spoken as it is written,** in the question's language: Korean where the question holds
   Hangul, English otherwise, the language the result is written in, so the owner asking in Korean hears
@@ -411,9 +411,11 @@ of it once the sound is attached, or at once where the sound's first try fails.
   link (「The room」), its link the artifact service's `GET /shares` answers, else one made with
   `POST /shares`, else the link the document was filed with. A result with no script — its narration turn
   wrote none — is whole as it is filed, and its room is told at once.
-- **A sound whose first try fails does not hold the room back:** the room is told then, the same brief and
-  link, and the sound is still asked again on every retry wait and attached to the document when it is made,
-  with no second telling. A road that cannot speak the narration thus leaves the result read, never unheard.
+- **A sound that does not come soon does not hold the room back:** where its first try fails, or is not
+  attached within `tell_after_minutes` of `[narration]` in `prompts/runner.toml` while it goes on, the room is
+  told then, the same brief and link, and the sound is still followed, asked again on every retry wait and
+  attached to the document when it is made, with no second telling. A voice that is slow or a road that cannot
+  speak the narration thus leaves the result read, never unheard.
 - The run's log says what the document waits on under `filed`, each sound made or not, and why, under
   `narration`, and the telling under `told`.
 - **The run is closed before its sound is made:** its slot is given back and its sessions ended, so nothing
