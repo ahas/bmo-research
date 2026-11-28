@@ -59,6 +59,14 @@ section = "The narration"
 
 # What a deep dive's session is asked where its result is short of its shape (docs/runner.md, 「The deep
 # dive's page」): the question, `{missing}` set to what the result lacks.
+# What a search's result is asked where the runner finds it left cells, product links or pictures unfilled
+# (docs/runner.md, 「The fill」): the question, `{gaps}` set to the list; the fill's own page budget; and how many
+# times it is asked again while each answer leaves fewer unfilled.
+[fill]
+question = "The result below leaves these unfilled: {gaps}. Fill each one now: search for it and open the page that settles it, the product's own listing first, then a review or a spec sheet. In every table, write each product's name as a markdown link to the page it is sold on. Give every product its pictures as the products rulebook asks, as IMAGE lines with their SOURCE lines, each picture looked at first. Write `unchecked` again only where the page you opened does not say, and name that page. Then write the whole result again from its head, every section in order, with what you filled in place; this turn's text is taken whole as the result."
+pages = 8
+rounds = 2
+
 [whole]
 question = "The answer you wrote last is not the whole document: {missing}. Write the whole result again from its head, every section in order: the ANSWERED and TITLE lines and the rest of the head, the narration where the task asks for one, VERDICT with the answer, then every section the task's shape asks for, through UNCONFIRMED and the sources. Write it whole in this one answer, never as a continuation of what you wrote before: this turn's text is taken whole as the result."
 

@@ -11,6 +11,7 @@ pub mod daemon;
 pub mod dive;
 pub mod document;
 pub mod engine;
+pub mod fill;
 pub mod openapi;
 pub mod page;
 pub mod peers;

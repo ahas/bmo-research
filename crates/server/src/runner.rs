@@ -1520,11 +1520,93 @@ async fn rounds(app: &App, going: &Going, road: &Road, first: String, seat: &mut
     }
     asking += 1;
   }
+  let last = if going.reference.is_some() {
+    last
+  } else {
+    filled(app, going, (&record, capabilities.as_slice()), seat, last).await
+  };
   let last = whole(app, going, seat, last).await;
   if going.reference.is_some() {
     return reference_whole(app, going, seat, last).await;
   }
   narrated(app, going, seat, last).await
+}
+
+/// A search's result checked for what it left unfilled (`docs/runner.md`, 「The fill」): where it carries product
+/// entries and leaves cells `unchecked`, rows without their product's page or no picture, a session of its own
+/// on the run's slot, with the fill's page budget, is asked to fill them, again while each answer leaves fewer,
+/// at most the fill's rounds; the answer leaving the fewest is the result.
+async fn filled(
+  app: &App,
+  going: &Going,
+  (record, capabilities): (&Value, &[String]),
+  seat: &mut Seat,
+  result: String,
+) -> String {
+  let run = going.run;
+  let ask = &words::runner().fill;
+  let mut best = result;
+  let mut gaps = crate::fill::gaps(&best);
+  if gaps.is_empty() {
+    return best;
+  }
+  let mut fill_record = record.clone();
+  if let Some(fields) = fill_record.as_object_mut() {
+    fields.insert("pages".into(), json!(ask.pages));
+  }
+  for asked in 1..=ask.rounds {
+    note(
+      app,
+      run,
+      "fill",
+      &format!(
+        "The result leaves {} unfilled, so it is asked to fill them: {}.",
+        gaps.len(),
+        gaps.join("; ")
+      ),
+    );
+    if let Err(why) =
+      seated_again(app, going, seat, (&fill_record, capabilities), "agency started no session for the fill")
+        .await
+    {
+      note(
+        app,
+        run,
+        "fill",
+        &format!("The fill's session did not start, so the result stands: {why}"),
+      );
+      break;
+    }
+    let question = fill(&ask.question, &[("gaps", &gaps.join("; "))]);
+    let prompt = round_prompt(&question, &going.prompt, &best);
+    let answer = match turn(app, going, seat, &format!("research-{run}-fill-{asked}"), &prompt).await {
+      Ok(answer) => answer,
+      Err(why) => {
+        note(app, run, "fill", &format!("The fill did not answer, so the result stands: {why}"));
+        break;
+      }
+    };
+    let left = crate::fill::gaps(&answer);
+    if left.len() >= gaps.len() {
+      note(
+        app,
+        run,
+        "fill",
+        &format!("The fill left {} unfilled, no fewer, so the answer before it stands.", left.len()),
+      );
+      break;
+    }
+    best = answer;
+    gaps = left;
+    if gaps.is_empty() {
+      note(app, run, "fill", "The fill left nothing unfilled.");
+      return best;
+    }
+  }
+  if !gaps.is_empty() {
+    note(app, run, "fill", &format!("What stays unfilled: {}.", gaps.join("; ")));
+  }
+  best
 }
 
 /// A references run's result held to the dossier's shape: where its last fenced block is not the JSON the

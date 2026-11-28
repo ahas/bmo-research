@@ -1405,3 +1405,38 @@ async fn agency_restarting_between_turns_sends_the_turn_again_on_a_new_slot() {
   assert_eq!(finals, ["/sessions/voyager@run:2/turns", "/sessions/voyager@run:3/turns"]);
   assert!(ground.app.store.holds(1).unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn a_product_result_left_unfilled_is_asked_to_fill_it_and_a_fill_no_better_stands_down() {
+  let (ground, _base, client) = served().await;
+  let result = format!(
+    "{}\nSECTION: Compared\n| Product | Price |\n|---|---|\n| Speaker A | unchecked |\n\n===ITEM===\nNAME: Speaker A\n",
+    narrated_result(1, "")
+  );
+  ground.world.lock().unwrap().raw.insert(1, result);
+  client
+    .ask_research(&ResearchRunAsk {
+      key: "search:basic".into(),
+      query: "Which speaker answers fastest?".into(),
+      room_id: Some(5),
+      ..ResearchRunAsk::default()
+    })
+    .await
+    .unwrap();
+
+  let run = closed_saying(&ground, 1, "fill", "no fewer").await;
+  assert!(run.turns.iter().any(|turn| turn == "research-1-fill-1"), "{:?}", run.turns);
+  assert!(
+    !run.turns.iter().any(|turn| turn == "research-1-fill-2"),
+    "a fill no better is not asked again"
+  );
+  let log = ground.app.store.research_log(1).unwrap();
+  let asked = log.iter().find(|line| line.kind == "fill").unwrap();
+  assert!(asked.text.contains("Price of \"Speaker A\" is unchecked"), "{}", asked.text);
+  assert!(
+    asked.text.contains("names no page") && asked.text.contains("no product has a picture"),
+    "{}",
+    asked.text
+  );
+  assert_eq!(run.outcome.as_deref(), Some("answered"), "the result before the fill is filed");
+}

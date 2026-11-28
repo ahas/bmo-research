@@ -224,6 +224,23 @@ run is this unit's.
   the answer written last under another. Each round is a fresh turn: the session carries nothing between them.
 - **A round that does not answer** leaves the answer written last standing as the result.
 
+## The fill
+
+- **A search's result is checked by the runner, not only asked for,** once its rounds are done and before it
+  is held to its shape (「What a result holds」): a result that carries product entries (`===ITEM===`) is read
+  for what it left unfilled —
+  - every cell of its tables that reads `unchecked`, named by its row's first cell and its column's head;
+  - every row of its tables whose first cell names no page, a markdown link to the product's own page;
+  - no `IMAGE:` line at all.
+- **A result short of any of them is asked to fill them,** in a session of its own started on the run's slot
+  with a page budget of its own, `pages` of `[fill]` in `prompts/runner.toml`, opening no branch: the fill's
+  question with the list of what is unfilled, then the task and the result as a round's prompt is made. The
+  turn's text is read again the same way, and the fill is asked again while it leaves fewer unfilled than the
+  answer before it, at most `rounds` times. A fill that leaves as many or more, or does not answer, stands
+  down and the better of the two answers is the result.
+- **The run's log names what was found unfilled and what stayed** under `fill`, so a result filed with a cell
+  still `unchecked` says it was asked for and why it could not be had.
+
 ## What a turn wrote
 
 - **A turn's text is the whole of what it wrote.** Agency answers a turn with its `answer` and its `text`,

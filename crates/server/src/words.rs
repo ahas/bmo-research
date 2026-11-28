@@ -496,8 +496,20 @@ pub struct RunnerWords {
   pub scope: ScopeAsk,
   pub narration: NarrationAsk,
   pub whole: WholeAsk,
+  pub fill: FillAsk,
   pub references: ReferencesAsk,
   pub review: ReviewAsk,
+}
+
+/// What a search's result is asked where it left cells, product links or pictures unfilled
+/// (`docs/runner.md`, 「The fill」): the question, with `{gaps}` set to the list, the fill's page budget and how
+/// many times it is asked again.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FillAsk {
+  pub question: String,
+  pub pages: u64,
+  pub rounds: usize,
 }
 
 /// What a references run's session is asked where its result is not the dossier JSON: the question, with
